@@ -13,6 +13,7 @@ SuperTouch Touch(MyGetTouch);
 void setup() {
   Serial.begin(115200);
   Touch.Radius = 10;           // pixels of wobble still counted as a click
+  Touch.ClickD_MAX = 150;      // ms window for a double-click (0 = off, clicks arrive immediately)
 }
 
 void loop() {
@@ -20,9 +21,9 @@ void loop() {
   SuperTouchEvent e;
   while (Touch.GetEvent(e)) {
     switch (e.Type) {
-      case ST_SHORT_CLICK:  Serial.printf("Short click at %d,%d\n",  e.X, e.Y); break;
-      case ST_MEDIUM_CLICK: Serial.printf("Medium click at %d,%d\n", e.X, e.Y); break;
-      case ST_LONG_CLICK:   Serial.printf("Long click at %d,%d\n",   e.X, e.Y); break;
+      case ST_SHORT_CLICK:  Serial.printf("Short click%s at %d,%d\n",  e.Double ? " (double)" : "", e.X, e.Y); break;
+      case ST_MEDIUM_CLICK: Serial.printf("Medium click%s at %d,%d\n", e.Double ? " (double)" : "", e.X, e.Y); break;
+      case ST_LONG_CLICK:   Serial.printf("Long click%s at %d,%d\n",   e.Double ? " (double)" : "", e.X, e.Y); break;
       case ST_DRAG:
         if      (e.Phase == ST_DRAG_START) Serial.printf("Drag start at %d,%d\n", e.StartX, e.StartY);
         else if (e.Phase == ST_DRAG_MOVE)  Serial.printf("Drag to %d,%d\n", e.X, e.Y);
