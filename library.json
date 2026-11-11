@@ -1,6 +1,6 @@
 {
   "name": "SuperInput",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Header-only input helpers for microcontrollers: debounced buttons with click-length and double-click detection, accelerated quadrature encoders, and single-touch gestures.",
   "keywords": "button, debounce, click, encoder, rotary, quadrature, touch, gesture, drag, esp32, rp2040, pico",
   "repository": {

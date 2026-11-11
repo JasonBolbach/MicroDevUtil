@@ -16,10 +16,10 @@ Add to `platformio.ini`:
 
 ```ini
 lib_deps =
-    https://github.com/JasonBolbach/SuperInput.git#v1.0.0
+    https://github.com/JasonBolbach/SuperInput.git#v1.1.0
 ```
 
-Drop `#v1.0.0` to always track the latest commit on `main`.
+Drop `#v1.1.0` to always track the latest commit on `main`.
 
 ## SuperButton
 
