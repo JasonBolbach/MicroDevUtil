@@ -85,7 +85,12 @@ public:
     // (ESP32 boards that have it: SuperControl::UsePsram = psramFound();). If the preferred memory is full the other one is tried.
     inline static bool UsePsram = false;
     inline static void* SharedBuf = nullptr;
+    inline static void* SharedBuf2 = nullptr;                          // second buffer (DMA double buffering)
     inline static size_t SharedCap = 0;
+    inline static bool  DmaActive = false;                             // two DMA-able buffers are in place
+    inline static int   SharedIdx = 0;                                 // which one the next draw uses
+    inline static const void* DmaBuf = nullptr;                        // buffer being sent right now (if any)
+    inline static lgfx::LovyanGFX* DmaDst = nullptr;                   // ... and where it is going
     // Set by SuperForm::SetTouch: touch-down (PRESS) events are being delivered, so a modal control can ignore a lone stale TAP.
     inline static bool PressEventsOn = false;
     // True only while SuperForm delivers the PRESS that started an edit (StartOnPress controls can tell "opened by this touch").
@@ -110,23 +115,52 @@ public:
 #else
     inline static bool SharedBuffer = false;
 #endif
-    // Make sure the shared buffer holds at least 'bytes' (never shrinks). SuperForm::Draw() does this for the visible controls, so
-    // call it yourself only to pre-size for popups. Returns false if neither internal RAM nor PSRAM could supply it.
+    // DMA (asynchronous display transfer): with SharedBuffer on, UseDMA = true keeps TWO shared buffers and alternates them, so the CPU
+    // renders the next control while the previous one is still being sent to the display. Needs a display bus with DMA (LovyanGFX SPI
+    // buses have it by default). A control whose label is transparent cannot use DMA (transparency is a CPU copy), so set
+    // LabelOpaque = true as well when your screen background is one solid colour. Costs a second shared buffer; pixels are identical.
+#ifdef SUPERGUI_DMA
+    inline static bool UseDMA = (SUPERGUI_DMA) != 0;                      // or build with -DSUPERGUI_DMA=1
+#else
+    inline static bool UseDMA = false;
+#endif
+    // true: the area around a control's label is filled with ColHighlightClear (your screen background colour) instead of being
+    // transparent. Required for DMA with labelled controls; also a little faster. Needs a solid background behind the controls.
+#ifdef SUPERGUI_LABEL_OPAQUE
+    inline static bool LabelOpaque = (SUPERGUI_LABEL_OPAQUE) != 0;        // or build with -DSUPERGUI_LABEL_OPAQUE=1
+#else
+    inline static bool LabelOpaque = false;
+#endif
+    // Wait until the display transfer that is in flight (if any) has finished.
+    static void WaitDma() { if (DmaDst) { DmaDst->waitDMA(); DmaDst = nullptr; DmaBuf = nullptr; } }
+    // Make sure the shared buffer(s) hold at least 'bytes' each (never shrinks). SuperForm::Draw() does this for the visible controls, so
+    // call it yourself only to pre-size for popups. Returns false if no memory could be had. Order tried: DMA-capable internal RAM pair,
+    // PSRAM pair, then a single buffer (no overlap) in internal RAM / PSRAM.
     static bool ReserveShared(size_t bytes) {
         if (bytes <= SharedCap) return true;
-        void* b = lgfx::heap_alloc(bytes);
-        if (!b) b = lgfx::heap_alloc_psram(bytes);
-        if (!b && SharedBuf) {                                        // low on memory: give the old one back and retry
-            lgfx::heap_free(SharedBuf); SharedBuf = nullptr; SharedCap = 0;
-            b = lgfx::heap_alloc(bytes);
-            if (!b) b = lgfx::heap_alloc_psram(bytes);
+        WaitDma();
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            void *a = nullptr, *b = nullptr;
+            bool dma = false;
+            if (UseDMA) {
+                a = lgfx::heap_alloc_dma(bytes); b = a ? lgfx::heap_alloc_dma(bytes) : nullptr;
+                if (!b) { if (a) lgfx::heap_free(a); a = nullptr; }
+                if (!a) { a = lgfx::heap_alloc_psram(bytes); b = a ? lgfx::heap_alloc_psram(bytes) : nullptr;
+                          if (!b) { if (a) lgfx::heap_free(a); a = nullptr; } }
+                dma = (a != nullptr);
+            }
+            if (!a) { a = lgfx::heap_alloc(bytes); if (!a) a = lgfx::heap_alloc_psram(bytes); b = nullptr; }
+            if (a) { FreeShared(); SharedBuf = a; SharedBuf2 = b; SharedCap = bytes; DmaActive = dma; SharedIdx = 0; return true; }
+            if (attempt == 0) FreeShared();                           // low on memory: give the old buffers back and retry once
         }
-        if (!b) return false;
-        if (SharedBuf) lgfx::heap_free(SharedBuf);
-        SharedBuf = b; SharedCap = bytes;
-        return true;
+        return false;
     }
-    static void   FreeShared()  { if (SharedBuf) lgfx::heap_free(SharedBuf); SharedBuf = nullptr; SharedCap = 0; }
+    static void FreeShared() {
+        WaitDma();
+        if (SharedBuf)  lgfx::heap_free(SharedBuf);
+        if (SharedBuf2) lgfx::heap_free(SharedBuf2);
+        SharedBuf = SharedBuf2 = nullptr; SharedCap = 0; DmaActive = false;
+    }
     static size_t SharedBytes() { return SharedCap; }                // current size of the shared buffer
     // Timing statistics (off by default): when CollectStats is true every draw adds its microseconds to these totals, so you can see
     // where redraw time goes: StatRenderUs = drawing the control into its buffer, StatDimUs = brightness dimming (focus / disabled
@@ -172,11 +206,13 @@ public:
     bool IsEnabled() const { return EnabledFlag; }
     bool IsVisible() const { return VisibleFlag; }
     void SetEnabled(bool e) { if (e == EnabledFlag) return; EnabledFlag = e; Dirty = true; Refresh(); }
-    void SetVisible(bool v) {
+    // draw = false changes only the flag: nothing is drawn or erased now. Use it when you will redraw the whole page yourself
+    // (SuperForm::Draw()), so controls do not flash at full brightness first and the old page is cleared in one go.
+    void SetVisible(bool v, bool draw = true) {
         if (v == VisibleFlag) return;
         VisibleFlag = v;
-        if (v) { Dirty = true; Refresh(); return; }
-        if (Dst) {
+        if (v) { Dirty = true; if (draw) Refresh(); return; }
+        if (draw && Dst) {
             int m = HighlightGap + HighlightSize + 1;
             Dst->fillRect(PosX - m, PosY - m, W + 2 * m, GetHeight() + 2 * m, ColHighlightClear);
         }
@@ -307,11 +343,17 @@ private:
 
     void Present() {
         if (Dst) {
-            if (!Label.empty()) Spr.pushSprite(Dst, PosX, PosY, lgfx::rgb565_t(KeyColor));   // label area is transparent
-            else                Spr.pushSprite(Dst, PosX, PosY);
-            if (SharedBuffer) Dst->waitDMA();                      // the next control reuses the buffer: the transfer must be finished
+            if (SharedBuffer && DmaActive && !Keyed()) {
+                const void* buf = Spr.getBuffer();                       // start the transfer and carry on: the other buffer is rendered meanwhile
+                Dst->pushImageDMA(PosX, PosY, Spr.width(), Spr.height(), (const lgfx::swap565_t*)buf);
+                DmaBuf = buf; DmaDst = Dst;
+            } else {
+                if (Keyed()) Spr.pushSprite(Dst, PosX, PosY, lgfx::rgb565_t(KeyColor));   // label area is transparent
+                else         Spr.pushSprite(Dst, PosX, PosY);
+                if (SharedBuffer) Dst->waitDMA();                      // the next control reuses the buffer: the transfer must be finished
+            }
         }
-        if (SharedBuffer) Spr.deleteSprite();                      // hand the shared buffer back (not freed: it is not ours)
+        if (SharedBuffer) Spr.deleteSprite();                          // hand the shared buffer back (not freed: it is not ours)
         Dirty = false;
     }
 
@@ -322,14 +364,31 @@ private:
         if (pct < 0) pct = 0;
         uint16_t* p = (uint16_t*)Spr.getBuffer();
         if (!p) return;
-        bool keyed = !Label.empty();
+        bool keyed = Keyed();
+        bool opaque = !Label.empty() && LabelOpaque;                       // the label area holds ColHighlightClear: leave that colour alone
+        // Per-channel lookup tables (already shifted into place) instead of three multiplies and divides per pixel, and the result
+        // for the previous pixel is reused when the next one is identical (most of a control is flat background).
+        uint16_t tr[32], tg[64], tb[32];
+        for (int i = 0; i < 32; ++i) { tr[i] = (uint16_t)((i * pct / 100) << 11); tb[i] = (uint16_t)(i * pct / 100); }
+        for (int i = 0; i < 64; ++i) tg[i] = (uint16_t)((i * pct / 100) << 5);
+        const uint16_t keyColor = keyed ? (uint16_t)KeyColor : (opaque ? ColHighlightClear : 0);
+        const bool skipKey = keyed || opaque;
+        const uint16_t keyRaw = (uint16_t)((keyColor >> 8) | (keyColor << 8));
+        uint16_t lastIn = 0, lastOut = 0;
+        bool have = false;
         for (size_t n = (size_t)Spr.width() * Spr.height(); n; --n, ++p) {
-            uint16_t v = (uint16_t)((*p >> 8) | (*p << 8));
-            if (keyed && v == KeyColor) continue;
-            uint16_t r = ((v >> 11) & 31) * pct / 100, g = ((v >> 5) & 63) * pct / 100, b = (v & 31) * pct / 100;
-            v = (uint16_t)((r << 11) | (g << 5) | b);
-            if (keyed && v == KeyColor) v = 0;
-            *p = (uint16_t)((v >> 8) | (v << 8));
+            uint16_t raw = *p;
+            if (have && raw == lastIn) { *p = lastOut; continue; }
+            uint16_t out;
+            if (skipKey && raw == keyRaw) out = raw;                        // the transparent key / label background is left alone
+            else {
+                uint16_t v = (uint16_t)((raw >> 8) | (raw << 8));
+                v = (uint16_t)(tr[v >> 11] | tg[(v >> 5) & 63] | tb[v & 31]);
+                if (keyed && v == KeyColor) v = 0;                           // never produce the key by accident
+                out = (uint16_t)((v >> 8) | (v << 8));
+            }
+            lastIn = raw; lastOut = out; have = true;
+            *p = out;
         }
     }
     BorderStyle        Style = BORDER_STANDARD;
@@ -344,6 +403,7 @@ private:
         Spr.setFont(LabelFont);
         return Spr.fontHeight();
     }
+    bool Keyed() const { return !Label.empty() && !LabelOpaque; }       // label area is transparent (colour-keyed)
     int LabelBlock()  { return Label.empty() ? 0 : LabelH() + LabelGap; }
     int BoxOffset()   { return (!Label.empty() && LabelPosition == LABEL_ABOVE) ? LabelBlock() : 0; }
 
@@ -401,14 +461,20 @@ private:
         int boxH = BoxHeight(), lb = LabelBlock(), H = boxH + lb, oy = BoxOffset();
         if (SharedBuffer) {                                           // borrow the shared buffer for this one draw
             if (!ReserveShared((size_t)W * H * 2)) { Spr.deleteSprite(); AllocFailed = true; return false; }
-            Spr.setBuffer(SharedBuf, W, H, 16);
+            void* buf = SharedBuf;
+            if (DmaActive) {                                           // alternate the two buffers; never write into the one being sent
+                SharedIdx ^= 1;
+                buf = SharedIdx ? SharedBuf2 : SharedBuf;
+                if (buf == DmaBuf) WaitDma();
+            }
+            Spr.setBuffer(buf, W, H, 16);
             AllocFailed = false;
         } else if (Spr.width() != W || Spr.height() != H || !Spr.getBuffer()) {
             AllocFailed = !AllocSprite(Spr, W, H);
             if (AllocFailed) return false;
         } else AllocFailed = false;
         Spr.setFont(Font);
-        Spr.fillSprite(Label.empty() ? ColBg : KeyColor);
+        Spr.fillSprite(Keyed() ? KeyColor : (Label.empty() ? ColBg : ColHighlightClear));
         Spr.fillRect(0, oy, W, boxH, ColBg);
         DrawBorder(EffBorder(), oy, boxH);
         if (!Label.empty()) {

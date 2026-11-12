@@ -43,6 +43,12 @@ public:
     // Instead of reading back the pixels under the popup, call this to let you redraw them.
     void SetRestore(void (*fn)(void*), void* user = nullptr) { RestoreFn = fn; RestoreUser = user; }
 
+    // Where the drop list was drawn last (screen pixels); use it in a SetRestore() callback to repaint what it covered.
+    int GetPopupX() const { return PopX; }
+    int GetPopupY() const { return PopY; }
+    int GetPopupWidth()  { return GetWidth(); }
+    int GetPopupHeight() const { return PopH; }
+
     // ---- items ----
     void AddItem(const std::string& s) { List.AddItem(s); SyncText(); }
     void SetItems(const std::vector<std::string>& v) { List.SetItems(v); SyncText(); }

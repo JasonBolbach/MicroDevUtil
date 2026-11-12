@@ -169,3 +169,21 @@ Every control draws into its own 16-bit sprite, so a control costs about width x
 A message box usually opens right under the finger that triggered it, and some panels report a stray touch as a finger lifts. So the
 box ignores touch for `TouchGuardMs` (default 300) after it opens, and, when the form delivers touch-down events, a tap only counts if
 its finger-down happened after the box opened. A long press (about 0.8 s) on an idle push button / check box / list ... acts like a tap.
+
+## DMA, opaque labels and the redraw
+- `SuperControl::UseDMA = true;` (with `SharedBuffer`): two shared buffers are alternated, so the CPU renders the next control while the
+  previous one is still being sent to the display by DMA. Typical gain: the render and dim time hides behind the transfer, and a
+  DMA transfer also runs closer to the bus speed than CPU-fed writes. The buffers are DMA-capable internal RAM when it fits (else PSRAM
+  on ESP32-S3, which LovyanGFX can DMA from; else a single buffer and no overlap). Your LovyanGFX SPI bus needs a DMA channel
+  (`cfg.dma_channel`, on by default). Build option: `-DSUPERGUI_DMA=1`.
+- `SuperControl::LabelOpaque = true;`: the area around a control's label is filled with `ColHighlightClear` (set it to your screen background
+  colour) instead of being transparent. Transparency is a per-pixel CPU copy, so a labelled control can only use DMA when its label is
+  opaque. It needs a solid colour behind the controls. Build option: `-DSUPERGUI_LABEL_OPAQUE=1`.
+- `SuperForm::Draw()` returns with the display idle (`SuperControl::WaitDma()`); call `WaitDma()` yourself before touching a buffer or the
+  display from other code if you push controls individually.
+- `SetVisible(v, false)` changes only the flag (nothing is drawn or erased). Hide the old page, show the new one this way, clear the area
+  once and call `SuperForm::Draw()`: controls then appear once in their final look instead of first at full brightness.
+- **Popups leave no remains:** a message box or combo list restores what it covered through your `SetRestore()` callback (SPI panels can't be read
+  back). Call `SuperForm::Redraw(x, y, w, h, backgroundColour)` from it (or set a flag and call it from your loop): it clears that
+  rectangle to your screen colour and redraws every visible control that touches it. `SuperComboBox::GetPopupX/Y/Width/Height()` and the
+  message box's `GetX/GetY/GetWidth/GetHeight()` give the rectangle. See `DemoUI.h` in the Pico / S3 test projects.

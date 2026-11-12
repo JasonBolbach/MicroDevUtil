@@ -56,18 +56,14 @@ public:
     }
 
     // Redraw every visible control (focused one highlighted).
-    void Draw() {
-        if (SuperControl::SharedBuffer) {                             // size the shared render buffer for the biggest visible control
-            size_t m = 0;
-            for (auto& it : Items) if (it.C->IsVisible()) m = std::max(m, (size_t)it.C->GetWidth() * it.C->GetHeight() * 2);
-            SuperControl::ReserveShared(m);
-        }
-        for (int i = 0; i < Count(); ++i) {
-            SuperControl* c = Items[i].C;
-            if (!c->IsVisible()) continue;
-            if (Items[i].Focusable) c->DrawPreview(i == Focus);
-            else                    c->Push();
-        }
+    void Draw() { DrawItems(false, 0, 0, 0, 0); }
+
+    // A popup (message box, combo list) went away and left its pixels behind: clear that rectangle to 'bg' (your screen colour) and
+    // redraw every visible control that touches it, in its normal / focused look. Use it from the popup's SetRestore() callback.
+    void Redraw(int x, int y, int w, int h, uint16_t bg) {
+        if (Items.empty()) return;
+        if (lgfx::LovyanGFX* d = Items[0].C->GetDestination()) d->fillRect(x, y, w, h, bg);
+        DrawItems(true, x, y, w, h);
     }
 
     SuperEditState Service() {
@@ -158,6 +154,32 @@ private:
     void (*OnEdit)(SuperControl*, SuperEditState, void*) = nullptr;
     void* OnEditUser = nullptr;
 
+    void DrawItems(bool clip, int rx, int ry, int rw, int rh) {
+        if (SuperControl::SharedBuffer) {                             // size the shared render buffer for the biggest visible control
+            size_t m = 0;
+            for (auto& it : Items) if (it.C->IsVisible()) m = std::max(m, (size_t)it.C->GetWidth() * it.C->GetHeight() * 2);
+            SuperControl::ReserveShared(m);
+        }
+        // With DMA, LovyanGFX keeps a transfer running in the background only inside an open transaction (startWrite / endWrite);
+        // otherwise every push waits for its transfer to finish before returning. Hold one open for the whole batch.
+        lgfx::LovyanGFX* batch = nullptr;
+        if (SuperControl::DmaActive)
+            for (auto& it : Items) if (it.C->IsVisible()) { batch = it.C->GetDestination(); break; }
+        if (batch) batch->startWrite();
+        for (int i = 0; i < Count(); ++i) {
+            SuperControl* c = Items[i].C;
+            if (!c->IsVisible()) continue;
+            if (clip) {                                               // only controls (with their focus box) that touch the rectangle
+                int m = c->HighlightGap + c->HighlightSize + 1;
+                if (c->GetX() - m >= rx + rw || c->GetX() + c->GetWidth() + m <= rx ||
+                    c->GetY() - m >= ry + rh || c->GetY() + c->GetHeight() + m <= ry) continue;
+            }
+            if (Items[i].Focusable) c->DrawPreview(i == Focus);
+            else                    c->Push();
+        }
+        SuperControl::WaitDma();                                      // return with the display idle
+        if (batch) batch->endWrite();
+    }
     bool Can(int i) const { return Items[i].Focusable && Items[i].C->IsEnabled() && Items[i].C->IsVisible(); }
     void Move(int dir) {
         int n = Count();
