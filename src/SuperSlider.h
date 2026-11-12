@@ -55,7 +55,7 @@ public:
         return false;
     }
     bool StartEdit() override {
-        Work = Value; IO.Flush(); State = EDIT_ACTIVE; Push(); return true;
+        Work = Value; IO.Flush(); State = EDIT_ACTIVE; PushUnlessPress(); return true;
     }
     SuperEditState Service() override {
         if (State != EDIT_ACTIVE) return EDIT_IDLE;

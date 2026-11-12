@@ -93,7 +93,7 @@ public:
         Work = Value;
         IO.Flush();
         State = EDIT_ACTIVE;
-        Sync(); Push();
+        Sync(); PushUnlessPress();
         return true;
     }
 

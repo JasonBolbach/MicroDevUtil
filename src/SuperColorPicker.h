@@ -58,7 +58,7 @@ public:
             return SuperPointerDefault(IO, *this, e);
         }
     }
-    bool StartEdit() override { Work = Cur; Comp = 0; IO.Flush(); State = EDIT_ACTIVE; Push(); return true; }
+    bool StartEdit() override { Work = Cur; Comp = 0; IO.Flush(); State = EDIT_ACTIVE; PushUnlessPress(); return true; }
     SuperEditState Service() override {
         if (State != EDIT_ACTIVE) return EDIT_IDLE;
         if (IO.Aborted()) return Finish(EDIT_CANCELLED);

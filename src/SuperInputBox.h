@@ -140,7 +140,7 @@ public:
         Work = Committed; Cursor = 0; EditingChar = false; Editing = true;
         IO.Flush();
         ScrollTo(0);
-        Sync(); FocusCursor(); Push();
+        Sync(); FocusCursor(); PushUnlessPress();
         State = EDIT_ACTIVE;
         return true;
     }

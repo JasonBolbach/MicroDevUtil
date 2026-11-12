@@ -96,8 +96,8 @@ public:
             TouchDown = false; Entered = false;
             if (!was) return false;
             if (e.X < PosX - SuperControl::TouchPad || e.X >= PosX + GetWidth() + SuperControl::TouchPad) IO.Inject(SuperEditIO::B_SHORT);   // lifted off to the side: cancel
-            else IO.Inject(SuperEditIO::A_SHORT);                                                     // lift = accept the highlighted row
-            return true; }
+            else if (RowAt(e.X, e.Y) >= 0) IO.Inject(SuperEditIO::A_SHORT);                          // lift over a row = accept it
+            return true; }                                                                         // (above / below the rows: nothing happens)
         case SuperPointerEvent::LONG_PRESS:
             TouchDown = false;
             return SuperPointerDefault(IO, *this, e, RowH());
@@ -112,7 +112,7 @@ public:
         IO.Flush();
         State = EDIT_ACTIVE;
         Keep(Cursor);
-        Push();
+        PushUnlessPress();
         return true;
     }
 
@@ -147,6 +147,7 @@ protected:
     // Cursor = the visible row under the finger (clamped to the visible rows).
     void FollowFinger() {
         int rh = RowH(), y0 = GetBoxTop() + Inset();
+        if (TouchY >= y0 && TouchY < y0 + Rows * rh && First + (TouchY - y0) / rh >= Count()) return;   // over blank space: keep the last row
         int r = std::clamp((TouchY - y0) / rh, 0, Rows - 1);
         if (TouchY < y0) r = 0;
         int idx = std::clamp(First + r, 0, Count() - 1);

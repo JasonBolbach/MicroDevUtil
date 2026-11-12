@@ -69,7 +69,9 @@ cancels; long press accepts the highlighted row. Combo box: touching the closed 
 the list (the highlight follows the finger) and lift to accept, or lift without sliding and the list stays open for a second touch
 (touch a row, lift = accept). Tapping the box again, or outside, closes it.
 Tab bar: one tap selects a tab. Menu: the row under the finger highlights on touch, slide = the highlight follows (edge hold scrolls), lift =
-open / choose / go back, a tap is therefore a one-touch choice; lifting off to the side or tapping outside leaves the menu. Sub-menus start
+open / choose / go back, a tap is therefore a one-touch choice; lifting over blank space does nothing, lifting off to the side or tapping outside leaves the menu. Touches are ignored for `TouchGuardMs` (250) right
+after the level changes, so a quick second touch cannot hit the `< Back` row that just appeared under the finger. A touch that starts an edit
+draws the touched item highlighted straight away (no flash of the first row). Sub-menus start
 with a `< Back` row, `ShowBack = false` hides it). A menu uses long press = back and tap outside = leave.
 Hit areas are the control plus `SuperControl::TouchPad` pixels (global, default 4). Blocking `BeginEdit()` calls
 (e.g. a message box you open yourself) keep receiving touch while the form has a touch panel.

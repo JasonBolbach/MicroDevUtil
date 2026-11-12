@@ -69,9 +69,11 @@ public:
     // therefore a one-touch choice. Holding the finger above / below the visible rows keeps scrolling. Lifting off to the side or
     // tapping outside leaves the menu.
     int AutoScrollMs = 120;
+    int TouchGuardMs = 250;      // touches are ignored this long after the level changes: the row under the finger just became another item
     bool StartOnPress(int, int) override { return true; }
     bool OnPointer(const SuperPointerEvent& e) override {
         if (State != EDIT_ACTIVE) return false;
+        if (LevelAt && (int)(lgfx::millis() - LevelAt) < TouchGuardMs) { TouchDown = false; return true; }
         switch (e.Type) {
         case SuperPointerEvent::PRESS: {
             int i = RowAt(e.X, e.Y);
@@ -96,8 +98,8 @@ public:
             TouchDown = false;
             if (!was) return false;
             if (e.X < PosX - SuperControl::TouchPad || e.X >= PosX + GetWidth() + SuperControl::TouchPad) IO.Inject(SuperEditIO::B_LONG);   // off to the side: leave
-            else IO.Inject(SuperEditIO::A_SHORT);
-            return true; }
+            else if (RowAt(e.X, e.Y) >= 0) IO.Inject(SuperEditIO::A_SHORT);                          // lifted over an item: do it
+            return true; }                                                                         // (over blank space: nothing happens)
         case SuperPointerEvent::LONG_PRESS:
             TouchDown = false;
             if (HitTest(e.X, e.Y, SuperControl::TouchPad)) { IO.Inject(SuperEditIO::A_SHORT); return true; }
@@ -107,8 +109,8 @@ public:
     }
     bool StartEdit() override {
         if (Top.Kids.empty()) return false;
-        Level = &Top; Cursor = First = 0; Result = nullptr; TouchDown = false;
-        IO.Flush(); State = EDIT_ACTIVE; Push(); return true;
+        Level = &Top; Cursor = First = 0; Result = nullptr; TouchDown = false; LevelAt = 0;
+        IO.Flush(); State = EDIT_ACTIVE; PushUnlessPress(); return true;
     }
     SuperEditState Service() override {
         if (State != EDIT_ACTIVE) return EDIT_IDLE;
@@ -127,13 +129,13 @@ public:
         case SuperEditIO::A_LONG: {
             if (!n) break;
             Item* it = At(Cursor);
-            if (it == &BackItem) { GoUp(); redraw = true; IO.Changed(); }
-            else if (!it->Kids.empty()) { Level = it; Cursor = HasBack() ? 1 : 0; First = 0; Keep(); redraw = true; IO.Changed(); }
+            if (it == &BackItem) { GoUp(); LevelAt = lgfx::millis() | 1; redraw = true; IO.Changed(); }
+            else if (!it->Kids.empty()) { Level = it; Cursor = HasBack() ? 1 : 0; First = 0; Keep(); LevelAt = lgfx::millis() | 1; redraw = true; IO.Changed(); }
             else { Result = it; return Finish(EDIT_ACCEPTED); }
             break; }
         case SuperEditIO::B_SHORT:
             if (Level == &Top) return Finish(EDIT_CANCELLED);
-            GoUp(); redraw = true; IO.Changed();
+            GoUp(); LevelAt = lgfx::millis() | 1; redraw = true; IO.Changed();
             break;
         case SuperEditIO::B_LONG:  return Finish(EDIT_CANCELLED);
         default: break;
@@ -143,10 +145,11 @@ public:
     }
 
 protected:
-    bool TouchDown = false; int TouchY = 0; uint32_t LastAuto = 0;
+    bool TouchDown = false; int TouchY = 0; uint32_t LastAuto = 0, LevelAt = 0;
     void MoveCursor(int i) { if (i != Cursor) { Cursor = i; Keep(); IO.Changed(); Push(); } }
     void FollowFinger() {                                      // cursor = the visible row under the finger
         int rh = RowH(), y0 = GetBoxTop() + Inset();
+        if (TouchY >= y0 && TouchY < y0 + Rows * rh && First + (TouchY - y0) / rh >= Count()) return;   // over blank space: keep the last row
         int r = TouchY < y0 ? 0 : std::clamp((TouchY - y0) / rh, 0, Rows - 1);
         MoveCursor(std::clamp(First + r, 0, Count() - 1));
     }

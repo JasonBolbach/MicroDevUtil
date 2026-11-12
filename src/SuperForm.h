@@ -136,12 +136,13 @@ private:
             for (int i = Count() - 1; i >= 0; --i)
                 if (Can(i) && Items[i].C->HitTest(pe.X, pe.Y, pass ? SuperControl::TouchPad : 0) && Items[i].C->StartOnPress(pe.X, pe.Y)) {
                     SetFocus(i);
+                    SuperControl::PressStartedEdit = true;                        // StartEdit() need not draw: the PRESS redraws at once
                     if (Items[i].C->StartEdit()) {
                         Active = Items[i].C;
-                        SuperControl::PressStartedEdit = true;
                         Active->OnPointer(pe);
-                        SuperControl::PressStartedEdit = false;
+                        Active->Refresh();                                       // draw now if the PRESS did not
                     }
+                    SuperControl::PressStartedEdit = false;
                     return;
                 }
     }
@@ -155,9 +156,9 @@ private:
     void* OnEditUser = nullptr;
 
     void DrawItems(bool clip, int rx, int ry, int rw, int rh) {
-        if (SuperControl::SharedBuffer) {                             // size the shared render buffer for the biggest visible control
+        if (SuperControl::SharedBuffer) {                             // size the shared render buffer for the biggest control once
             size_t m = 0;
-            for (auto& it : Items) if (it.C->IsVisible()) m = std::max(m, (size_t)it.C->GetWidth() * it.C->GetHeight() * 2);
+            for (auto& it : Items) m = std::max(m, (size_t)it.C->GetWidth() * it.C->GetHeight() * 2);   // all of them, visible or not: no growing later
             SuperControl::ReserveShared(m);
         }
         // With DMA, LovyanGFX keeps a transfer running in the background only inside an open transaction (startWrite / endWrite);
@@ -166,6 +167,7 @@ private:
         if (SuperControl::DmaActive)
             for (auto& it : Items) if (it.C->IsVisible()) { batch = it.C->GetDestination(); break; }
         if (batch) batch->startWrite();
+        SuperControl::DeferBoxes = (batch != nullptr);              // focus boxes after the last transfer is queued
         for (int i = 0; i < Count(); ++i) {
             SuperControl* c = Items[i].C;
             if (!c->IsVisible()) continue;
@@ -177,7 +179,7 @@ private:
             if (Items[i].Focusable) c->DrawPreview(i == Focus);
             else                    c->Push();
         }
-        SuperControl::WaitDma();                                      // return with the display idle
+        SuperControl::FlushBoxes();                                   // waits for the display, then draws the focus boxes
         if (batch) batch->endWrite();
     }
     bool Can(int i) const { return Items[i].Focusable && Items[i].C->IsEnabled() && Items[i].C->IsVisible(); }

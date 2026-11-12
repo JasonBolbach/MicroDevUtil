@@ -139,21 +139,21 @@ public:
     static bool ReserveShared(size_t bytes) {
         if (bytes <= SharedCap) return true;
         WaitDma();
-        for (int attempt = 0; attempt < 2; ++attempt) {
-            void *a = nullptr, *b = nullptr;
-            bool dma = false;
-            if (UseDMA) {
-                a = lgfx::heap_alloc_dma(bytes); b = a ? lgfx::heap_alloc_dma(bytes) : nullptr;
-                if (!b) { if (a) lgfx::heap_free(a); a = nullptr; }
-                if (!a) { a = lgfx::heap_alloc_psram(bytes); b = a ? lgfx::heap_alloc_psram(bytes) : nullptr;
-                          if (!b) { if (a) lgfx::heap_free(a); a = nullptr; } }
-                dma = (a != nullptr);
-            }
-            if (!a) { a = lgfx::heap_alloc(bytes); if (!a) a = lgfx::heap_alloc_psram(bytes); b = nullptr; }
-            if (a) { FreeShared(); SharedBuf = a; SharedBuf2 = b; SharedCap = bytes; DmaActive = dma; SharedIdx = 0; return true; }
-            if (attempt == 0) FreeShared();                           // low on memory: give the old buffers back and retry once
+        FreeShared();                                                 // the buffers hold nothing between draws: free first, so the new ones
+                                                                      // can reuse that memory (no moving to PSRAM just because both were alive)
+        void *a = nullptr, *b = nullptr;
+        bool dma = false;
+        if (UseDMA) {
+            a = lgfx::heap_alloc_dma(bytes); b = a ? lgfx::heap_alloc_dma(bytes) : nullptr;
+            if (!b) { if (a) lgfx::heap_free(a); a = nullptr; }
+            if (!a) { a = lgfx::heap_alloc_psram(bytes); b = a ? lgfx::heap_alloc_psram(bytes) : nullptr;
+                      if (!b) { if (a) lgfx::heap_free(a); a = nullptr; } }
+            dma = (a != nullptr);
         }
-        return false;
+        if (!a) { a = lgfx::heap_alloc(bytes); if (!a) a = lgfx::heap_alloc_psram(bytes); b = nullptr; }
+        if (!a) return false;
+        SharedBuf = a; SharedBuf2 = b; SharedCap = bytes; DmaActive = dma; SharedIdx = 0;
+        return true;
     }
     static void FreeShared() {
         WaitDma();
@@ -277,6 +277,9 @@ public:
     // ---- drawing ----
     void Invalidate() { Dirty = true; }
     void ReleaseBuffer() { Spr.deleteSprite(); Dirty = true; }     // free the sprite memory (re-created on the next draw)
+    // For StartEdit() of controls that start on touch-down (StartOnPress): the PRESS event that follows redraws with the touched
+    // item highlighted, so drawing the initial state first would only flash the wrong highlight (e.g. the first row).
+    void PushUnlessPress() { if (PressStartedEdit) Invalidate(); else Push(); }
     void Refresh()    { if (Dirty && VisibleFlag) Push(); }                       // redraw + push only if something changed
     void Push() {                                                  // always redraw + push
         if (!VisibleFlag) return;
@@ -306,6 +309,21 @@ public:
         if (CollectStats) Account(t0, t1, t2);
         }
         Dirty = true;                                              // the sprite now holds the preview look
+        if (DeferBoxes) { Boxes.push_back({ this, highlight, color }); return; }
+        DrawBox(highlight, color);
+    }
+    // While a page is drawn with DMA, focus boxes are collected here and drawn at the end: a box drawn right after its control would
+    // wait for that control's background transfer to finish, so the next control could not be rendered meanwhile.
+    struct BoxJob { SuperControl* C; bool Highlight; uint16_t Color; };
+    inline static bool DeferBoxes = false;
+    inline static std::vector<BoxJob> Boxes;
+    static void FlushBoxes() {
+        DeferBoxes = false;
+        WaitDma();
+        for (auto& j : Boxes) j.C->DrawBox(j.Highlight, j.Color);
+        Boxes.clear();
+    }
+    void DrawBox(bool highlight, uint16_t color) {                // the focus box just outside the control (ColHighlightClear erases it)
         if (!Dst) return;
         int h = GetHeight();
         uint16_t c = highlight ? color : ColHighlightClear;
