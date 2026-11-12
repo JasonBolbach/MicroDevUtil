@@ -1,4 +1,4 @@
-# SuperInput
+# SuperGUI
 
 Header-only input helpers for Arduino-framework microcontrollers.
 
@@ -16,7 +16,7 @@ Add to `platformio.ini`:
 
 ```ini
 lib_deps =
-    https://github.com/JasonBolbach/SuperInput.git#v1.1.0
+    https://github.com/JasonBolbach/SuperGUI.git#v1.1.0
 ```
 
 Drop `#v1.1.0` to always track the latest commit on `main`.
@@ -85,6 +85,12 @@ void loop() {
 - Polled from `loop()` on purpose: touch controllers usually share the SPI/I2C bus with the display.
 
 See `examples/` for complete sketches.
+
+## UI controls (LovyanGFX)
+
+Encoder + two-button + touch driven controls built on LovyanGFX: input/spin/time/date boxes, list, combo, menu, tabs, slider, color picker, check/radio/push buttons, progress bar, graph, message box and a focus manager (`SuperForm`). Include `SuperForm.h` or the individual `Super<Thing>.h`. Requires LovyanGFX. See [GettingStarted_Controls.md](GettingStarted_Controls.md) (step-by-step), [README_Controls.md](README_Controls.md) (reference) and the `*Example` sketches.
+
+To develop on a desktop (SDL), `extras/desktop/` has an input shim (`desktop_input.h`) and an Arduino compat header.
 
 ## License
 

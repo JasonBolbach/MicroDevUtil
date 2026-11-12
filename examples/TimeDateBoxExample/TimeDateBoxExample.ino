@@ -1,0 +1,61 @@
+// SuperTimeBox and SuperDateBox: validated time / date input
+// Minimal example. Edit the pins / panel in the HARDWARE block for your board.
+// Wiring: encoder A/B -> pins 2/3, ButtonA -> pin 4, ButtonB -> pin 5 (buttons to GND, internal pull-ups).
+//   Encoder = move / change    ButtonA short = edit / select    ButtonA long = accept
+//   ButtonB short = cancel     ButtonB long = revert
+#include <Arduino.h>
+#include <LovyanGFX.hpp>
+#include <SuperTimeBox.h>
+
+// ---------------- HARDWARE (edit me) ----------------
+class LGFX : public lgfx::LGFX_Device {
+  lgfx::Panel_ST7789 panel;
+  lgfx::Bus_SPI      bus;
+public:
+  LGFX() {
+    auto b = bus.config();
+#if defined(ARDUINO_ARCH_RP2040)
+    b.spi_host = 0;                         // Pico: SPI0
+#else
+    b.spi_host = SPI2_HOST;                 // ESP32
+#endif
+    b.freq_write = 40000000;
+    b.pin_sclk = 18; b.pin_mosi = 19; b.pin_miso = -1; b.pin_dc = 20;
+    bus.config(b);
+    panel.setBus(&bus);
+    auto p = panel.config();
+    p.pin_cs = 17; p.pin_rst = 21; p.pin_busy = -1;
+    p.panel_width = 240; p.panel_height = 320;
+    panel.config(p);
+    setPanel(&panel);
+  }
+};
+LGFX lcd;
+SuperEncoder Enc(2, 3);
+SuperButton  BtnA(4, true), BtnB(5, true);   // active low
+// ----------------------------------------------------
+
+SuperTimeBox timeBox(&lcd, 10, 10, 140, &lgfx::fonts::Font4, &Enc, &BtnA, &BtnB);
+SuperDateBox dateBox(&lcd, 10, 70, 190, &lgfx::fonts::Font4, &Enc, &BtnA, &BtnB);
+int focus = 0;
+
+void onTime(void*) { Serial.printf("time %02d:%02d:%02d\n", timeBox.GetHour(), timeBox.GetMinute(), timeBox.GetSecond()); }
+void onDate(void*) { Serial.printf("date %04d-%02d-%02d\n", dateBox.GetYear(), dateBox.GetMonth(), dateBox.GetDay()); }
+
+void setup() {
+  Serial.begin(115200);
+  lcd.init();
+  lcd.fillScreen(TFT_BLACK);
+  Enc.Begin(); BtnA.Begin(INPUT_PULLUP); BtnB.Begin(INPUT_PULLUP);
+  timeBox.SetLabel("Time"); timeBox.SetBorder(1, TFT_WHITE); timeBox.SetOnAccept(onTime); timeBox.SetTime(12, 30, 0);
+  dateBox.SetLabel("Date"); dateBox.SetBorder(1, TFT_WHITE); dateBox.SetOnAccept(onDate); dateBox.SetDate(2025, 2, 28);
+  timeBox.DrawPreview(true); dateBox.DrawPreview(false);
+}
+
+// An accept is refused until the time / date is valid (hours 0-23, a day that exists in that month...).
+void loop() {
+  int32_t d = Enc.GetDelta();
+  if (d) { focus = 1 - focus; timeBox.DrawPreview(focus == 0); dateBox.DrawPreview(focus == 1); }
+  uint8_t ev;
+  if (BtnA.GetEvent(ev) && (ev & 0x0F) == 1) { if (focus == 0) timeBox.BeginEdit(); else dateBox.BeginEdit(); }
+}
