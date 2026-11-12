@@ -1,4 +1,6 @@
-// SuperTimeBox and SuperDateBox: validated time / date input
+// SuperTimeBox and SuperDateBox: time (24 hour) and date made of numeric fields
+// Scrolling changes the whole field like a spin box, A short = next field, each field stays in its range. Changing the month pulls the day
+// back to the month's last day (Dec 31 -> Feb = 28, or 29 in a leap year). The date's value is always YYYY-MM-DD, whatever the display style.
 // Minimal example. Edit the pins / panel in the HARDWARE block for your board.
 // Wiring: encoder A/B -> pins 2/3, ButtonA -> pin 4, ButtonB -> pin 5 (buttons to GND, internal pull-ups).
 //   Encoder = move / change    ButtonA short = edit / select    ButtonA long = accept
@@ -36,11 +38,11 @@ SuperButton  BtnA(4, true), BtnB(5, true);   // active low
 // ----------------------------------------------------
 
 SuperTimeBox timeBox(&lcd, 10, 10, 140, &lgfx::fonts::Font4, &Enc, &BtnA, &BtnB);
-SuperDateBox dateBox(&lcd, 10, 70, 190, &lgfx::fonts::Font4, &Enc, &BtnA, &BtnB);
+SuperDateBox dateBox(&lcd, 10, 70, 190, &lgfx::fonts::Font4, &Enc, &BtnA, &BtnB);   // , SuperDateBox::DATE_MDY for 12-31-2026
 int focus = 0;
 
-void onTime(void*) { Serial.printf("time %02d:%02d:%02d\n", timeBox.GetHour(), timeBox.GetMinute(), timeBox.GetSecond()); }
-void onDate(void*) { Serial.printf("date %04d-%02d-%02d\n", dateBox.GetYear(), dateBox.GetMonth(), dateBox.GetDay()); }
+void onTime(void*) { Serial.printf("time %s\n", timeBox.GetValue().c_str()); }                 // "HH:MM:SS"
+void onDate(void*) { Serial.printf("date %s\n", dateBox.GetValue().c_str()); }                 // always "YYYY-MM-DD"
 
 void setup() {
   Serial.begin(115200);
@@ -52,7 +54,8 @@ void setup() {
   timeBox.DrawPreview(true); dateBox.DrawPreview(false);
 }
 
-// An accept is refused until the time / date is valid (hours 0-23, a day that exists in that month...).
+// Fields cannot leave their range (HH 0-23, MM / SS 0-59, month 1-12, day 1..days in the month), so every accepted value is valid.
+// timeBox.SetWrap(true) makes a field go round (59 -> 00) instead of stopping.
 void loop() {
   int32_t d = Enc.GetDelta();
   if (d) { focus = 1 - focus; timeBox.DrawPreview(focus == 0); dateBox.DrawPreview(focus == 1); }

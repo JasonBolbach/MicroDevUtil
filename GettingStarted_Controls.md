@@ -254,14 +254,21 @@ A single click, tap or A press flashes the face inverted for `PressMs` (default 
 ```cpp
 #include <SuperTimeBox.h>
 SuperTimeBox alarm(&lcd, 10, 10, 120, &lgfx::fonts::Font2, &Enc, &BtnA, &BtnB, /*seconds*/ false);
-SuperDateBox day  (&lcd, 10, 50, 140, &lgfx::fonts::Font2, &Enc, &BtnA, &BtnB);
+SuperDateBox day  (&lcd, 10, 50, 140, &lgfx::fonts::Font2, &Enc, &BtnA, &BtnB);          // add , SuperDateBox::DATE_MDY for 12-31-2026
 // setup
 alarm.SetTime(7, 30);  day.SetDate(2026, 11, 11);
 alarm.SetOnAccept([](void*){ setAlarm(alarm.GetHour(), alarm.GetMinute()); });
-day.SetOnAccept  ([](void*){ setDate(day.GetYear(), day.GetMonth(), day.GetDay()); });
+day.SetOnAccept  ([](void*){ Serial.println(day.GetValue().c_str()); });                // always "YYYY-MM-DD"
 ```
-They are input boxes with a built-in validator (valid time / calendar date), so you cannot use `SetValidator` on them.
-`GetSeconds()` gives seconds since midnight.
+Both are made of numeric fields. **Encoder:** turning changes the whole current field (like a spin box); A short moves to the next field;
+A long accepts, B short cancels, B long reverts. **Touch:** touch a field to select it, drag up / down to change it, lift to accept.
+
+- **Time** is always 24 hour: `HH` 0-23, `MM` and `SS` 0-59. `GetValue()` is `"HH:MM:SS"` (`"HH:MM"` without seconds), `GetSeconds()` is seconds since midnight.
+- **Date**: every field stays in range, and changing the month (or year) pulls the day back to the last day of that month: December 31 -> February
+  gives 28 (29 in a leap year). `SetStyle(DATE_YMD / DATE_MDY)` only changes how it is shown (`2026-12-31` or `12-31-2026`); `SetValue()` and
+  `GetValue()` always use `YYYY-MM-DD`. Other settings: `SetSeparator('/')`, `SetYearRange(min, max)` (default 1970-2099).
+- `SetWrap(true)` makes a field go round (59 -> 00, December -> January) instead of stopping at its limit.
+- `SetTime()` / `SetDate()` return false and change nothing for a value that does not exist.
 
 ### 3.11 Tab bar
 

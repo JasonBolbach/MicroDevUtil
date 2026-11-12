@@ -8,7 +8,7 @@ Each control renders into its **own `LGFX_Sprite`** and pushes itself to a desti
 |---|---|
 | `SuperTextBox` | single-line text, border, padding, alignment, scrolling (base for several others) |
 | `SuperInputBox` | template-driven input: `#` digit, `A` upper, `a` lower, `B` both, `*` any key; other characters are literals |
-| `SuperTimeBox` / `SuperDateBox` | `SuperInputBox` with `##:##:##` / `####-##-##` and built-in validation (valid time, real date) |
+| `SuperTimeBox` / `SuperDateBox` | time (24 hour, `HH:MM:SS` or `HH:MM`) and date made of numeric fields: scrolling changes a whole field like a spin box, each field stays in its range (HH 0-23, MM / SS 0-59, month 1-12, day 1..days in the month, leap years handled), changing the month pulls the day back to the month's last day. Date styles `DATE_YMD` / `DATE_MDY`; the date value is always `YYYY-MM-DD`. Built on `SuperFieldBox`. |
 | `SuperSpinBox` | integer spinner: range, step, wrap, decimals, prefix / suffix |
 | `SuperSlider` | horizontal slider with a knob, range, step, optional value text |
 | `SuperListBox` | scrolling list with a fixed number of visible rows |
@@ -78,9 +78,11 @@ so you can mix controls freely. Hide a page with `SetVisible(false)` on its cont
 Precise picking: list / combo popup / menu rows (tap = choose), tab bar (tap = select), message box buttons (tap = choose),
 slider (touch = the value jumps to the finger at once, even when idle; drag = keeps moving live; lift = accept), color picker (works directly on the H / S / V bands, no
 activation: touching a band sets that component at once, dragging adjusts live, lifting commits; tap the swatch or long press
-= start / accept an edit). Input / time / date box: touch a character = it highlights at once (even on an idle box) and the box waits for a drag; drag up /
+= start / accept an edit). Input box: touch a character = it highlights at once (even on an idle box) and the box waits for a drag; drag up /
 down = change it; lift = accept (`TouchAcceptOnLift = false` gives the older style: lift only selects, tap the slot again to
-finish, long press to accept). A time / date the validator refuses keeps the edit open. Tap `<` / `>` = scroll, tap outside = cancel. Spin box: like the text boxes. Touch it = it activates at once (even when idle), drag up / down = changes the value live, lift =
+finish, long press to accept). A validator that refuses keeps the edit open. Tap `<` / `>` = scroll, tap outside = cancel.
+Time / date box: touch a field (HH, MM, SS or year, month, day) = it highlights at once, drag up / down = change the whole field within its
+range, lift = accept; touching a separator does nothing, tap outside = cancel (`TouchAcceptOnLift = false`: lift only selects). Spin box: like the text boxes. Touch it = it activates at once (even when idle), drag up / down = changes the value live, lift =
 accepts (`TouchAcceptOnLift = false` turns lift-accept off). A plain tap: left third = one step down, right third = one step up (and
 accepts), middle = accepts unchanged; `-` / `+` hints are drawn while editing (`ShowTouchHints = false` hides them). List box: the highlighted row is always the one under the finger. Touch a row = it highlights at once (even when idle), slide up /
 down = the highlight follows the finger, lift = accept it (a plain tap therefore chooses the row). Holding the finger above the
