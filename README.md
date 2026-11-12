@@ -80,6 +80,7 @@ void loop() {
 }
 ```
 
+- `EmitDown = true` also queues an `ST_DOWN` event the moment a touch is recognised (X/Y = touch-down point); `SuperForm` turns it on so controls can react before the gesture is known.
 - `Radius` (10 px) is how far the finger may move and still count as a click.
 - Double-click: a second click within `ClickD_MAX` (150 ms) and `DoubleRadius` (30 px) of the first sets `e.Double`; the event describes the first click. Clicks are therefore delivered `ClickD_MAX` ms after release; set `ClickD_MAX = 0` to disable double-click and get them immediately.
 - Polled from `loop()` on purpose: touch controllers usually share the SPI/I2C bus with the display.

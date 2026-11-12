@@ -12,11 +12,13 @@
 //   ButtonA short/long = accept
 //   ButtonB short      = cancel
 //   ButtonB long       = revert to the starting value and keep editing
+//   Touch              = touch activates, drag up/down changes, lift accepts (tap left/right third = step down/up + accept)
 #include "SuperTextBox.h"
 #include "SuperEditIO.h"
 
 class SuperSpinBox : public SuperTextBox {
 public:
+    bool ShowTouchHints = true;         // draw "-" and "+" at the ends while editing (touch zones)
 
     SuperSpinBox(lgfx::LovyanGFX* dst, int x, int y, int width, const lgfx::IFont* font,
                  SuperEncoder* enc, SuperButton* btnA, SuperButton* btnB)
@@ -46,7 +48,46 @@ public:
 
     // ---- editing ----
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
-    bool OnPointer(const SuperPointerEvent& e) override { return State == EDIT_ACTIVE && SuperPointerDefault(IO, *this, e); }
+    // Touch, like the text boxes: touching the box activates it at once (even when idle), dragging up / down changes the
+    // value live, lifting the finger accepts (OnAccept). A plain tap: left third = one step down, right third = one step up,
+    // middle = no change, and it accepts. Long press = accept, tap outside = cancel.
+    // TouchAcceptOnLift = false: lifting does not accept (tap / long press as before).
+    bool TouchAcceptOnLift = true;
+    bool StartOnPress(int, int) override { return true; }
+    bool OnPointer(const SuperPointerEvent& e) override {
+        if (State != EDIT_ACTIVE) return false;
+        bool in = HitTest(e.X, e.Y, TouchPad);
+        switch (e.Type) {
+        case SuperPointerEvent::PRESS:
+            PressSeen = in; PressDragged = false;
+            return in;
+        case SuperPointerEvent::TAP: {
+            bool seen = PressSeen; PressSeen = false;
+            if (!in) return SuperPointerDefault(IO, *this, e);                       // outside: cancel
+            int third = std::max(1, GetWidth() / 3), rx = e.X - GetX();
+            if (rx < third)                       IO.InjectDelta(-1);
+            else if (rx >= GetWidth() - third)    IO.InjectDelta(1);
+            bool zone = rx < third || rx >= GetWidth() - third;
+            if (TouchAcceptOnLift || !zone) IO.Inject(SuperEditIO::A_LONG);          // accept (a step zone only steps when lift-accept is off)
+            (void)seen;
+            return true; }
+        case SuperPointerEvent::DRAG_START:
+            PressDragged = true;
+            if (!PressSeen && !HitTest(e.StartX, e.StartY, TouchPad)) return false;
+            PressSeen = true;
+            break;
+        case SuperPointerEvent::DRAG_END: {
+            bool grabbed = PressSeen; PressSeen = false;
+            SuperPointerDefault(IO, *this, e);
+            if (grabbed && TouchAcceptOnLift) IO.Inject(SuperEditIO::A_LONG);       // lift = accept
+            return true; }
+        case SuperPointerEvent::LONG_PRESS:
+            PressSeen = false;
+            break;
+        default: break;
+        }
+        return SuperPointerDefault(IO, *this, e);
+    }
 
     bool StartEdit() {                                             // non-blocking: then call Service()
         Work = Value;
@@ -95,12 +136,21 @@ protected:
     void CellStyleAt(int, CellStyle& st) override {
         if (State == EDIT_ACTIVE) { st.fill = true; st.bg = ColCursor; st.fg = ColCursorFg; }
     }
+    void RenderBody(int x, int y, int w, int h) override {
+        SuperTextBox::RenderBody(x, y, w, h);
+        if (State == EDIT_ACTIVE && ShowTouchHints) {              // "-" / "+" mark the touch zones
+            Spr.setFont(Font); Spr.setTextColor(ColArrow); Spr.setTextDatum(lgfx::textdatum_t::middle_center);
+            Spr.drawString("-", x + 6, y + h / 2);
+            Spr.drawString("+", x + w - 6, y + h / 2);
+        }
+    }
 
 private:
     SuperEditIO IO;
     bool (*Validator)(int32_t, void*) = nullptr;
     void* ValidatorUser = nullptr;
 
+    bool PressSeen = false, PressDragged = false;
     int32_t Value = 0, Work = 0, Min = 0, Max = 100, Step = 1;
     bool    Wrap = false;
     int     Decimals = 0;

@@ -39,6 +39,7 @@ enum ST_EventType : uint8_t {
     ST_MEDIUM_CLICK,
     ST_LONG_CLICK,
     ST_DRAG,
+    ST_DOWN,                 // finger just touched (only when EmitDown is true): X/Y = touch-down point
 };
 
 enum ST_DragPhase : uint8_t {
@@ -67,6 +68,7 @@ public:
     uint16_t DoubleRadius   = 30;    // 2nd click must land within this of the 1st (pixels)
     uint8_t  PollInterval   = 10;    // ms between touch reads
     uint8_t  PressSamples   = 2;     // consecutive touched reads to register a press
+    bool     EmitDown       = false; // true = also queue an ST_DOWN event the moment a touch is recognised
     uint8_t  ReleaseSamples = 3;     // consecutive untouched reads to register a release
                                      // (resistive panels often drop out for a sample or two)
 
@@ -165,6 +167,7 @@ private:
         St = PRESSED;
         LastX = DownX;
         LastY = DownY;
+        if (EmitDown) Emit(ST_DOWN, ST_DRAG_START, DownX, DownY, DownMillis);
     }
 
     void OnHold(int16_t x, int16_t y) {

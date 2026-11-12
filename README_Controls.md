@@ -56,9 +56,21 @@ so you can mix controls freely. Hide a page with `SetVisible(false)` on its cont
 | Drag up / down | - | encoder steps: `SuperControl::TouchDragStepPx` pixels per step (default 4, smaller = more sensitive; rows / tabs use their own size) |
 
 Precise picking: list / combo popup / menu rows (tap = choose), tab bar (tap = select), message box buttons (tap = choose),
-slider (tap = jump + accept, drag = move live, lift = accept), color picker (tap or drag on the H / S / V bar sets that
-component by position; tap the swatch or long press = accept). Input box and spin box use the generic gestures for
-now (tap toggles / accepts, drag = encoder). A menu uses long press = back and tap outside = leave.
+slider (touch = the value jumps to the finger at once, even when idle; drag = keeps moving live; lift = accept), color picker (works directly on the H / S / V bands, no
+activation: touching a band sets that component at once, dragging adjusts live, lifting commits; tap the swatch or long press
+= start / accept an edit). Input / time / date box: touch a character = it highlights at once (even on an idle box) and the box waits for a drag; drag up /
+down = change it; lift = accept (`TouchAcceptOnLift = false` gives the older style: lift only selects, tap the slot again to
+finish, long press to accept). A time / date the validator refuses keeps the edit open. Tap `<` / `>` = scroll, tap outside = cancel. Spin box: like the text boxes. Touch it = it activates at once (even when idle), drag up / down = changes the value live, lift =
+accepts (`TouchAcceptOnLift = false` turns lift-accept off). A plain tap: left third = one step down, right third = one step up (and
+accepts), middle = accepts unchanged; `-` / `+` hints are drawn while editing (`ShowTouchHints = false` hides them). List box: the highlighted row is always the one under the finger. Touch a row = it highlights at once (even when idle), slide up /
+down = the highlight follows the finger, lift = accept it (a plain tap therefore chooses the row). Holding the finger above the
+first / below the last visible row keeps scrolling the list (`AutoScrollMs`, default 120). Lifting off to the side, or tapping outside,
+cancels; long press accepts the highlighted row. Combo box: touching the closed box opens the drop list at once; slide down into
+the list (the highlight follows the finger) and lift to accept, or lift without sliding and the list stays open for a second touch
+(touch a row, lift = accept). Tapping the box again, or outside, closes it.
+Tab bar: one tap selects a tab. Menu: the row under the finger highlights on touch, slide = the highlight follows (edge hold scrolls), lift =
+open / choose / go back, a tap is therefore a one-touch choice; lifting off to the side or tapping outside leaves the menu. Sub-menus start
+with a `< Back` row, `ShowBack = false` hides it). A menu uses long press = back and tap outside = leave.
 Hit areas are the control plus `SuperControl::TouchPad` pixels (global, default 4). Blocking `BeginEdit()` calls
 (e.g. a message box you open yourself) keep receiving touch while the form has a touch panel.
 On the desktop, the left mouse button is the touch panel: LovyanGFX's SDL panel emulates it, so `lcd.getTouch()` works
@@ -136,3 +148,24 @@ Measured firmware totals for the examples: RP2040 ~10-11 KB static RAM before sp
 ## Desktop emulation
 `compat/Arduino.h` + `desktop_input.h` run the controls in the LovyanGFX SDL emulator: mouse wheel = encoder, wheel click =
 ButtonA, right click = ButtonB. See `user_code.cpp` for the demo.
+
+## Sprite memory
+Every control draws into its own 16-bit sprite, so a control costs about width x height x 2 bytes while it is visible.
+- **Shared render buffer (big RAM saver):** `SuperControl::SharedBuffer = true;` (or build with `-DSUPERGUI_SHARED_BUFFER=1`) replaces all the
+  per-control buffers with ONE buffer, as big as the largest control, that is lent to each control just while it renders and pushes
+  itself to the screen. RAM use becomes the biggest control instead of the sum of the visible ones (the 480x320 demo: 72 KB instead of
+  194 KB on its busiest page). Speed is nearly unchanged because a control already redraws completely on every draw. The buffer lives in
+  internal RAM when it fits, else in PSRAM. Set it once, before the UI is created. `SuperControl::SharedBytes()` reports its size;
+  `SuperForm::Draw()` sizes it for the visible controls. The rendered pixels are identical in both modes.
+- A control that is hidden (`SetVisible(false)`, e.g. an inactive tab page) frees its sprite and re-creates it when shown, so only the
+  visible page counts. A combo box's popup buffer is freed when it closes.
+- `SuperControl::UsePsram = true;` puts the sprites in PSRAM (ESP32 boards that have it: `SuperControl::UsePsram = psramFound();`). If the
+  preferred memory is full, the other kind is tried.
+- If a sprite still cannot be allocated, the control draws a red outline with a diagonal line where it should be (`AllocFailed` is set)
+  instead of failing silently. On a 480x320 screen a busy page can need 250 KB or more, which is more than the internal RAM of most ESP32
+  boards leaves free: use PSRAM or make the page lighter.
+
+## Message box and touch
+A message box usually opens right under the finger that triggered it, and some panels report a stray touch as a finger lifts. So the
+box ignores touch for `TouchGuardMs` (default 300) after it opens, and, when the form delivers touch-down events, a tap only counts if
+its finger-down happened after the box opened. A long press (about 0.8 s) on an idle push button / check box / list ... acts like a tap.

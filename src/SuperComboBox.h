@@ -58,10 +58,43 @@ public:
     bool HitTest(int x, int y, int pad = 0) override {
         return SuperTextBox::HitTest(x, y, pad) || (State == EDIT_ACTIVE && List.HitTest(x, y, pad));
     }
-    // Touch: tap a popup row = choose it, tap anywhere else = cancel, drag in the popup = move the cursor.
+    // Touch: touching the closed box opens the drop list at once. Slide down into the list: the highlight follows the finger and
+    // lifting accepts the row. Lift without sliding: the list stays open for a second touch (touch a row = highlight, lift = accept).
+    // A tap on the box while it is open, or anywhere outside, closes it; lifting off to the side cancels.
+    bool StartOnPress(int, int) override { return true; }
     bool OnPointer(const SuperPointerEvent& e) override {
         if (State != EDIT_ACTIVE) return false;
-        if (e.Type == SuperPointerEvent::TAP && !List.HitTest(e.X, e.Y, TouchPad)) { List.EditIO()->Inject(SuperEditIO::B_SHORT); return true; }
+        switch (e.Type) {
+        case SuperPointerEvent::PRESS:
+            HeaderTouch = !List.HitTest(e.X, e.Y, 0);                    // the touch began outside the rows (on the box itself)
+            OpenedNow = PressStartedEdit;
+            if (HeaderTouch) return true;
+            return List.OnPointer(e);
+        case SuperPointerEvent::TAP:
+            if (HeaderTouch) {
+                HeaderTouch = false;
+                bool opened = OpenedNow; OpenedNow = false;
+                if (!opened) List.EditIO()->Inject(SuperEditIO::B_SHORT);   // tapping the box again closes it
+                return true;                                               // (the tap that opened it keeps it open)
+            }
+            if (!List.HitTest(e.X, e.Y, TouchPad)) { List.EditIO()->Inject(SuperEditIO::B_SHORT); return true; }
+            return List.OnPointer(e);
+        case SuperPointerEvent::DRAG_START:
+        case SuperPointerEvent::DRAG_MOVE:
+            if (HeaderTouch) { List.TrackTouch(e.Y); return true; }
+            return List.OnPointer(e);
+        case SuperPointerEvent::DRAG_END:
+            if (HeaderTouch) {
+                HeaderTouch = false; OpenedNow = false;
+                if (List.FingerInList()) List.EditIO()->Inject(SuperEditIO::A_SHORT);     // slid into the list and lifted: accept
+                List.EndTouch();
+                return true;
+            }
+            return List.OnPointer(e);
+        case SuperPointerEvent::LONG_PRESS:
+            if (HeaderTouch) { HeaderTouch = false; OpenedNow = false; return true; }
+            return List.OnPointer(e);
+        }
         return List.OnPointer(e);
     }
 
@@ -75,8 +108,7 @@ public:
         Backed = false;
         lgfx::LovyanGFX* src = Backdrop ? Backdrop : Dst;
         if (!RestoreFn && src) {
-            Under.setColorDepth(16);
-            if (Under.createSprite(GetWidth(), ph)) {
+            if (AllocSprite(Under, GetWidth(), ph)) {
                 src->readRect(PopX, PopY, GetWidth(), ph, (lgfx::swap565_t*)Under.getBuffer());
                 Backed = true;
             }
@@ -126,6 +158,7 @@ private:
     void* AcceptUser = nullptr;
     lgfx::LovyanGFX* Backdrop = nullptr;
     bool  Backed = false;
+    bool  HeaderTouch = false, OpenedNow = false;      // touch gesture began on the box (not the rows) / that touch opened the list
     int   PopX = 0, PopY = 0, PopH = 0, ShownCursor = -1;
     SuperEditState State = EDIT_IDLE;
 

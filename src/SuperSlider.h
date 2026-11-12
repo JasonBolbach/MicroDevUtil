@@ -25,18 +25,22 @@ public:
     int32_t GetLiveValue() const { return State == EDIT_ACTIVE ? Work : Value; }   // the value being edited (use inside OnChange)
 
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
-    // Touch: tap on the track = jump there and accept, drag = move the knob live (lifting the finger accepts),
-    // long press = accept, tap outside = cancel.
+    // Touch, no activation needed: touching the track moves the value there at once (even on an idle slider), dragging keeps
+    // moving it live, and lifting the finger accepts (OnAccept). Long press = accept, tap outside = cancel.
+    bool StartOnPress(int, int) override { return true; }
     bool OnPointer(const SuperPointerEvent& e) override {
         if (State != EDIT_ACTIVE) return false;
         bool in = HitTest(e.X, e.Y, TouchPad);
         switch (e.Type) {
+        case SuperPointerEvent::PRESS:
+            if (!in) return false;
+            MoveTo(e.X); return true;                                   // jump to the finger
         case SuperPointerEvent::TAP:
             if (!in) { IO.Inject(SuperEditIO::B_SHORT); return true; }
-            Work = ValueAtX(e.X); IO.Changed(); IO.Inject(SuperEditIO::A_SHORT); return true;
+            MoveTo(e.X); IO.Inject(SuperEditIO::A_SHORT); return true;  // touched and lifted: accept
         case SuperPointerEvent::LONG_PRESS:
             if (!in) return false;
-            IO.Inject(SuperEditIO::A_LONG); return true;
+            MoveTo(e.X); IO.Inject(SuperEditIO::A_LONG); return true;
         case SuperPointerEvent::DRAG_START:
             IO.DragOk = HitTest(e.StartX, e.StartY, TouchPad);
             if (IO.DragOk) MoveTo(e.X);
@@ -45,7 +49,7 @@ public:
             if (IO.DragOk) MoveTo(e.X);
             return IO.DragOk;
         case SuperPointerEvent::DRAG_END:
-            if (IO.DragOk) { IO.DragOk = false; IO.Inject(SuperEditIO::A_SHORT); }
+            if (IO.DragOk) { IO.DragOk = false; IO.Inject(SuperEditIO::A_SHORT); }   // lift = accept
             return true;
         }
         return false;

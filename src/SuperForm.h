@@ -31,6 +31,8 @@ public:
 
     void SetTouch(SuperTouch* t) {
         Touch = t; Instance = this;
+        if (t) t->EmitDown = true;                                // controls get PRESS (touch-down) events
+        SuperControl::PressEventsOn = (t != nullptr);
         SuperControl::BlockingHook = t ? &Hook : nullptr;
     }
     void SetOnEdit(void (*fn)(SuperControl*, SuperEditState, void*), void* user = nullptr) { OnEdit = fn; OnEditUser = user; }
@@ -55,6 +57,11 @@ public:
 
     // Redraw every visible control (focused one highlighted).
     void Draw() {
+        if (SuperControl::SharedBuffer) {                             // size the shared render buffer for the biggest visible control
+            size_t m = 0;
+            for (auto& it : Items) if (it.C->IsVisible()) m = std::max(m, (size_t)it.C->GetWidth() * it.C->GetHeight() * 2);
+            SuperControl::ReserveShared(m);
+        }
         for (int i = 0; i < Count(); ++i) {
             SuperControl* c = Items[i].C;
             if (!c->IsVisible()) continue;
@@ -99,6 +106,7 @@ private:
             case ST_SHORT_CLICK:
             case ST_MEDIUM_CLICK: pe.Type = SuperPointerEvent::TAP; pe.StartX = ev.X; pe.StartY = ev.Y; break;
             case ST_LONG_CLICK:   pe.Type = SuperPointerEvent::LONG_PRESS; break;
+            case ST_DOWN:         pe.Type = SuperPointerEvent::PRESS; pe.StartX = ev.X; pe.StartY = ev.Y; break;
             case ST_DRAG:
                 pe.Type = ev.Phase == ST_DRAG_START ? SuperPointerEvent::DRAG_START
                         : ev.Phase == ST_DRAG_MOVE  ? SuperPointerEvent::DRAG_MOVE : SuperPointerEvent::DRAG_END;
@@ -107,7 +115,8 @@ private:
             }
             SuperControl* target = SuperControl::EditingNow ? SuperControl::EditingNow : Active;
             if (target) target->OnPointer(pe);
-            else if (pe.Type == SuperPointerEvent::TAP) TapIdle(pe.X, pe.Y);
+            else if (pe.Type == SuperPointerEvent::TAP || pe.Type == SuperPointerEvent::LONG_PRESS) TapIdle(pe.X, pe.Y);   // a long press clicks too
+            else if (pe.Type == SuperPointerEvent::PRESS) PressIdle(pe);
         }
     }
     void TapIdle(int x, int y) {
@@ -115,7 +124,28 @@ private:
             for (int i = Count() - 1; i >= 0; --i)
                 if (Can(i) && Items[i].C->HitTest(x, y, pass ? SuperControl::TouchPad : 0)) {
                     SetFocus(i);
-                    if (Items[i].C->StartEdit()) Active = Items[i].C;
+                    if (Items[i].C->StartEdit()) {
+                        Active = Items[i].C;
+                        if (Active->IdleTapActs()) {                      // one tap does the whole job (tab bar, menu)
+                            SuperPointerEvent t; t.Type = SuperPointerEvent::TAP; t.X = t.StartX = x; t.Y = t.StartY = y;
+                            Active->OnPointer(t);
+                        }
+                    }
+                    return;
+                }
+    }
+    // Finger just landed on an idle control that wants to react at once (input boxes): focus it, start the edit, tell it.
+    void PressIdle(const SuperPointerEvent& pe) {
+        for (int pass = 0; pass < 2; ++pass)
+            for (int i = Count() - 1; i >= 0; --i)
+                if (Can(i) && Items[i].C->HitTest(pe.X, pe.Y, pass ? SuperControl::TouchPad : 0) && Items[i].C->StartOnPress(pe.X, pe.Y)) {
+                    SetFocus(i);
+                    if (Items[i].C->StartEdit()) {
+                        Active = Items[i].C;
+                        SuperControl::PressStartedEdit = true;
+                        Active->OnPointer(pe);
+                        SuperControl::PressStartedEdit = false;
+                    }
                     return;
                 }
     }

@@ -60,12 +60,47 @@ public:
         int idx = First + (sy - y0) / rh;
         return idx < Count() ? idx : -1;
     }
-    // Touch: tap a row = choose it, long press = accept, drag = scroll the cursor, tap outside = cancel.
+    // Touch: the highlighted row is always the one under the finger. Touch a row = it highlights at once (even on an idle
+    // list), slide up / down = the highlight follows the finger, lift = accept it. Holding the finger above the first or
+    // below the last visible row keeps scrolling the list. A tap = choose that row, long press = accept the highlighted row,
+    // lifting outside to the side or tapping outside = cancel.
+    int AutoScrollMs = 120;                                     // repeat interval while the finger is held past an edge
+    bool StartOnPress(int, int) override { return true; }
+    // For a control that owns a list (combo box): feed the finger position while the touch began outside the rows.
+    // The highlight starts following once the finger is over the rows; FingerInList() tells whether it ever was.
+    void TrackTouch(int y) { int y0 = GetBoxTop() + Inset(); TouchY = y; if (y >= y0) { TouchDown = true; Entered = true; FollowFinger(); } }
+    bool FingerInList() const { return Entered; }
+    void EndTouch() { TouchDown = false; Entered = false; }
     bool OnPointer(const SuperPointerEvent& e) override {
         if (State != EDIT_ACTIVE) return false;
-        if (e.Type == SuperPointerEvent::TAP) {
+        switch (e.Type) {
+        case SuperPointerEvent::PRESS: {
             int i = RowAt(e.X, e.Y);
-            if (i >= 0) { if (i != Cursor) { Cursor = i; Keep(i); IO.Changed(); } IO.Inject(SuperEditIO::A_SHORT); return true; }
+            if (i < 0) return false;
+            TouchDown = true; Entered = true; TouchY = e.Y;
+            MoveCursor(i);
+            return true; }
+        case SuperPointerEvent::TAP: {
+            TouchDown = false; Entered = false;
+            int i = RowAt(e.X, e.Y);
+            if (i >= 0) { MoveCursor(i); IO.Inject(SuperEditIO::A_SHORT); return true; }
+            return SuperPointerDefault(IO, *this, e, RowH()); }                  // outside: cancel
+        case SuperPointerEvent::DRAG_START:
+        case SuperPointerEvent::DRAG_MOVE:
+            if (!(e.Type == SuperPointerEvent::DRAG_START ? HitTest(e.StartX, e.StartY, SuperControl::TouchPad) : TouchDown)) return false;
+            TouchDown = true; Entered = true; TouchY = e.Y;
+            FollowFinger();
+            return true;
+        case SuperPointerEvent::DRAG_END: {
+            bool was = TouchDown;
+            TouchDown = false; Entered = false;
+            if (!was) return false;
+            if (e.X < PosX - SuperControl::TouchPad || e.X >= PosX + GetWidth() + SuperControl::TouchPad) IO.Inject(SuperEditIO::B_SHORT);   // lifted off to the side: cancel
+            else IO.Inject(SuperEditIO::A_SHORT);                                                     // lift = accept the highlighted row
+            return true; }
+        case SuperPointerEvent::LONG_PRESS:
+            TouchDown = false;
+            return SuperPointerDefault(IO, *this, e, RowH());
         }
         return SuperPointerDefault(IO, *this, e, RowH());
     }
@@ -73,6 +108,7 @@ public:
     bool StartEdit() {                                             // non-blocking: then call Service()
         if (Items.empty()) return false;
         Cursor = Sel < 0 ? 0 : Sel;
+        TouchDown = Entered = false;
         IO.Flush();
         State = EDIT_ACTIVE;
         Keep(Cursor);
@@ -86,6 +122,7 @@ public:
         if (IO.Aborted()) return Finish(EDIT_CANCELLED);
         bool redraw = false;
         int n = Count();
+        if (TouchDown && AutoScroll()) redraw = true;
 
         int32_t d = IO.Delta();
         if (d) {
@@ -105,6 +142,29 @@ public:
     }
 
 protected:
+    bool TouchDown = false, Entered = false; int TouchY = 0; uint32_t LastAuto = 0;
+    void MoveCursor(int i) { if (i != Cursor) { Cursor = i; Keep(i); IO.Changed(); Push(); } }
+    // Cursor = the visible row under the finger (clamped to the visible rows).
+    void FollowFinger() {
+        int rh = RowH(), y0 = GetBoxTop() + Inset();
+        int r = std::clamp((TouchY - y0) / rh, 0, Rows - 1);
+        if (TouchY < y0) r = 0;
+        int idx = std::clamp(First + r, 0, Count() - 1);
+        MoveCursor(idx);
+    }
+    // Finger held above the first / below the last visible row: step the cursor (and so the view) every AutoScrollMs.
+    bool AutoScroll() {
+        int rh = RowH(), y0 = GetBoxTop() + Inset(), n = Count();
+        int dir = TouchY < y0 ? -1 : (TouchY >= y0 + Rows * rh ? 1 : 0);
+        if (!dir || n == 0 || !Entered) return false;
+        uint32_t now = lgfx::millis();
+        if (now - LastAuto < (uint32_t)AutoScrollMs) return false;
+        LastAuto = now;
+        int nc = std::clamp(Cursor + dir, 0, n - 1);
+        if (nc == Cursor) return false;
+        Cursor = nc; Keep(Cursor); IO.Changed();
+        return true;
+    }
     int RowH() { return FontH() + 2 * RowPad; }
     int BodyHeight() override { return Rows * RowH(); }
 

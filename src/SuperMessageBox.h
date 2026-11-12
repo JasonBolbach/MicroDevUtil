@@ -40,8 +40,21 @@ public:
 
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
     // Touch: tap a button = choose it, tap outside = cancel, drag = move between the buttons.
+    // Touch is ignored for TouchGuardMs after the box opens (it usually opens under the finger that triggered it, and panels
+    // can report a stray touch as the finger lifts), and with touch-down events available a tap only counts when its
+    // finger-down happened after the box opened.
+    int TouchGuardMs = 300;
     bool OnPointer(const SuperPointerEvent& e) override {
         if (State != EDIT_ACTIVE) return false;
+        if ((int)(lgfx::millis() - OpenedAt) < TouchGuardMs) return true;
+        if (e.Type == SuperPointerEvent::PRESS) { PressSeen = true; return true; }
+        if (PressEventsOn && !PressSeen) return true;                    // part of a touch that began before the box opened
+        bool end = e.Type == SuperPointerEvent::TAP || e.Type == SuperPointerEvent::LONG_PRESS || e.Type == SuperPointerEvent::DRAG_END;
+        bool r = HandlePointer(e);
+        if (end) PressSeen = false;
+        return r;
+    }
+    bool HandlePointer(const SuperPointerEvent& e) {
         if (e.Type == SuperPointerEvent::TAP) {
             int i = ButtonAt(e.X, e.Y);
             if (i >= 0) { if (i != Cursor) { Cursor = i; IO.Changed(); } IO.Inject(SuperEditIO::A_SHORT); return true; }
@@ -57,11 +70,11 @@ public:
         Backed = false;
         lgfx::LovyanGFX* src = Backdrop ? Backdrop : Dst;
         if (!RestoreFn && src) {
-            Under.setColorDepth(16);
-            if (Under.createSprite(W, h)) { src->readRect(PosX, PosY, W, h, (lgfx::swap565_t*)Under.getBuffer()); Backed = true; }
+            if (AllocSprite(Under, W, h)) { src->readRect(PosX, PosY, W, h, (lgfx::swap565_t*)Under.getBuffer()); Backed = true; }
         }
         Cursor = std::clamp(Default, 0, (int)Btns.size() - 1);
         Result = -1;
+        OpenedAt = lgfx::millis(); PressSeen = false;
         IO.Flush();
         State = EDIT_ACTIVE;
         Push();
@@ -122,6 +135,8 @@ private:
     void (*RestoreFn)(void*) = nullptr; void* RestoreUser = nullptr;
     bool Backed = false, Centered = true, LinesOk = false;
     int  Cursor = 0, Default = 0, Result = -1;
+    uint32_t OpenedAt = 0;
+    bool PressSeen = false;
     std::string Msg;
     std::vector<std::string> Btns, Lines;
     SuperEditState State = EDIT_IDLE;

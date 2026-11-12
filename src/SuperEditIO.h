@@ -104,6 +104,8 @@ inline bool SuperPointerDefault(SuperEditIO& io, SuperControl& c, const SuperPoi
     case SuperPointerEvent::DRAG_END:
         io.DragOk = false;
         return true;
+    case SuperPointerEvent::PRESS:
+        return in;
     }
     return false;
 }

@@ -21,6 +21,7 @@
 //   ButtonA long   = accept the whole edit (unless the validator rejects it)
 //   ButtonB short  = cancel the edit
 //   ButtonB long   = revert to the starting value and keep editing at the cursor
+//   Touch:  touch a character = highlight it, drag up/down = change it, lift = accept (see OnPointer below)
 #include "SuperTextBox.h"
 #include "SuperEditIO.h"
 
@@ -75,7 +76,64 @@ public:
 
     // ---- editing ----
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
-    bool OnPointer(const SuperPointerEvent& e) override { return State == EDIT_ACTIVE && SuperPointerDefault(IO, *this, e); }
+    // Touch (input / time / date boxes): touch a character = it is highlighted at once (even on an idle box) and the box
+    // waits for a drag; dragging up / down changes the character; lifting the finger accepts (OnAccept).
+    // Tap a "<" / ">" arrow = scroll, a literal = nothing, tap outside = cancel, long press = accept.
+    // Set TouchAcceptOnLift = false for the older style: lifting only selects, tap the highlighted slot again to finish it,
+    // long press to accept.
+    bool TouchAcceptOnLift = true;
+    bool StartOnPress(int, int) override { return true; }
+    bool OnPointer(const SuperPointerEvent& e) override {
+        if (State != EDIT_ACTIVE) return false;
+        bool in = HitTest(e.X, e.Y, TouchPad);
+        switch (e.Type) {
+        case SuperPointerEvent::PRESS: {
+            PressSeen = OnSlot = false;
+            if (!in) return false;
+            int slot = SlotOfCell(CharAt(e.X));
+            if (slot < 0) return true;                              // literal / arrow / padding: nothing to grab
+            PressSeen = OnSlot = true;
+            PressWasOn = (slot == Cursor && EditingChar);
+            if (slot != Cursor || !EditingChar) { Cursor = slot; EditingChar = true; FocusCursor(); Invalidate(); Refresh(); }
+            return true; }
+        case SuperPointerEvent::TAP: {
+            bool seen = PressSeen, grabbed = OnSlot;
+            PressSeen = OnSlot = false;
+            if (!in) return SuperPointerDefault(IO, *this, e);      // outside: cancel
+            int c = CharAt(e.X);
+            if (c == CHAR_ARROW_LEFT)  { ScrollBy(-3); Refresh(); return true; }
+            if (c == CHAR_ARROW_RIGHT) { ScrollBy(3);  Refresh(); return true; }
+            int slot = SlotOfCell(c);
+            if (slot < 0) return true;
+            if (seen && grabbed && TouchAcceptOnLift) { IO.Inject(SuperEditIO::A_LONG); return true; }   // touched, lifted: accept
+            if (seen) { if (PressWasOn && slot == Cursor) EditingChar = false; }     // older style: selection was done on touch
+            else if (slot == Cursor) EditingChar = !EditingChar;                     // no touch-down events available
+            else { Cursor = slot; EditingChar = true; }
+            FocusCursor(); Invalidate(); Refresh();
+            return true; }
+        case SuperPointerEvent::DRAG_START:
+            if (!PressSeen && HitTest(e.StartX, e.StartY, TouchPad)) {   // no PRESS seen (no ST_DOWN source): grab the slot now
+                int slot = SlotOfCell(CharAt(e.StartX));
+                if (slot >= 0) {
+                    OnSlot = true;
+                    if (slot != Cursor || !EditingChar) { Cursor = slot; EditingChar = true; FocusCursor(); Invalidate(); Refresh(); }
+                }
+            }
+            PressSeen = false;
+            break;
+        case SuperPointerEvent::DRAG_END: {
+            bool grabbed = OnSlot;
+            PressSeen = OnSlot = false;
+            SuperPointerDefault(IO, *this, e);
+            if (grabbed && TouchAcceptOnLift) IO.Inject(SuperEditIO::A_LONG);          // lift = accept
+            return true; }
+        case SuperPointerEvent::LONG_PRESS:
+            PressSeen = OnSlot = false;
+            break;
+        default: break;
+        }
+        return SuperPointerDefault(IO, *this, e);
+    }
 
     bool StartEdit() {                                             // non-blocking: then call Service()
         if (SlotCell.empty()) return false;
@@ -149,7 +207,13 @@ private:
     std::string      Committed, Work;      // one char per slot
     int  Cursor = 0;
     bool Editing = false, EditingChar = false;
+    bool PressSeen = false, PressWasOn = false, OnSlot = false;     // touch: this gesture began with a PRESS that already selected a slot
     SuperEditState State = EDIT_IDLE;
+
+    int SlotOfCell(int cell) const {                 // displayed character index -> slot, -1 if a literal
+        for (size_t i = 0; i < SlotCell.size(); ++i) if (SlotCell[i] == cell) return (int)i;
+        return -1;
+    }
 
     static bool IsType(char c) { return c == '#' || c == 'A' || c == 'a' || c == 'B' || c == '*'; }
     static char EmptyChar(char t) { return t == '#' ? '0' : ' '; }

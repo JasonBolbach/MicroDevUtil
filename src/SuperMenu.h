@@ -31,11 +31,12 @@ public:
     };
 
     bool Wrap  = false;
+    bool ShowBack = true;               // sub-menus start with a "< Back" row (touch-friendly; B short still goes back)
     int  RowPad = 1;
 
     SuperMenu(lgfx::LovyanGFX* dst, int x, int y, int width, const lgfx::IFont* font, int rows,
               SuperEncoder* enc, SuperButton* btnA, SuperButton* btnB)
-        : SuperControl(dst, x, y, width, font), Rows(rows < 1 ? 1 : rows), IO(enc, btnA, btnB) {}
+        : SuperControl(dst, x, y, width, font), Rows(rows < 1 ? 1 : rows), IO(enc, btnA, btnB) { BackItem.Text = "< Back"; }
 
     void SetAbort(bool (*fn)()) { IO.Abort = fn; }
     void SetOnChange(void (*fn)(void*), void* user = nullptr) { IO.OnChange = fn; IO.OnChangeUser = user; }
@@ -56,35 +57,65 @@ public:
     const Item* GetCurrentLevel() const { return Level == &Top ? nullptr : Level; }   // nullptr = top level
 
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
+    bool IdleTapActs() const override { return true; }          // one tap on a row opens / chooses it
     int RowAt(int sx, int sy) {
         int x0 = PosX + Inset(), y0 = GetBoxTop() + Inset(), rh = RowH();
         if (sx < x0 || sx >= x0 + InnerW() || sy < y0 || sy >= y0 + Rows * rh) return -1;
         int idx = First + (sy - y0) / rh;
-        return idx < (int)Level->Kids.size() ? idx : -1;
+        return idx < Count() ? idx : -1;
     }
-    // Touch: tap a row = open / choose it, long press = back one level, tap outside = leave the menu, drag = move the cursor.
+    // Touch: the highlighted row is always the one under the finger. Touch a row = it highlights at once (even when idle), slide up /
+    // down = the highlight follows the finger, lift = do it (open the sub-menu, go back on "< Back", or choose the leaf). A tap is
+    // therefore a one-touch choice. Holding the finger above / below the visible rows keeps scrolling. Lifting off to the side or
+    // tapping outside leaves the menu.
+    int AutoScrollMs = 120;
+    bool StartOnPress(int, int) override { return true; }
     bool OnPointer(const SuperPointerEvent& e) override {
         if (State != EDIT_ACTIVE) return false;
-        bool in = HitTest(e.X, e.Y, TouchPad);
-        if (e.Type == SuperPointerEvent::TAP) {
+        switch (e.Type) {
+        case SuperPointerEvent::PRESS: {
             int i = RowAt(e.X, e.Y);
-            if (i >= 0) { if (i != Cursor) { Cursor = i; Keep(); IO.Changed(); } IO.Inject(SuperEditIO::A_SHORT); return true; }
-            if (!in) { IO.Inject(SuperEditIO::B_LONG); return true; }
+            if (i < 0) return false;
+            TouchDown = true; TouchY = e.Y;
+            MoveCursor(i);
+            return true; }
+        case SuperPointerEvent::TAP: {
+            TouchDown = false;
+            int i = RowAt(e.X, e.Y);
+            if (i >= 0) { MoveCursor(i); IO.Inject(SuperEditIO::A_SHORT); return true; }
+            if (HitTest(e.X, e.Y, TouchPad)) return true;                       // on the frame: nothing
+            IO.Inject(SuperEditIO::B_LONG); return true; }                      // outside: leave the menu
+        case SuperPointerEvent::DRAG_START:
+        case SuperPointerEvent::DRAG_MOVE:
+            if (!(e.Type == SuperPointerEvent::DRAG_START ? HitTest(e.StartX, e.StartY, SuperControl::TouchPad) : TouchDown)) return false;
+            TouchDown = true; TouchY = e.Y;
+            FollowFinger();
             return true;
+        case SuperPointerEvent::DRAG_END: {
+            bool was = TouchDown;
+            TouchDown = false;
+            if (!was) return false;
+            if (e.X < PosX - SuperControl::TouchPad || e.X >= PosX + GetWidth() + SuperControl::TouchPad) IO.Inject(SuperEditIO::B_LONG);   // off to the side: leave
+            else IO.Inject(SuperEditIO::A_SHORT);
+            return true; }
+        case SuperPointerEvent::LONG_PRESS:
+            TouchDown = false;
+            if (HitTest(e.X, e.Y, SuperControl::TouchPad)) { IO.Inject(SuperEditIO::A_SHORT); return true; }
+            return false;
         }
-        if (e.Type == SuperPointerEvent::LONG_PRESS) { if (in) IO.Inject(SuperEditIO::B_SHORT); return in; }
         return SuperPointerDefault(IO, *this, e, RowH());
     }
     bool StartEdit() override {
         if (Top.Kids.empty()) return false;
-        Level = &Top; Cursor = First = 0; Result = nullptr;
+        Level = &Top; Cursor = First = 0; Result = nullptr; TouchDown = false;
         IO.Flush(); State = EDIT_ACTIVE; Push(); return true;
     }
     SuperEditState Service() override {
         if (State != EDIT_ACTIVE) return EDIT_IDLE;
         if (IO.Aborted()) return Finish(EDIT_CANCELLED);
         bool redraw = false;
-        int n = (int)Level->Kids.size();
+        int n = Count();
+        if (TouchDown && AutoScroll()) redraw = true;
         int32_t d = IO.Delta();
         if (d && n) {
             int step = d > 0 ? 1 : -1;
@@ -95,16 +126,14 @@ public:
         case SuperEditIO::A_SHORT:
         case SuperEditIO::A_LONG: {
             if (!n) break;
-            Item* it = Level->Kids[Cursor];
-            if (!it->Kids.empty()) { Level = it; Cursor = First = 0; redraw = true; IO.Changed(); }
+            Item* it = At(Cursor);
+            if (it == &BackItem) { GoUp(); redraw = true; IO.Changed(); }
+            else if (!it->Kids.empty()) { Level = it; Cursor = HasBack() ? 1 : 0; First = 0; Keep(); redraw = true; IO.Changed(); }
             else { Result = it; return Finish(EDIT_ACCEPTED); }
             break; }
         case SuperEditIO::B_SHORT:
             if (Level == &Top) return Finish(EDIT_CANCELLED);
-            { Item* from = Level; Level = Level->Parent ? Level->Parent : &Top;
-              Cursor = 0;
-              for (int i = 0; i < (int)Level->Kids.size(); ++i) if (Level->Kids[i] == from) Cursor = i;
-              First = 0; Keep(); redraw = true; IO.Changed(); }
+            GoUp(); redraw = true; IO.Changed();
             break;
         case SuperEditIO::B_LONG:  return Finish(EDIT_CANCELLED);
         default: break;
@@ -114,11 +143,30 @@ public:
     }
 
 protected:
+    bool TouchDown = false; int TouchY = 0; uint32_t LastAuto = 0;
+    void MoveCursor(int i) { if (i != Cursor) { Cursor = i; Keep(); IO.Changed(); Push(); } }
+    void FollowFinger() {                                      // cursor = the visible row under the finger
+        int rh = RowH(), y0 = GetBoxTop() + Inset();
+        int r = TouchY < y0 ? 0 : std::clamp((TouchY - y0) / rh, 0, Rows - 1);
+        MoveCursor(std::clamp(First + r, 0, Count() - 1));
+    }
+    bool AutoScroll() {                                        // finger held above / below the visible rows
+        int rh = RowH(), y0 = GetBoxTop() + Inset(), n = Count();
+        int dir = TouchY < y0 ? -1 : (TouchY >= y0 + Rows * rh ? 1 : 0);
+        if (!dir || n == 0) return false;
+        uint32_t now = lgfx::millis();
+        if (now - LastAuto < (uint32_t)AutoScrollMs) return false;
+        LastAuto = now;
+        int nc = std::clamp(Cursor + dir, 0, n - 1);
+        if (nc == Cursor) return false;
+        Cursor = nc; Keep(); IO.Changed();
+        return true;
+    }
     int RowH() { return FontH() + 2 * RowPad; }
     int BodyHeight() override { return Rows * RowH(); }
 
     void RenderBody(int x, int y, int w, int h) override {
-        int rh = RowH(), n = (int)Level->Kids.size();
+        int rh = RowH(), n = Count();
         bool more = n > Rows;
         int gw = more ? rh / 2 + 3 : 0, tw = std::max(1, w - gw);
         bool editing = State == EDIT_ACTIVE;
@@ -129,7 +177,7 @@ protected:
             int idx = First + r;
             if (idx >= n) break;
             int ry = y + r * rh;
-            Item* it = Level->Kids[idx];
+            Item* it = At(idx);
             uint16_t fg = ColFg;
             if (editing && idx == Cursor) { Spr.fillRect(x, ry, tw, rh, ColCursor); fg = ColCursorFg; }
             Spr.setClipRect(x, ry, tw - (it->Kids.empty() ? 0 : mk * 2 + 2), rh);
@@ -155,9 +203,19 @@ private:
     Item Top;
     Item* Level = &Top;
     Item* Result = nullptr;
+    Item BackItem;
     int Cursor = 0, First = 0;
     SuperEditState State = EDIT_IDLE;
 
+    bool HasBack() const { return ShowBack && Level != &Top; }
+    int  Count() const { return (int)Level->Kids.size() + (HasBack() ? 1 : 0); }
+    Item* At(int i) { return HasBack() ? (i == 0 ? &BackItem : Level->Kids[i - 1]) : Level->Kids[i]; }
+    void GoUp() {                                              // back one level, cursor on the item we came from
+        Item* from = Level; Level = Level->Parent ? Level->Parent : &Top;
+        Cursor = 0;
+        for (int i = 0; i < Count(); ++i) if (At(i) == from) Cursor = i;
+        First = 0; Keep();
+    }
     void Keep() {
         if (Cursor < First) First = Cursor;
         else if (Cursor >= First + Rows) First = Cursor - Rows + 1;

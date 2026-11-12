@@ -28,27 +28,31 @@ public:
     uint32_t GetColor888() const { uint8_t r, g, b; ToRGB(Cur, r, g, b); return ((uint32_t)r << 16) | (g << 8) | b; }
 
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
-    // Touch: tap or drag on a bar sets that component by position (H / S / V; tapping a letter just selects it),
-    // tap the swatch or long press = accept, tap outside = cancel. Other drags act like the encoder.
+    // Touch works directly on the bands, no activation needed: touching a bar sets that component (H / S / V) at once,
+    // dragging along it adjusts live, and lifting the finger commits (OnAccept). Elsewhere: tap a letter = select that row,
+    // tap the swatch or long press = accept, tap outside = cancel; other drags act like the encoder.
+    bool StartOnPress(int x, int y) override { return OnBar(x, y) >= 0; }
     bool OnPointer(const SuperPointerEvent& e) override {
         if (State != EDIT_ACTIVE) return false;
-        int row = RowAtY(e.Y), sRow = RowAtY(e.StartY);
-        bool onBar = row >= 0 && e.X >= BarX0() - 3 && e.X <= BarX0() + BarW() + 3;
+        int row = OnBar(e.X, e.Y), sRow = OnBar(e.StartX, e.StartY);
         switch (e.Type) {
+        case SuperPointerEvent::PRESS:
+            if (row >= 0) { Comp = row; SetFromX(e.X); Changed(); return true; }
+            return false;
         case SuperPointerEvent::TAP:
-            if (onBar) { Comp = row; SetFromX(e.X); return true; }
-            if (row >= 0 && e.X >= BodyX() + SwatchW() && e.X < BarX0() - 3) { Comp = row; Changed(); return true; }   // the letter
+            if (row >= 0) { Comp = row; SetFromX(e.X); IO.Inject(SuperEditIO::A_LONG); return true; }       // set + commit
+            if (RowAtY(e.Y) >= 0 && e.X >= BodyX() + SwatchW() && e.X < BarX0() - 3) { Comp = RowAtY(e.Y); Changed(); return true; }   // the letter
             if (HitTest(e.X, e.Y, TouchPad)) { IO.Inject(SuperEditIO::A_LONG); return true; }             // swatch / frame = accept
             IO.Inject(SuperEditIO::B_SHORT); return true;
         case SuperPointerEvent::DRAG_START:
-            DragRow = (sRow >= 0 && e.StartX >= BarX0() - 3 && e.StartX <= BarX0() + BarW() + 3) ? sRow : -1;
+            DragRow = sRow;
             if (DragRow >= 0) { IO.DragOk = true; Comp = DragRow; SetFromX(e.X); return true; }
             return SuperPointerDefault(IO, *this, e);
         case SuperPointerEvent::DRAG_MOVE:
             if (DragRow >= 0) { SetFromX(e.X); return true; }
             return SuperPointerDefault(IO, *this, e);
         case SuperPointerEvent::DRAG_END:
-            DragRow = -1;
+            if (DragRow >= 0) { DragRow = -1; IO.DragOk = false; IO.Inject(SuperEditIO::A_LONG); return true; }   // lift = commit
             return SuperPointerDefault(IO, *this, e);
         default:
             return SuperPointerDefault(IO, *this, e);
@@ -128,6 +132,8 @@ private:
         int y0 = GetBoxTop() + Inset(), r = (sy - y0) / RowH();
         return (sy >= y0 && r >= 0 && r < 3) ? r : -1;
     }
+    // Which bar (0..2) is under a screen point (a little slack left / right), or -1.
+    int OnBar(int sx, int sy) { int r = RowAtY(sy); return (r >= 0 && sx >= BarX0() - 3 && sx <= BarX0() + BarW() + 3) ? r : -1; }
     void Changed() { IO.Changed(); Push(); }
     void SetFromX(int sx) {
         static const int mx[3] = { 359, 100, 100 };

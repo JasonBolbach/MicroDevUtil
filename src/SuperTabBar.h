@@ -31,6 +31,7 @@ public:
     int  GetCursor() const { return Cursor; }
 
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
+    bool IdleTapActs() const override { return true; }          // one tap on a tab selects it
     // Touch: tap a tab = select it, long press = accept the cursor tab, tap outside = cancel, drag = move the cursor.
     bool OnPointer(const SuperPointerEvent& e) override {
         if (State != EDIT_ACTIVE) return false;
@@ -113,10 +114,11 @@ private:
     SuperEditIO IO;
     std::vector<int> TabX, TabW;                     // where each tab was last drawn (sprite x), -1 = not visible
     int TabAt(int sx, int sy) {
-        int by = GetBoxTop();
-        if (sy < by || sy >= by + GetBoxHeight()) return -1;
-        for (size_t i = 0; i < TabX.size(); ++i)
-            if (TabX[i] >= 0 && sx - PosX >= TabX[i] && sx - PosX < TabX[i] + TabW[i]) return (int)i;
+        int by = GetBoxTop(), pad = SuperControl::TouchPad;
+        if (sy < by - pad || sy >= by + GetBoxHeight() + pad) return -1;       // forgiving vertically (a fingertip)
+        int rx = sx - PosX;
+        for (size_t i = 0; i < TabX.size(); ++i)                              // 1 px slack on each side closes the gaps
+            if (TabX[i] >= 0 && rx >= TabX[i] - 1 && rx < TabX[i] + TabW[i] + 1) return (int)i;
         return -1;
     }
     std::vector<std::string> Tabs;

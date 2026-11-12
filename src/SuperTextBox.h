@@ -51,6 +51,32 @@ public:
     }
     void EnsureVisible(int i) { EnsureVisible(i, i, i); }
 
+    // Hit test for touch: which character is under screen x? Returns its index, or CHAR_NONE,
+    // CHAR_ARROW_LEFT / CHAR_ARROW_RIGHT (the "<" / ">" shown while the text scrolls).
+    enum { CHAR_NONE = -1, CHAR_ARROW_LEFT = -2, CHAR_ARROW_RIGHT = -3 };
+    int CharAt(int sx) {
+        Layout(); ClampFirst();
+        int n = (int)Text.size(), x0 = PosX + Inset(), areaW = TextW();
+        bool sc = Scrolling();
+        int x, endX;
+        if (sc) {
+            if (sx < x0 + ArrowW) return CHAR_ARROW_LEFT;
+            if (sx >= x0 + areaW - ArrowW) return CHAR_ARROW_RIGHT;
+            x = x0 + ArrowW; endX = x0 + areaW - ArrowW;
+        } else {
+            int total = Pre.back();
+            x = x0 + (Alignment == ALIGN_CENTER ? (areaW - total) / 2 : Alignment == ALIGN_RIGHT ? areaW - total : 0);
+            endX = x0 + areaW;
+        }
+        for (int i = First; i < n; ++i) {                  // same walk as RenderBody
+            int w = Pre[i + 1] - Pre[i];
+            if (i > First && x + w > endX) break;
+            if (sx >= x && sx < x + w) return i;
+            x += w;
+        }
+        return CHAR_NONE;
+    }
+
 protected:
     // Pixel width of character i of the current text (at least 1).
     virtual int CellWidth(int i) {

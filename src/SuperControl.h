@@ -24,7 +24,7 @@ enum SuperEditState : uint8_t { EDIT_IDLE = 0, EDIT_ACTIVE, EDIT_ACCEPTED, EDIT_
 // A pointer (touch) event in screen coordinates. SuperForm converts SuperTouch events into these, so the
 // controls themselves don't depend on SuperTouch.
 struct SuperPointerEvent {
-    enum Kind : uint8_t { TAP, LONG_PRESS, DRAG_START, DRAG_MOVE, DRAG_END } Type = TAP;
+    enum Kind : uint8_t { TAP, LONG_PRESS, DRAG_START, DRAG_MOVE, DRAG_END, PRESS } Type = TAP;   // PRESS = finger just touched (before any gesture is known)
     int16_t X = 0, Y = 0;                   // current position (TAP / LONG_PRESS: where the touch started)
     int16_t StartX = 0, StartY = 0;         // touch-down point
 };
@@ -81,6 +81,55 @@ public:
     inline static void (*BlockingHook)() = nullptr;
     // The control currently inside a blocking BeginEdit() (nullptr otherwise).
     inline static SuperControl* EditingNow = nullptr;
+    // Memory: every control draws into its own 16-bit sprite (width x height x 2 bytes). true = allocate those in PSRAM
+    // (ESP32 boards that have it: SuperControl::UsePsram = psramFound();). If the preferred memory is full the other one is tried.
+    inline static bool UsePsram = false;
+    inline static void* SharedBuf = nullptr;
+    inline static size_t SharedCap = 0;
+    // Set by SuperForm::SetTouch: touch-down (PRESS) events are being delivered, so a modal control can ignore a lone stale TAP.
+    inline static bool PressEventsOn = false;
+    // True only while SuperForm delivers the PRESS that started an edit (StartOnPress controls can tell "opened by this touch").
+    inline static bool PressStartedEdit = false;
+    // Create a 16-bit sprite in the preferred memory (UsePsram), falling back to the other kind. Returns false if neither worked.
+    // Used for every buffer the controls make; use it for your own sprites too so they follow the same setting.
+    static bool AllocSprite(lgfx::LGFX_Sprite& s, int w, int h) {
+        s.deleteSprite();
+        s.setColorDepth(16);
+        s.setPsram(UsePsram);
+        if (s.createSprite(w, h)) return true;
+        s.setPsram(!UsePsram);
+        return s.createSprite(w, h) != nullptr;
+    }
+    // Shared render buffer (trades a little speed for a lot of RAM). false (default): every control keeps its own sprite buffer
+    // (width x height x 2 bytes each while visible). true: ONE buffer, as big as the largest control, is lent to each control just
+    // for the moment it renders and pushes itself to the screen, so RAM use is the biggest control instead of the sum of the
+    // visible ones. Speed is nearly unchanged (a control already redraws completely on every draw). The buffer lives in internal
+    // RAM when it fits (fast), else in PSRAM. Set it once at startup, or build with -DSUPERGUI_SHARED_BUFFER=1.
+#ifdef SUPERGUI_SHARED_BUFFER
+    inline static bool SharedBuffer = (SUPERGUI_SHARED_BUFFER) != 0;
+#else
+    inline static bool SharedBuffer = false;
+#endif
+    // Make sure the shared buffer holds at least 'bytes' (never shrinks). SuperForm::Draw() does this for the visible controls, so
+    // call it yourself only to pre-size for popups. Returns false if neither internal RAM nor PSRAM could supply it.
+    static bool ReserveShared(size_t bytes) {
+        if (bytes <= SharedCap) return true;
+        void* b = lgfx::heap_alloc(bytes);
+        if (!b) b = lgfx::heap_alloc_psram(bytes);
+        if (!b && SharedBuf) {                                        // low on memory: give the old one back and retry
+            lgfx::heap_free(SharedBuf); SharedBuf = nullptr; SharedCap = 0;
+            b = lgfx::heap_alloc(bytes);
+            if (!b) b = lgfx::heap_alloc_psram(bytes);
+        }
+        if (!b) return false;
+        if (SharedBuf) lgfx::heap_free(SharedBuf);
+        SharedBuf = b; SharedCap = bytes;
+        return true;
+    }
+    static void   FreeShared()  { if (SharedBuf) lgfx::heap_free(SharedBuf); SharedBuf = nullptr; SharedCap = 0; }
+    static size_t SharedBytes() { return SharedCap; }                // current size of the shared buffer
+    // True if the last draw could not allocate the sprite (out of memory). The control then shows a red outline instead of its look.
+    bool AllocFailed = false;
 
     int HighlightGap  = 1;                  // pixels between the control and its highlight box
     int HighlightSize = 2;                  // thickness of the highlight box
@@ -125,6 +174,7 @@ public:
             int m = HighlightGap + HighlightSize + 1;
             Dst->fillRect(PosX - m, PosY - m, W + 2 * m, GetHeight() + 2 * m, ColHighlightClear);
         }
+        ReleaseBuffer();                                           // a hidden control needs no memory; it is re-created when shown
     }
 
     // ---- editing (controls that can be edited override StartEdit / Service) ----
@@ -155,6 +205,13 @@ public:
     // Default (editable controls): tap = ButtonA short, long press = ButtonA long, tap outside = ButtonB short,
     // dragging up / down = encoder steps. Lists, tabs, menus and sliders add precise picking.
     virtual bool OnPointer(const SuperPointerEvent&) { return false; }
+    // Touch behaviour hints for SuperForm:
+    //  StartOnPress : an idle control starts editing the moment a finger lands on it at (x, y) (and gets the PRESS event),
+    //                 so it can react at once (e.g. highlight the character under the finger).
+    //  IdleTapActs  : a tap on an idle control starts the edit AND is delivered to it, so one tap does the whole job
+    //                 (tab bar, menu). Otherwise the first tap only focuses + starts the edit.
+    virtual bool StartOnPress(int /*x*/, int /*y*/) { return false; }
+    virtual bool IdleTapActs() const { return false; }
 
     // ---- label ----
     void SetLabel(const std::string& text, LabelPos pos = LABEL_ABOVE) { Label = text; LabelPosition = pos; Dirty = true; }
@@ -181,7 +238,7 @@ public:
     void Refresh()    { if (Dirty && VisibleFlag) Push(); }                       // redraw + push only if something changed
     void Push() {                                                  // always redraw + push
         if (!VisibleFlag) return;
-        Render();
+        if (!Render()) { ShowAllocFailure(); return; }
         if (!EnabledFlag) Dim(DisabledBrightness);
         Present();
     }
@@ -192,10 +249,12 @@ public:
     void DrawPreview(bool highlight)                { DrawPreview(highlight, ColHighlight); }
     void DrawPreview(bool highlight, uint16_t color) {
         if (!VisibleFlag) return;
-        Render();
+        if (!Render()) ShowAllocFailure();
+        else {
         if (!EnabledFlag) Dim(DisabledBrightness);
         if (!highlight) Dim(PreviewBrightness);
         Present();
+        }
         Dirty = true;                                              // the sprite now holds the preview look
         if (!Dst) return;
         int h = GetHeight();
@@ -236,7 +295,9 @@ private:
         if (Dst) {
             if (!Label.empty()) Spr.pushSprite(Dst, PosX, PosY, lgfx::rgb565_t(KeyColor));   // label area is transparent
             else                Spr.pushSprite(Dst, PosX, PosY);
+            if (SharedBuffer) Dst->waitDMA();                      // the next control reuses the buffer: the transfer must be finished
         }
+        if (SharedBuffer) Spr.deleteSprite();                      // hand the shared buffer back (not freed: it is not ours)
         Dirty = false;
     }
 
@@ -311,13 +372,23 @@ private:
         (void)lh;
     }
 
-    void Render() {
+    // Draw a red outline where the control should be: the sprite buffer could not be allocated (out of memory).
+    void ShowAllocFailure() {
+        if (!Dst) return;
+        Dst->drawRect(PosX, PosY, W, std::max(8, GetHeight()), 0xF800);
+        Dst->drawLine(PosX, PosY, PosX + W - 1, PosY + std::max(8, GetHeight()) - 1, 0xF800);
+    }
+
+    bool Render() {
         int boxH = BoxHeight(), lb = LabelBlock(), H = boxH + lb, oy = BoxOffset();
-        if (Spr.width() != W || Spr.height() != H) {
-            Spr.deleteSprite();
-            Spr.setColorDepth(16);
-            Spr.createSprite(W, H);
-        }
+        if (SharedBuffer) {                                           // borrow the shared buffer for this one draw
+            if (!ReserveShared((size_t)W * H * 2)) { Spr.deleteSprite(); AllocFailed = true; return false; }
+            Spr.setBuffer(SharedBuf, W, H, 16);
+            AllocFailed = false;
+        } else if (Spr.width() != W || Spr.height() != H || !Spr.getBuffer()) {
+            AllocFailed = !AllocSprite(Spr, W, H);
+            if (AllocFailed) return false;
+        } else AllocFailed = false;
         Spr.setFont(Font);
         Spr.fillSprite(Label.empty() ? ColBg : KeyColor);
         Spr.fillRect(0, oy, W, boxH, ColBg);
@@ -329,5 +400,6 @@ private:
         Spr.setFont(Font);
         int ins = Inset();
         RenderBody(ins, oy + ins, InnerW(), BodyHeight());
+        return true;
     }
 };
