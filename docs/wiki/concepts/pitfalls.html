@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pitfalls and fixes - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item cur" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Pitfalls and fixes</h1>
+<table><tr><th>Symptom</th><th>Cause / fix</th></tr>
+<tr><td>Ghost pixels, label area not transparent</td><td><code>pushSprite</code> key must be <code>lgfx::rgb565_t(KeyColor)</code>; a plain int is read as RGB888. KeyColor = 0x0001, so avoid that colour in your own drawing.</td></tr>
+<tr><td>Sprite buffer maths gives garbage</td><td>16-bit LGFX buffers are <b>byte-swapped</b> RGB565; <code>readRect</code> into a sprite needs <code>(lgfx::swap565_t*)</code>.</td></tr>
+<tr><td>Combo / message box restore is garbage</td><td>Most SPI panels cannot <code>readRect</code>. Use <code>SetBackdrop(&amp;sprite)</code>, a sprite destination, or <code>SetRestore(fn)</code>.</td></tr>
+<tr><td>Wheel events missing (desktop)</td><td>Panel_sdl swallows them; the library uses <code>SDL_AddEventWatch</code>.</td></tr>
+<tr><td>Huge value jumps while testing</td><td>Encoder speed scaling on rapid ticks (spinner and slider keep it on purpose).</td></tr>
+<tr><td>Hidden controls leave a coloured patch</td><td>Set <code>ColHighlightClear</code> (or a theme <code>Backdrop</code>) to your screen background.</td></tr>
+<tr><td>Blank control, red outline</td><td>Out of RAM. See <a href="memory-performance.html">Memory and performance</a>.</td></tr>
+<tr><td>S3: "PSRAM chip is not connected"</td><td>The module's PSRAM is octal: <code>board_build.psram_type = opi</code>, <code>memory_type = qio_opi</code>. Forcing quad PSRAM kills it.</td></tr>
+<tr><td>Phantom button B / random cancels on a touch board</td><td>A button or encoder pin collides with <code>TOUCH_INT</code> or another part. Check <code>Pins.h</code>; keep <code>USE_ENCODER</code> / <code>USE_BUTTONS</code> false until fitted.</td></tr>
+<tr><td>Upload fails "Could not open /dev/cu.usbmodemXXXX"</td><td>VS Code PlatformIO saved a per-project <code>customPort</code>. Reset the status-bar port selector to Auto.</td></tr>
+<tr><td>Slow redraw on SPI</td><td><code>SharedBuffer</code> + <code>UseDMA</code> + <code>LabelOpaque</code>; page changes with <code>SetVisible(v,false)</code> + one <code>Draw()</code>.</td></tr></table>
+<h2>Portability rules for the headers</h2>
+<ul><li>Only LovyanGFX, SuperGUI and the C++ standard library. No SDL, no desktop code, no <code>&lt;chrono&gt;</code> or threads.</li>
+<li>Use <code>lgfx::millis()</code> / <code>lgfx::delay()</code>, not Arduino-only calls, inside the controls.</li></ul>
+
+<div class="pn"><span>&larr; <a href="../concepts/memory-performance.html">Memory and performance</a></span><span><a href="../concepts/new-control.html">Writing your own control</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

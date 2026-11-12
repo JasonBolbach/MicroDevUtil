@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperForm: focus and screens - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item cur" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperForm: focus and screens</h1>
+<pre><code>SuperForm form(&amp;Enc, &amp;BtnA);
+form.Add(&amp;spin); form.Add(&amp;slider); form.Add(&amp;bar, false);   // false = shown, never focused
+form.SetOnEdit(onEdit, nullptr);
+form.Draw();
+void loop() { form.Service(); }</code></pre>
+<h2>What it does</h2>
+<ul><li>The encoder moves the focus box (<code>DrawPreview(true)</code> on the focused control, dimmed <code>DrawPreview(false)</code> on the rest).</li>
+<li>Button A short starts the focused control's edit; <code>Service()</code> runs it without blocking.</li>
+<li>Polls the touch panel and routes touch.</li>
+<li>Calls <code>Tick()</code> on controls (animation), and batches DMA pushes during <code>Draw()</code>.</li></ul>
+<h2>Pages</h2>
+<p>For tabbed screens: put each page's controls in a list, hide the old page with <code>SetVisible(false, false)</code>, show the new one the same way, then call <code>form.Draw()</code> once. Hidden controls are erased with <code>ColHighlightClear</code> (your screen background) and free their sprite.</p>
+<h2>Popups</h2>
+<p>When a popup (combo list, message box) closes, call <code>form.Redraw(x, y, w, h, bg)</code> to repaint the covered rectangle.</p>
+<div class="box warn"><b class="h">Set the backdrop colour</b><p>Hidden controls and focus boxes are erased with <code>ColHighlightClear</code> or a theme <code>Backdrop</code>. If your screen is not black, set it or you will leave black holes.</p></div>
+<div class="pn"><span>&larr; <a href="../concepts/events.html">Events and workflow</a></span><span><a href="../concepts/theming.html">Themes and styles</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

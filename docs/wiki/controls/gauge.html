@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperGauge - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item cur" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperGauge</h1>
+<p class="tag">A display-only dial with colour zones, ticks, a needle that takes the zone colour, and optional MinMax lines.</p>
+<div class="badges"><span>Display only</span><span>src/SuperGauge.h</span></div>
+<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px"><figure><img src="../img/gauge.png" alt="SuperGauge Rendered by the library" style="image-rendering:pixelated;max-width:100%"><figcaption>Rendered by the library</figcaption></figure></div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>
+<h2>Quick start</h2><pre><code>SuperGauge g(&amp;lcd, 10, 10, 200, 120, &amp;lgfx::fonts::Font2);
+g.SetRange(0, 100);
+g.AddZone(0, 60, TFT_GREEN); g.AddZone(60, 85, TFT_YELLOW); g.AddZone(85, 100, TFT_RED);
+g.SetFormat(0, "%"); g.SetLabel("Load");
+g.SetMinMax(6000, 6.f);        // optional: min / max of the last 6 s as lines
+form.Add(&amp;g, false);
+g.SetValue(42);</code></pre>
+<h2>Unique features</h2><ul><li>Sweep in degrees clockwise from 12 o'clock: default -90..+90 (half dial); -135..+135 gives a 270 degree dial. A sweep that fits the upper half uses the half-dial layout.</li><li>Zones paint coloured bands; with <code>NeedleByZone</code> (default) the needle and hub take the colour of the zone the value is in.</li><li>Ticks: <code>SetTicks(major, minor)</code>; major ticks carry numbers when there is room (<code>ShowTickLabels</code>). <code>NEEDLE_TAPER</code> (default) or <code>NEEDLE_LINE</code>.</li><li>Smoothing is on by default: <code>SetValue</code> starts a glide of about <code>SmoothMs</code>; only redraws while moving.</li><li><b>MinMax</b>: <code>SetMinMax(windowMs, minDegrees, thickness)</code> draws the lowest and highest value of the last <code>windowMs</code> as lines, only when they differ from the needle by at least <code>minDegrees</code>. Each line is centred on its value, <code>thickness</code> px thick, in the <em>inverted</em> colour of the dial segment under it. Old extremes age out by themselves.</li><li>Built from LovyanGFX primitives; no bitmaps.</li></ul>
+<h2>GUI workflow</h2><p>Display only: nothing to operate. The user sees the needle glide to a new value and, in MinMax mode, the two extreme markers appear when the reading has moved away from them and disappear when the window forgets them.</p>
+<h2>Event workflow</h2><p>None. Feed it with <code>SetValue()</code>. Animation is driven by <code>SuperControl::Tick()</code> from <code>SuperForm::Service()</code>; without a form call <code>Update()</code> from <code>loop()</code>.</p>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetRange(min,max)</code></td><td>Value range</td></tr><tr><td><code>AddZone(from,to,colour)</code></td><td>Coloured band</td></tr><tr><td><code>SetSweep(startDeg,endDeg)</code></td><td>Dial angles</td></tr><tr><td><code>SetTicks(major,minor)</code></td><td>Tick marks</td></tr><tr><td><code>SetFormat(decimals, unit)</code></td><td>Value text</td></tr><tr><td><code>SetSmoothing(bool)</code></td><td>Glide on / off</td></tr><tr><td><code>SetMinMax(ms, deg, thick)</code></td><td>Window lines; windowMs 0 turns them off</td></tr><tr><td><code>SetValue(v)</code></td><td>Needle target</td></tr></table>
+<h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Feed it at a modest rate (the demo uses every 500 ms); the glide fills the gaps.</div><div class="box tip"><b class="h">Tip</b>Pick the window long enough to show a trend (seconds), and <code>minDegrees</code> a few degrees so a steady value shows no lines.</div>
+<h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>A sweep wider than a half dial makes the control centre a full circle and needs a taller body.</div><div class="box warn"><b class="h">Watch out</b>Without a <a href="../concepts/form.html">form</a> the glide and MinMax expiry only run if you call <code>Update()</code>.</div>
+<h2>See also</h2><p><a href="progressbar.html">SuperProgressBar</a> &middot; <a href="graph.html">SuperGraph</a> &middot; <a href="userdraw.html">SuperUserDraw</a></p>
+<div class="pn"><span>&larr; <a href="../controls/graph.html">SuperGraph</a></span><span><a href="../controls/userdraw.html">SuperUserDraw</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

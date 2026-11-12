@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperUserDraw - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item cur" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperUserDraw</h1>
+<p class="tag">The usual frame, label, focus and dimming; everything inside is yours.</p>
+<div class="badges"><span>Your drawing</span><span>src/SuperUserDraw.h</span></div>
+<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px"><figure><img src="../img/userdraw.png" alt="SuperUserDraw Rendered by the library" style="image-rendering:pixelated;max-width:100%"><figcaption>Rendered by the library</figcaption></figure></div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>
+<h2>Quick start</h2><pre><code>SuperUserDraw pad(&amp;lcd, 10, 10, 160, 100 /*body height*/);
+pad.SetBorder(1, TFT_WHITE); pad.SetLabel("Pad");
+pad.SetOnDraw([](SuperUserDraw&amp; c, lgfx::LGFX_Sprite* s, const SuperRect&amp; r, void*) {
+    s-&gt;drawCircle(r.x + r.w/2, r.y + r.h/2, 30, TFT_GREEN);
+});
+pad.SetAutoRedraw(50);            // animation</code></pre>
+<h2>Unique features</h2><ul><li><b>Normal mode</b>: <code>spr</code> is the control's render sprite, valid only during the callback, arriving holding the background and frame. The callback runs on every redraw (including focus changes) and must paint everything.</li><li><b>Persistent canvas</b> (<code>SetPersistent(true)</code>): a body-size canvas that keeps what you drew (traces, sketch pads, games). The callback runs only on <code>Repaint()</code> or auto-redraw; focus changes just re-blit. Costs width x height x 2 bytes.</li><li><code>SetAutoRedraw(ms)</code> repaints on a timer (driven by SuperForm); <code>DeltaMs()</code> gives the time since the previous draw event.</li><li><b>Pointer events</b>: <code>SetOnPointer(fn)</code> receives PRESS, MOVE, TAP, LONG_PRESS and always RELEASE, positioned relative to the body (may be outside while dragging).</li><li>Clip rectangle is already set to the body: drawing outside it is clipped.</li></ul>
+<h2>GUI workflow</h2><p>Without a pointer callback the control is display only (add with <code>focusable=false</code>). With one, touching the control focuses it and runs the gesture as an edit: it starts on touch-down, and when the finger lifts the edit ends and <code>SetOnAccept</code> fires. A key-started edit with no finger ends after <code>PointerGraceMs</code> (150 ms).</p>
+<h2>Event workflow</h2><pre><code>draw event:    void fn(SuperUserDraw&amp; ctl, lgfx::LGFX_Sprite* spr, const SuperRect&amp; body, void* user)
+pointer event: void fn(SuperUserDraw&amp; ctl, const SuperUserPointer&amp; e, void* user)   // e.Type, e.X, e.Y, e.StartX, e.StartY</code></pre>
+<p>Inside the pointer callback call <code>ctl.Invalidate()</code> or <code>Repaint()</code> to redraw; the control also refreshes after every pointer event.</p>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetOnDraw(fn,user)</code></td><td>Your drawing</td></tr><tr><td><code>SetOnPointer(fn,user)</code></td><td>Touch events</td></tr><tr><td><code>SetOnAccept(fn,user)</code></td><td>Gesture finished</td></tr><tr><td><code>SetPersistent(bool)</code></td><td>Own canvas that keeps its pixels</td></tr><tr><td><code>GetCanvas()</code></td><td>Draw outside the event (persistent mode)</td></tr><tr><td><code>Repaint() / Invalidate()</code></td><td>Ask for a redraw</td></tr><tr><td><code>SetAutoRedraw(ms)</code></td><td>Timer repaint</td></tr><tr><td><code>GetBodyRect()</code></td><td>Body rectangle in control coordinates</td></tr></table>
+<h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Use persistent mode for anything incremental; use normal mode for things that are cheap to redraw (it needs no extra RAM).</div><div class="box tip"><b class="h">Tip</b>Draw in the <code>r</code> rectangle you are given, not at fixed (0,0).</div>
+<h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>Do not keep the sprite pointer in normal mode, block in the callback or draw other controls from it.</div><div class="box warn"><b class="h">Watch out</b>The sprite is 16-bit byte-swapped RGB565: use LovyanGFX drawing calls, not the raw buffer. Avoid colour 0x0001 (transparent key when labels are not opaque).</div><div class="box warn"><b class="h">Watch out</b>Resizing the body recreates the persistent canvas: the picture is lost and the draw event runs again.</div>
+<h2>See also</h2><p><a href="gauge.html">SuperGauge</a> &middot; <a href="../concepts/new-control.html">Writing your own control</a></p>
+<div class="pn"><span>&larr; <a href="../controls/gauge.html">SuperGauge</a></span><span></span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

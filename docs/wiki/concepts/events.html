@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Events and workflow - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item cur" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Events and workflow</h1>
+<h2>From finger or knob to your callback</h2>
+<pre><code>Encoder ISR / button debounce          touch panel (lcd.getTouch)
+        \                                   |
+         SuperEditIO  &lt;--- Inject keys / steps --- SuperForm::PumpTouch -> OnPointer()
+              |
+      control.Service()  -> changes its working copy -> IO.Changed()  =&gt; OnChange
+              |
+      A long / lift      -> commits the copy          -> IO.Accepted() =&gt; OnAccept
+              |
+      SuperForm::SetOnEdit(fn)  fn(control, EDIT_ACCEPTED | EDIT_CANCELLED, user)</code></pre>
+<h2>Three places to listen</h2>
+<table><tr><th>Where</th><th>Granularity</th><th>Best for</th></tr>
+<tr><td>Control <code>SetOnChange</code></td><td>Every live change of one control</td><td>Previews, live read-outs</td></tr>
+<tr><td>Control <code>SetOnAccept</code></td><td>One control, once per accepted edit</td><td>Saving a setting</td></tr>
+<tr><td>Form <code>SetOnEdit</code></td><td>Any control, accepted or cancelled</td><td>One central handler, page switching, logging</td></tr></table>
+<h2>Instant controls</h2>
+<p>Check box, radio button and push button act in <code>StartEdit()</code> and report <code>EDIT_ACCEPTED</code> on the next <code>Service()</code>; their <code>OnChange</code> and <code>OnAccept</code> fire together.</p>
+<h2>Animation clocks</h2>
+<p><code>SuperControl::Tick()</code> is driven by <code>SuperForm::Service()</code>. The gauge glide and MinMax expiry and the user-draw auto-redraw use it; without a form call the control's <code>Update()</code> from <code>loop()</code>.</p>
+<div class="box tip"><b class="h">Keep callbacks short</b><p>Callbacks run inside <code>Service()</code>, i.e. inside the UI loop. Set a flag or store a value; do not block, and do not open a modal control from inside another control's <code>OnChange</code>.</p></div>
+<div class="pn"><span>&larr; <a href="../concepts/touch.html">Touch</a></span><span><a href="../concepts/form.html">SuperForm: focus and screens</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Input: encoder and buttons - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item cur" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Input: encoder and buttons</h1>
+<table><tr><th>Input</th><th>Action</th></tr>
+<tr><td>Encoder</td><td>Move / change. <code>SuperEncoder</code> already scales speed (1 / 5 / 20); lists with 20 items or fewer step by sign only.</td></tr>
+<tr><td>Button A short</td><td>Select / next slot. Input box: edit the slot. Colour picker: next component. Menu / list / tabs: choose.</td></tr>
+<tr><td>Button A long</td><td>Accept.</td></tr>
+<tr><td>Button B short</td><td>Cancel. Menu: back one level.</td></tr>
+<tr><td>Button B long</td><td>Revert and keep editing. Menu: leave.</td></tr>
+<tr><td>Medium click, double flag</td><td>Ignored on purpose: a reset must feel intentional.</td></tr></table>
+<h2>Desktop emulation</h2>
+<p>Mouse wheel = encoder, wheel click = Button A, right click = Button B (<code>desktop_input.h</code>). The left mouse button is the touch panel.</p>
+<h2>Where touch and keys meet</h2>
+<p>Touch events are converted into the same keys and encoder steps (they are <em>injected</em> into the control's <code>SuperEditIO</code>), so a user can start with the finger and finish with the encoder in the same edit.</p>
+<div class="box warn"><b class="h">Pins</b>A phantom Button B or random cancels on a touch board usually means a button or encoder pin collides with another part's pin such as <code>TOUCH_INT</code>. Check <code>Pins.h</code> before choosing pins.</div>
+
+<div class="pn"><span>&larr; <a href="../concepts/edit-contract.html">The edit contract</a></span><span><a href="../concepts/touch.html">Touch</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

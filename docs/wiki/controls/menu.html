@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperMenu - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item cur" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperMenu</h1>
+<p class="tag">Items with children open sub-menus; leaves are commands with your own id.</p>
+<div class="badges"><span>Editable (modal edit)</span><span>src/SuperMenu.h</span></div>
+<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px"><figure><img src="../img/menu.png" alt="SuperMenu Focused, idle" style="image-rendering:pixelated;max-width:100%"><figcaption>Focused, idle</figcaption></figure><figure><img src="../img/menu_edit.png" alt="SuperMenu While editing" style="image-rendering:pixelated;max-width:100%"><figcaption>While editing</figcaption></figure></div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>
+<h2>Quick start</h2><pre><code>SuperMenu m(&amp;lcd, 10, 10, 200, &amp;lgfx::fonts::Font2, 5, &amp;Enc, &amp;BtnA, &amp;BtnB);
+auto* settings = m.AddItem("Settings", 0);
+m.AddItem("Brightness", 11, settings);
+m.AddItem("Sound", 12, settings);
+m.AddItem("About", 20);
+if (m.BeginEdit()) { int id = m.GetResultId(); }</code></pre>
+<h2>Unique features</h2><ul><li><code>AddItem(text, id, parent)</code>; a nullptr parent is the top level. Items are pooled in a deque so pointers stay valid.</li><li>Sub-levels start with a "&lt; Back" row (<code>ShowBack = false</code> hides it).</li><li>Grey triangles show hidden items.</li><li>Touches are ignored for <code>TouchGuardMs</code> (250) after the level changes, so a quick second touch cannot hit the Back row that just appeared.</li></ul>
+<h2>GUI workflow</h2><p>Encoder moves the cursor. A short/long opens a sub-menu or chooses a leaf. B short = back one level (cancel at the top). B long = leave from any depth.</p><p>Touch: the row under the finger highlights; slide to follow (edge hold scrolls); lift opens / chooses / goes back. Lifting over blank space does nothing; lifting off to the side or tapping outside leaves; long press = back.</p>
+<h2>Event workflow</h2><p><a href="../concepts/edit-contract.html">edit contract</a>. <code>OnChange</code> = the cursor or level changed; <code>OnAccept</code> = a leaf was chosen. Read <code>GetResultId()</code> / <code>GetResultItem()</code>.</p>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>AddItem(text,id,parent)</code></td><td>Returns the item pointer to use as a parent</td></tr><tr><td><code>GetResultId()</code></td><td>Chosen leaf id, -1 if none</td></tr><tr><td><code>GetResultItem()</code></td><td>Chosen item</td></tr><tr><td><code>GetCurrentLevel()</code></td><td>nullptr = top level</td></tr><tr><td><code>Clear()</code></td><td>Remove all items</td></tr></table>
+<h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Choose ids with meaning (an enum of commands) rather than indices.</div>
+<h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>A non-leaf item never returns a result; only leaves do.</div>
+<h2>See also</h2><p><a href="listbox.html">SuperListBox</a> &middot; <a href="tabbar.html">SuperTabBar</a></p>
+<div class="pn"><span>&larr; <a href="../controls/combobox.html">SuperComboBox</a></span><span><a href="../controls/tabbar.html">SuperTabBar</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

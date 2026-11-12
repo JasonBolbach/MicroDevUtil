@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperSpinBox - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item cur" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperSpinBox</h1>
+<p class="tag">An integer with range, step, wrap, decimals, prefix and suffix. The encoder changes the whole value.</p>
+<div class="badges"><span>Editable (modal edit)</span><span>src/SuperSpinBox.h</span></div>
+<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px"><figure><img src="../img/spinbox.png" alt="SuperSpinBox Focused, idle" style="image-rendering:pixelated;max-width:100%"><figcaption>Focused, idle</figcaption></figure><figure><img src="../img/spinbox_edit.png" alt="SuperSpinBox While editing" style="image-rendering:pixelated;max-width:100%"><figcaption>While editing</figcaption></figure></div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>
+<h2>Quick start</h2><pre><code>SuperSpinBox temp(&amp;lcd, 10, 10, 120, &amp;lgfx::fonts::Font2, &amp;Enc, &amp;BtnA, &amp;BtnB);
+temp.SetRange(-400, 1250); temp.SetStep(5);
+temp.SetDecimals(1); temp.SetSuffix(" C");   // value 125 shows as 12.5 C
+temp.SetValue(215);</code></pre>
+<h2>Unique features</h2><ul><li><code>SetDecimals(n)</code> only affects display: the value stays an integer (125 shows as 12.5), so store and compare integers.</li><li>Optional wrap-around: <code>SetWrap(true)</code> goes from max to min.</li><li>Prefix / suffix text (<code>"$"</code>, <code>" C"</code>, <code>" %"</code>).</li><li>Digits get a fixed cell width so the text does not shift while the value changes.</li><li><code>SetValidator(fn)</code> can refuse a value at accept.</li></ul>
+<h2>GUI workflow</h2><p>Encoder changes the value by detents x step (speed scaling applies). A short/long = accept, B short = cancel, B long = revert and keep editing.</p><p>Touch: touching activates it (even idle); drag up/down changes the value live; lift accepts. A plain tap: left third = one step down, right third = one step up (and accepts), middle = accept unchanged. <code>-</code> / <code>+</code> hints are drawn while editing (<code>ShowTouchHints = false</code> hides them).</p>
+<h2>Event workflow</h2><p><a href="../concepts/edit-contract.html">edit contract</a>. <code>OnChange</code> per step; <code>OnAccept</code> once.</p>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetRange(min,max)</code></td><td>Clamps the current value</td></tr><tr><td><code>SetStep(s)</code></td><td>Change per detent</td></tr><tr><td><code>SetWrap(b)</code></td><td>Wrap at the ends</td></tr><tr><td><code>SetDecimals(d)</code></td><td>0-6 display decimals</td></tr><tr><td><code>SetPrefix/SetSuffix</code></td><td>Text around the number</td></tr><tr><td><code>SetValue/GetValue</code></td><td>Integer value</td></tr></table>
+<h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Use a large step with a fine decimal display for quick coarse changes (step 5 with 1 decimal).</div>
+<h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>With decimals, <code>SetRange(0, 100)</code> means 0.0 to 10.0. Think in scaled integers.</div><div class="box warn"><b class="h">Watch out</b>Rapid encoder ticks accelerate on purpose; do not "fix" big jumps in a test by faking ticks.</div>
+<h2>See also</h2><p><a href="slider.html">SuperSlider</a></p>
+<div class="pn"><span>&larr; <a href="../controls/inputbox.html">SuperInputBox</a></span><span><a href="../controls/timebox.html">SuperTimeBox</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

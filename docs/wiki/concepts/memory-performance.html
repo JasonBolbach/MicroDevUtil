@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Memory and performance - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item cur" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Memory and performance</h1>
+<p>Each control owns one 16-bit sprite: <code>width x height x 2</code> bytes, where height = font height + 2 x (border + padding) [+ label height]. On a Pico W (264 KB RAM) this matters; on an S3 with PSRAM it rarely does.</p>
+<table><tr><th>Switch</th><th>What it does</th><th>When</th></tr>
+<tr><td><code>SuperControl::SharedBuffer = true</code></td><td>One render buffer, the size of the biggest control, shared by all. Identical pixels, about the same speed.</td><td>RAM is tight</td></tr>
+<tr><td><code>SuperControl::UseDMA = true</code></td><td>Two alternating DMA buffers; render the next control while the last one is sent.</td><td>SPI panels, with SharedBuffer</td></tr>
+<tr><td><code>SuperControl::LabelOpaque = true</code></td><td>Solid label background instead of key-colour transparency (DMA needs it).</td><td>With DMA</td></tr>
+<tr><td><code>SuperControl::UsePsram = true</code></td><td>Allocate sprites in PSRAM.</td><td>ESP32-S3 with PSRAM</td></tr>
+<tr><td><code>SetVisible(v, false)</code> + one <code>Form.Draw()</code></td><td>Switch pages without a redraw per control. Hidden controls free their sprite.</td><td>Page changes</td></tr></table>
+<h2>Measured (Freenove S3, 80 MHz SPI, octal PSRAM)</h2>
+<p>Full page redraw 28 ms (was 44 ms); drags about 80 fps; internal heap about 162 KB free with 2 x 78 KB DMA buffers. Slider / progress / graph pushes are about 7 ms each; partial (dirty-rectangle) redraws are not built.</p>
+<h2>Counters</h2>
+<p><code>SuperControl::CollectStats = true</code> accumulates <code>StatDraws, StatRenderUs, StatDimUs, StatPushUs</code>; <code>ResetStats()</code> clears them.</p>
+<div class="box warn"><b class="h">Blank control, only the focus box shows</b><p>Sprite allocation failed (out of RAM). The control draws a red outline when it happens. Turn on <code>SharedBuffer</code> or <code>UsePsram</code>, or reduce the number of visible controls.</p></div>
+<div class="pn"><span>&larr; <a href="../concepts/theming.html">Themes and styles</a></span><span><a href="../concepts/pitfalls.html">Pitfalls and fixes</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

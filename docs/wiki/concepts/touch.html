@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Touch - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item cur" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Touch</h1>
+<p>Touch is optional. Give the form a <code>SuperTouch</code> wrapped around <code>lcd.getTouch()</code> and call <code>form.Service()</code>; every control then understands fingers.</p>
+<pre><code>SuperTouch touch(readFn); touch.ClickD_MAX = 0;
+form.SetTouch(&amp;touch);</code></pre>
+<h2>The model</h2>
+<div class="flow"><span>Finger down (PRESS): highlight the slot under it</span><i>&rarr;</i><span>Drag: change / move</span><i>&rarr;</i><span>Lift: accept</span></div>
+<table><tr><th>Gesture</th><th>Idle control</th><th>Control being edited</th></tr>
+<tr><td>Tap</td><td>Focus it and start editing (one tap)</td><td>Same as A short; <b>tap outside = cancel</b></td></tr>
+<tr><td>Long press</td><td>-</td><td>Same as A long (accept)</td></tr>
+<tr><td>Drag up/down</td><td>-</td><td>Encoder steps, <code>SuperControl::TouchDragStepPx</code> pixels per step (default 4)</td></tr></table>
+<h2>Which controls react how</h2>
+<ul><li><b>StartOnPress</b> controls start editing on touch-down: input box family, time/date box, spin box, list box, combo box (press opens it), menu, slider, colour picker bands.</li>
+<li><b>IdleTapActs</b> controls act on the first tap: tab bar and menu. Instant controls (check box, radio button, push button) simply act on a tap.</li>
+<li><b>Precise picking</b>: list, combo, menu, tabs, message box, slider and colour picker map the finger position directly to the item or value.</li></ul>
+<h2>Under the hood</h2>
+<p><code>SuperForm::PumpTouch()</code> converts <code>SuperTouchEvent</code>s into <code>SuperPointerEvent</code>s (PRESS, DRAG_START, DRAG_MOVE, DRAG_END, TAP, LONG_PRESS) and routes them to the edited control or the form's active one. Controls override <code>OnPointer()</code>; most call <code>SuperPointerDefault(IO, *this, e, stepPx)</code>.</p>
+<h2>Globals</h2>
+<table><tr><th>Setting</th><th>Default</th><th>Effect</th></tr>
+<tr><td><code>SuperControl::TouchPad</code></td><td>4</td><td>Extra pixels around a control that still count as a hit</td></tr>
+<tr><td><code>SuperControl::TouchDragStepPx</code></td><td>4</td><td>Pixels of drag per encoder step (smaller = more sensitive)</td></tr>
+<tr><td><code>TouchAcceptOnLift</code></td><td>true</td><td>Per control: lift accepts. False = lift only selects, long press accepts</td></tr></table>
+<div class="box warn"><b class="h">Desktop mouse coordinates</b><p>Never map SDL mouse coordinates by hand: the window is resizable and hi-dpi. Use LovyanGFX's own SDL touch emulation through <code>lcd.getTouch()</code>.</p></div><div class="box tip"><b class="h">Drag anchors</b><p>A DRAG_START event can already carry a moved position (moves are merged). Anchor drags at <code>StartX/StartY</code>.</p></div>
+<div class="pn"><span>&larr; <a href="../concepts/input.html">Input: encoder and buttons</a></span><span><a href="../concepts/events.html">Events and workflow</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

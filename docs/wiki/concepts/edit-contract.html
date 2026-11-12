@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The edit contract - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item cur" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>The edit contract</h1>
+<table><tr><th>Call</th><th>Meaning</th></tr>
+<tr><td><code>StartEdit()</code></td><td>Non-blocking begin. Returns false if it cannot edit (empty list, display only...).</td></tr>
+<tr><td><code>Service()</code></td><td>Call often. Returns <code>EDIT_ACTIVE</code> while editing, then <code>EDIT_ACCEPTED</code> or <code>EDIT_CANCELLED</code> <b>once</b>, then <code>EDIT_IDLE</code>.</td></tr>
+<tr><td><code>BeginEdit()</code></td><td>Blocking wrapper. False if disabled/hidden; true only if accepted.</td></tr>
+<tr><td><code>SetOnChange(fn,user)</code></td><td>The value being edited changed (live). List / combo / tabs / menu: the cursor moved.</td></tr>
+<tr><td><code>SetOnAccept(fn,user)</code></td><td>Accepted. The stored value is already the new one.</td></tr>
+<tr><td><code>SetAbort(fn)</code></td><td>Polled in <code>Service()</code>; returning true cancels (desktop: <code>Quitting()</code>).</td></tr></table>
+<div class="flow"><span>StartEdit()</span><i>&rarr;</i><span>Service() = EDIT_ACTIVE ...</span><i>&rarr;</i><span>EDIT_ACCEPTED or EDIT_CANCELLED (once)</span><i>&rarr;</i><span>EDIT_IDLE</span></div>
+<h2>The rule that matters most</h2>
+<div class="box note"><b class="h">Stored values change only on accept</b><p>While editing, the control works on a copy. <code>GetValue()</code> keeps returning the old value until the user accepts. Cancel (B short) throws the copy away; B long reverts the copy to the start and keeps editing.</p></div>
+<h2>Callbacks in detail</h2>
+<ul><li><code>OnChange</code> fires on every live change: use it for previews (a colour swatch, a volume you want to hear while turning).</li>
+<li><code>OnAccept</code> fires once when the edit is accepted: use it to store the setting.</li>
+<li>Instant controls fire both, <code>OnChange</code> first. The push button has <code>OnAccept</code> only. The radio group passes the new index.</li>
+<li>Callbacks are plain function pointers <code>void (*)(void* user)</code>; pass a captureless lambda and put your object in <code>user</code>.</li></ul>
+<pre><code>spin.SetOnAccept([](void* u){ auto* s = (SuperSpinBox*)u; save(s-&gt;GetValue()); }, &amp;spin);</code></pre>
+<h2>Non-blocking loop</h2>
+<pre><code>spin.StartEdit();
+for (;;) {
+  SuperEditState st = spin.Service();
+  if (st == EDIT_ACCEPTED) { ...; break; }
+  if (st == EDIT_CANCELLED) break;
+  doOtherWork();
+}</code></pre>
+
+<div class="pn"><span>&larr; <a href="../concepts/architecture.html">Architecture and class map</a></span><span><a href="../concepts/input.html">Input: encoder and buttons</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperListBox - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item cur" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperListBox</h1>
+<p class="tag">A list of text items with a fixed number of visible rows.</p>
+<div class="badges"><span>Editable (modal edit)</span><span>src/SuperListBox.h</span></div>
+<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px"><figure><img src="../img/listbox.png" alt="SuperListBox Focused, idle" style="image-rendering:pixelated;max-width:100%"><figcaption>Focused, idle</figcaption></figure><figure><img src="../img/listbox_edit.png" alt="SuperListBox While editing" style="image-rendering:pixelated;max-width:100%"><figcaption>While editing</figcaption></figure></div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>
+<h2>Quick start</h2><pre><code>SuperListBox lb(&amp;lcd, 10, 10, 160, &amp;lgfx::fonts::Font2, 5 /*rows*/, &amp;Enc, &amp;BtnA, &amp;BtnB);
+lb.SetItems({"Red", "Green", "Blue", "Cyan", "Magenta", "Yellow"});
+lb.SetSelected(1);</code></pre>
+<h2>Unique features</h2><ul><li>Height = rows x (font height + 2 x <code>RowPad</code>) + frame.</li><li>Selected row uses <code>ColSel/ColSelFg</code>; the cursor row during editing uses <code>ColCursor/ColCursorFg</code>.</li><li>Grey triangles at the right edge show hidden rows above / below.</li><li><code>Wrap</code> makes the cursor wrap at the ends.</li><li>Lists with 20 items or fewer step by sign only, so a fast spin never skips an item.</li></ul>
+<h2>GUI workflow</h2><p>Encoder moves the cursor (stops at the ends or wraps). A short/long accepts the cursor row as the selected item. B short cancels; B long moves the cursor back to the selected item and keeps editing.</p><p>Touch: the highlighted row is the one under the finger. Touching highlights at once; sliding moves the highlight; lift accepts. Holding above the first or below the last visible row auto-scrolls (<code>AutoScrollMs</code>, default 120). Lifting off to the side or tapping outside cancels.</p>
+<h2>Event workflow</h2><p><a href="../concepts/edit-contract.html">edit contract</a>. <code>OnChange</code> = the cursor moved; <code>OnAccept</code> = a row was chosen (<code>GetSelected()</code> is already new).</p>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>AddItem / SetItems / ClearItems</code></td><td>Content</td></tr><tr><td><code>SetSelected(i) / GetSelected()</code></td><td>Chosen index (-1 when empty)</td></tr><tr><td><code>GetSelectedText()</code></td><td>Chosen text</td></tr><tr><td><code>GetCursor()</code></td><td>Index under the cursor while editing</td></tr><tr><td><code>SetRows(n)</code></td><td>Visible rows</td></tr></table>
+<h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Use the live <code>OnChange</code> for a preview of the item under the cursor.</div>
+<h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>An empty list returns false from <code>StartEdit()</code>.</div>
+<h2>See also</h2><p><a href="combobox.html">SuperComboBox</a> &middot; <a href="menu.html">SuperMenu</a></p>
+<div class="pn"><span>&larr; <a href="../controls/slider.html">SuperSlider</a></span><span><a href="../controls/combobox.html">SuperComboBox</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

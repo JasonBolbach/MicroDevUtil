@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Getting started - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item cur" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Getting started</h1>
+<p>Every control needs three things: a LovyanGFX destination (a display or a sprite), a position and width, and, for the editable ones, a <code>SuperEncoder</code> and two <code>SuperButton</code>s.</p>
+<pre><code>#include &lt;LovyanGFX.hpp&gt;
+#include "SuperSpinBox.h"
+
+LGFX         lcd;                         // your LovyanGFX display class
+SuperEncoder Enc(2, 3);                   // A / B pins
+SuperButton  BtnA(4, true), BtnB(5, true);// active low
+
+SuperSpinBox spin(&amp;lcd, 10, 10, 120, &amp;lgfx::fonts::Font2, &amp;Enc, &amp;BtnA, &amp;BtnB);
+
+void setup() {
+  lcd.init(); lcd.fillScreen(TFT_BLACK);
+  Enc.Begin(); BtnA.Begin(INPUT_PULLUP); BtnB.Begin(INPUT_PULLUP);
+  spin.SetRange(0, 100); spin.SetLabel("Volume"); spin.SetValue(50);
+  spin.DrawPreview(true);                 // draw it (with the focus box)
+}
+void loop() { if (spin.BeginEdit()) { /* accepted: spin.GetValue() */ } }</code></pre>
+<h2>Three ways to run a control</h2>
+<table><tr><th>Style</th><th>How</th><th>Use when</th></tr>
+<tr><td>Blocking</td><td><code>if (c.BeginEdit()) ...</code> returns when the user accepts or cancels</td><td>A single modal dialog, simple sketches</td></tr>
+<tr><td>Non-blocking</td><td><code>c.StartEdit()</code> then call <code>c.Service()</code> from <code>loop()</code></td><td>Anything that must keep running (sensors, animation, networking)</td></tr>
+<tr><td>Form</td><td><code>SuperForm</code> owns the focus and the edit of many controls</td><td>A real screen of controls. <b>Recommended.</b></td></tr></table>
+<p>Most screens should use <a href="form.html">SuperForm</a>. It also drives touch, animation timers (gauge glide, auto-redraw) and redraws.</p>
+
+<div class="pn"><span></span><span><a href="../concepts/architecture.html">Architecture and class map</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

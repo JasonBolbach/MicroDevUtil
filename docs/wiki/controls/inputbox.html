@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperInputBox - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item cur" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperInputBox</h1>
+<p class="tag">Fixed-format input defined by a template, such as an IP address, a PIN or a licence plate.</p>
+<div class="badges"><span>Editable (modal edit)</span><span>src/SuperInputBox.h</span></div>
+<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px"><figure><img src="../img/inputbox.png" alt="SuperInputBox Focused, idle" style="image-rendering:pixelated;max-width:100%"><figcaption>Focused, idle</figcaption></figure><figure><img src="../img/inputbox_edit.png" alt="SuperInputBox While editing" style="image-rendering:pixelated;max-width:100%"><figcaption>While editing</figcaption></figure></div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>
+<h2>Quick start</h2><pre><code>SuperInputBox ip(&amp;lcd, 10, 10, 160, &amp;lgfx::fonts::Font2, "###.###.###.###", &amp;Enc, &amp;BtnA, &amp;BtnB);
+ip.SetLabel("IP address");
+ip.SetValue("192168001010");          // digits only, literals are skipped
+ip.SetOnAccept([](void*){ /* ip.GetValue() */ });</code></pre>
+<h2>Unique features</h2><ul><li>Template characters: <code>#</code> digit, <code>A</code> upper, <code>a</code> lower, <code>B</code> both, <code>*</code> any typeable key. Everything else is a literal: drawn, skipped by <code>GetValue()</code>.</li><li><code>GetValue()</code> returns only the typed slots (<code>"123456789"</code> for <code>###.###.###</code>); <code>GetDisplay()</code> returns the formatted text.</li><li>Short values are padded on the left when every slot is a digit (<code>"42"</code> in <code>###</code> gives <code>042</code>), otherwise on the right.</li><li><code>SetValidator(fn)</code> can refuse an accept; the edit then stays open.</li></ul>
+<h2>GUI workflow</h2><p>Two levels: <b>selecting</b> a slot (encoder moves between slots, text scrolls), then <b>editing</b> the slot (encoder scrolls its characters, wrapping). A short = slot edit / finish slot, A long = accept, B short = cancel, B long = revert and keep editing at the cursor.</p><p>Touch: touch a character and it highlights at once; drag up/down changes it; lift accepts. Tap <code>&lt;</code> / <code>&gt;</code> to scroll, tap outside to cancel.</p>
+<h2>Event workflow</h2><p><a href="../concepts/edit-contract.html">edit contract</a>: <code>OnChange</code> on every character change, <code>OnAccept</code> once after the validator agrees (the stored value is then new).</p>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetValue(v)</code></td><td>Set from typed characters; returns false if it does not fit the template</td></tr><tr><td><code>GetValue()</code></td><td>Typed characters only</td></tr><tr><td><code>GetDisplay()</code></td><td>Formatted text including literals</td></tr><tr><td><code>SetValidator(fn,user)</code></td><td>Veto an accept</td></tr></table>
+<h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Use a validator for ranges the template cannot express (octets 0-255, a valid month).</div><div class="box tip"><b class="h">Tip</b><code>TouchAcceptOnLift = false</code> gives the older touch style: lift only selects, tap the slot again to finish.</div>
+<h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>A validator that refuses keeps the edit open with no message: show your own hint in <code>OnChange</code> if the user could be confused.</div>
+<h2>See also</h2><p><a href="spinbox.html">SuperSpinBox</a> for plain numbers &middot; <a href="timebox.html">SuperTimeBox</a></p>
+<div class="pn"><span>&larr; <a href="../controls/textbox.html">SuperTextBox</a></span><span><a href="../controls/spinbox.html">SuperSpinBox</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

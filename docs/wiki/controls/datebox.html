@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperDateBox - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item cur" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperDateBox</h1>
+<p class="tag">A date made of year, month and day fields. Changing the month pulls the day back into range.</p>
+<div class="badges"><span>Editable (modal edit)</span><span>src/SuperTimeBox.h</span></div>
+<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px"><figure><img src="../img/datebox.png" alt="SuperDateBox Focused, idle" style="image-rendering:pixelated;max-width:100%"><figcaption>Focused, idle</figcaption></figure><figure><img src="../img/datebox_edit.png" alt="SuperDateBox While editing" style="image-rendering:pixelated;max-width:100%"><figcaption>While editing</figcaption></figure></div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>
+<h2>Quick start</h2><pre><code>SuperDateBox d(&amp;lcd, 10, 10, 130, &amp;lgfx::fonts::Font2, &amp;Enc, &amp;BtnA, &amp;BtnB, DATE_YMD);
+d.SetLabel("Date (YMD)");
+d.SetDate(2026, 12, 31);
+// d.GetValue() == "2026-12-31"   in every style</code></pre>
+<h2>Unique features</h2><ul><li>Two display styles: <code>DATE_YMD</code> and <code>DATE_MDY</code> (<code>SetStyle</code>). The <b>value is always <code>YYYY-MM-DD</code></b>, independent of the style.</li><li>Day follows month: changing 12-31 to February gives 28 or 29 depending on the leap year.</li><li><code>SetYearRange(min,max)</code>, default 1970..2099.</li><li><code>SetSeparator(c)</code> (default <code>-</code>).</li></ul>
+<h2>GUI workflow</h2><p>Same as the time box: encoder changes the current field, A short = next field in <em>display</em> order, A long = accept. Touch: select a field, drag, lift to accept.</p>
+<h2>Event workflow</h2><p><a href="../concepts/edit-contract.html">edit contract</a>. <code>OnChange</code> also fires when a constrained day moves because the month changed.</p>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetDate(y,m,d)</code></td><td>false if invalid</td></tr><tr><td><code>GetYear/GetMonth/GetDay</code></td><td>Fields</td></tr><tr><td><code>GetValue()/SetValue(str)</code></td><td>"YYYY-MM-DD"</td></tr><tr><td><code>SetStyle(DATE_YMD|DATE_MDY)</code></td><td>Display order only</td></tr><tr><td><code>SetYearRange(a,b)</code></td><td>Allowed years</td></tr><tr><td><code>DaysInMonth(y,m)</code></td><td>Leap years handled</td></tr></table>
+<h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Put the style in the label ("Date (YMD)") so users know the order.</div>
+<h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>Parse and store the value, not the displayed text: the display order changes with the style.</div>
+<h2>See also</h2><p><a href="timebox.html">SuperTimeBox</a></p>
+<div class="pn"><span>&larr; <a href="../controls/timebox.html">SuperTimeBox</a></span><span><a href="../controls/slider.html">SuperSlider</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>
