@@ -149,6 +149,12 @@ public:
     DrawStatus();
   }
 
+  // Optional: polled by every editing control; return true to cancel the edit (the desktop demo uses it so closing the window ends a blocking edit).
+  void SetAbort(bool (*fn)()) {
+    Phone->SetAbort(fn); Name->SetAbort(fn); Level->SetAbort(fn); TimeBox->SetAbort(fn); DateBox->SetAbort(fn); Picker->SetAbort(fn);
+    Combo->SetAbort(fn); Items->SetAbort(fn); Slide->SetAbort(fn); Menu->SetAbort(fn); Tabs->SetAbort(fn); Msg->SetAbort(fn);
+  }
+
   // Call from loop(): handles input, feeds the graph, redraws the status strip.
   void Service() {
     uint32_t now = lgfx::millis();
