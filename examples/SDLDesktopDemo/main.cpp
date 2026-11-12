@@ -12,6 +12,9 @@
 
 using namespace DesktopInput;
 
+// true: draw every control in the Sleek style (label on the frame line, left / centre / right). false: the standard look.
+constexpr bool USE_SLEEK = false;
+
 static LGFX* lcd = nullptr;
 static DemoUI ui;
 
@@ -33,6 +36,7 @@ void setup() {
   // The shared-buffer / DMA options work here too (DMA is a plain copy on the desktop):
   //   SuperControl::SharedBuffer = true; SuperControl::UseDMA = true; SuperControl::LabelOpaque = true;
   ui.Begin(lcd, &Enc, &ButtonA, &ButtonB, &Touch);
+  if (USE_SLEEK) ui.ApplyStyle(true);
   ui.SetAbort(Quitting);                // closing the window ends a blocking edit (e.g. the message box)
 }
 

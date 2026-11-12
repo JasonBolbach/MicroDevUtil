@@ -30,3 +30,8 @@ tap outside = cancel. Tuning knobs: `SuperControl::TouchPad` (hit area) and `Sup
 ## Notes
 - Combo / message box popups redraw the page when they close (SPI panels can't be read back).
 - `src/DemoUI.h` is the demo, `src/main.cpp` is only hardware.
+
+## Styles
+The Choose page has a **Sleek style** check box that switches every control between the standard frames and the Sleek look (label on the frame
+line) live. Labels are small and left-aligned throughout: `DemoUI::LabelFont` (default `Font0`, set it to `&lgfx::fonts::Font2` for larger labels)
+is applied to every control in `Begin()`.

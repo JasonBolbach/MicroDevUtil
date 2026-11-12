@@ -24,11 +24,31 @@ Each control renders into its **own `LGFX_Sprite`** and pushes itself to a desti
 | `SuperGraph` | display-only scrolling line graph |
 | `SuperForm` | not a control: focus handling for a set of controls (wheel moves the highlight, A edits) |
 
-Common to all (`SuperControl.h`): border (standard or ThreeD bevel), padding, optional label above / below with its own
+Common to all (`SuperControl.h`): border (standard, ThreeD bevel or Sleek, see below), padding, optional label above / below with its own
 font / color / alignment, public colour variables, `SetDisplayPos`, `DrawPreview(highlight)`,
 `SetEnabled(bool)` (drawn dimmed, can't be edited, skipped by `SuperForm`), `SetVisible(bool)` (erased with
 `ColHighlightClear`, not drawn), and `ApplyTheme(SuperTheme::Dark() / Light() / your own)`, which sets all colours,
 border size / style and padding in one call.
+
+### Sleek style
+`SetBorderStyle(SuperControl::BORDER_SLEEK)` (or `SuperTheme::BorderStyle = 2`): a plain one-colour frame (`SetBorder(size, colour)`) with the
+label sitting **on** the frame line, like a fieldset legend. The frame line runs through the middle of the label, so the box the controls use
+is unchanged; the visible frame just extends half a label height beyond it.
+- `SetLabelAlign(ALIGN_LEFT / ALIGN_CENTER / ALIGN_RIGHT)` places the label. With LEFT or RIGHT a short stub of the line is drawn between the
+  corner and the label (`SleekMargin`, default 8 px from the side; `SleekGap`, default 3 px of blank line each side of the text); with CENTER
+  the line runs to both sides.
+- A label wider than the frame allows (`width - 2 * SleekMargin`) is cut at the last letter that fits and `...` is appended:
+  "Really Long Label" in a narrow box shows as "Really Lo...".
+- `SetLabel(text, LABEL_BELOW)` puts the label on the bottom line instead. Without a label a Sleek control is just a plain frame.
+- Works with every control, with `SharedBuffer` / DMA / `LabelOpaque`, and with the focus highlight. See `examples/SleekExample`.
+
+### Label font and alignment: per control, or from the theme
+Each control has its own label font (`SetLabelFont`, default: that control's body font at construction, so a big-font box gets a big label) and
+alignment (`SetLabelAlign`, default left). To set them for a whole UI at once, put them in a theme and call `ApplyTheme` on each control:
+`SuperTheme t = SuperTheme::Dark(); t.LabelFont = &lgfx::fonts::Font0; t.LabelAlign = 0; t.BorderStyle = 2;` (`LabelFont = nullptr` and
+`LabelAlign = -1` mean "leave each control's own", which is the default). `ApplyTheme` also sets all the colours, so use it where you want the
+theme's colours as well; otherwise loop over your controls calling `SetLabelFont` / `SetLabelAlign`, as the demos do.
+
 
 ## Input
 Encoder = move / change. ButtonA short = start edit / select. ButtonA long = accept. ButtonB short = cancel.

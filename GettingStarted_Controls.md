@@ -61,7 +61,7 @@ void setup() {
 **Step 1.5 - Rules that apply to all controls**
 - A control is created with the destination (`&lcd`), position `x, y`, width, and a font. Height follows the font.
 - It draws into its own sprite and pushes itself to the destination.
-- Style it after construction: `SetLabel("Name")`, `SetBorder(1, TFT_WHITE)`, `SetPadding(2)`, `SetColors(fg, bg)`, `ApplyTheme(SuperTheme::Dark())`.
+- Style it after construction: `SetLabel("Name")`, `SetBorder(1, TFT_WHITE)`, `SetBorderStyle(SuperControl::BORDER_SLEEK)` (label on the frame line, `SetLabelAlign` left / centre / right, see `examples/SleekExample`), `SetPadding(2)`, `SetColors(fg, bg)`, `ApplyTheme(SuperTheme::Dark())`.
 - `SetEnabled(false)` greys it out; `SetVisible(false)` hides it (set `ColHighlightClear` to your screen background first so hiding erases cleanly).
 - Controls are global objects (they must outlive their use); don't copy them.
 

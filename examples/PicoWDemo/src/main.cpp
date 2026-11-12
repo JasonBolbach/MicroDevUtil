@@ -1,33 +1,30 @@
-// SuperGUI hardware test: Raspberry Pi Pico 2 W + 320x240 SPI LCD + rotary encoder + two buttons.
+// SuperGUI hardware demo: Raspberry Pi Pico W (RP2040) or Pico 2 W (RP2350) + 320x240 SPI LCD + rotary encoder + two buttons.
 //
-// 1. Put your LovyanGFX display class in include/ (this example uses LGFX_User_TE004.h, class LGFX_TE004).
-// 2. Set the pin numbers in include/Pins.h (GP numbers) to match your wiring.
+// 1. The display class is include/LGFX_User_TE004.h (class LGFX_TE004, the TE004 board). Replace it for another display.
+// 2. All GPIO numbers are in include/Pins.h; the build stops if two parts share a pin or a pin is not usable.
 // 3. Upload, open the serial monitor (115200, the Pico's USB port) for the memory / draw-time log lines.
 //
 // Encoder = move the highlight / change a value.  ButtonA short = edit the highlighted control.
 // Inside an edit: ButtonA long = accept, ButtonB short = cancel, ButtonB long = revert.
 #include <Arduino.h>
+#include "Pins.h"
 #include "LGFX_User_TE004.h"
 #include <SuperButton.h>
 #include <SuperEncoder.h>
 #include "DemoUI.h"
 
-// Debug output goes to the USB serial port (`Serial`, the USB CDC port on the Pico). To use the hardware UART instead (GP0 = TX, GP1 = RX)
-// change DBG to Serial1 and call Serial1.begin() below.
+// Debug output goes to the USB serial port (`Serial`, the USB CDC port on the Pico). The hardware UART (Serial1) is GP0 / GP1, which are the
+// encoder pins here, so it is not an option with this wiring.
 #define DBG Serial
 
-// ---------------- WIRING: edit these ----------------
-constexpr uint8_t PIN_ENC_A = PIN_Encoder_A;        // encoder channel A
-constexpr uint8_t PIN_ENC_B = PIN_Encoder_B;        // encoder channel B
-constexpr uint8_t PIN_BTN_A = PIN_ButtonA;          // ButtonA: select / edit / accept (long)
-constexpr uint8_t PIN_BTN_B = PIN_ButtonB;          // ButtonB: cancel / revert (long)
+// ---------------- OPTIONS: edit these (pins are in Pins.h) ----------------
 constexpr bool    BTN_ACTIVE_LOW = true;  // buttons wired to GND with the internal pull-up
 constexpr bool    USE_ENCODER = true;     // false = no encoder fitted: its pins are not touched
 constexpr bool    USE_BUTTONS = true;     // false = no buttons fitted: nothing is read from their pins
 constexpr bool    USE_SHARED_BUFFER = true;   // true = ONE shared render buffer (about the size of the biggest control) instead of a buffer per control: much less RAM, nearly the same speed
 constexpr bool    USE_DMA = false;           // needs USE_SHARED_BUFFER: two shared buffers, the CPU renders the next control while the previous one is sent to the display
 constexpr bool    LABEL_OPAQUE = false;      // labels get a solid background (your screen colour) instead of being transparent; required for DMA with labelled controls
-// Encoder detent / direction: swap PIN_ENC_A and PIN_ENC_B if it turns the wrong way.
+// Encoder turns the wrong way? Swap PIN_ENC_A and PIN_ENC_B in Pins.h.
 // ----------------------------------------------------
 
 LGFX_TE004   lcd;

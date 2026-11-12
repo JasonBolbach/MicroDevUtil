@@ -7,6 +7,10 @@
 //    left, ColBezel on the bottom and right, joined by a 45 degree bevel line of ColBezelEdge that is
 //    BorderSize/2 pixels thick, drawn from each control corner to the matching input-area corner,
 //    on all four corners).
+//  * BORDER_SLEEK: a plain one-colour frame with the label sitting ON the frame line (like a fieldset legend). The label can be aligned
+//    LEFT / CENTER / RIGHT (SetLabelAlign); with LEFT / RIGHT a short stub of the line is drawn beside it, with CENTER the line runs to both
+//    sides. A label too wide for the frame is cut and "..." is appended ("Really Long Label" -> "Really Lo..."). The frame line sits at the
+//    middle of the label, so the box the controls use is unchanged; the visible frame just extends up (or down, LABEL_BELOW) by half the label.
 //  * Optional label above or below the box, with its own font, colour and alignment. When the label is
 //    ABOVE, the control's y is the top of the label and the box sits below it; when BELOW it is appended.
 //  * All colours are public variables. After changing one directly, call Invalidate() (or Refresh()).
@@ -35,9 +39,11 @@ struct SuperTheme {
     uint16_t Label = 0xFFFF, Highlight = 0xFFE0, Cursor = 0xFFE0, CursorFg = 0x0000, Sel = 0x3186, SelFg = 0xFFFF;
     uint16_t Backdrop = 0x0000;             // the screen behind the controls (erases highlight boxes / hidden controls)
     int      BorderSize = 1;
-    uint8_t  BorderStyle = 0;               // 0 = standard, 1 = ThreeD
+    uint8_t  BorderStyle = 0;               // 0 = standard, 1 = ThreeD, 2 = Sleek
     int      Padding = 2;
     int      PressMs = 50;                  // push button: how long the inverted face flashes
+    const lgfx::IFont* LabelFont = nullptr; // label font for every control; nullptr = leave each control's own (its body font)
+    int8_t   LabelAlign = -1;               // label alignment 0 = left, 1 = centre, 2 = right; -1 = leave each control's own (left)
 
     static SuperTheme Dark() { return SuperTheme(); }
     static SuperTheme Light() {
@@ -52,7 +58,7 @@ struct SuperTheme {
 class SuperControl {
 public:
     enum Align       : uint8_t { ALIGN_LEFT = 0, ALIGN_CENTER, ALIGN_RIGHT };
-    enum BorderStyle : uint8_t { BORDER_STANDARD = 0, BORDER_THREED };
+    enum BorderStyle : uint8_t { BORDER_STANDARD = 0, BORDER_THREED, BORDER_SLEEK };
     enum LabelPos    : uint8_t { LABEL_ABOVE = 0, LABEL_BELOW };
 
     // ---- colours (RGB565) ----
@@ -171,6 +177,8 @@ public:
     // True if the last draw could not allocate the sprite (out of memory). The control then shows a red outline instead of its look.
     bool AllocFailed = false;
 
+    int SleekMargin   = 8;                  // BORDER_SLEEK: distance from the frame side to a LEFT / RIGHT aligned label (the stub is SleekMargin - SleekGap long)
+    int SleekGap      = 3;                  // BORDER_SLEEK: blank pixels between the label and the frame line on each side
     int HighlightGap  = 1;                  // pixels between the control and its highlight box
     int HighlightSize = 2;                  // thickness of the highlight box
     int PreviewBrightness = 85;             // DrawPreview(false): percent of full brightness (100 = no dimming)
@@ -187,6 +195,7 @@ public:
     void SetFont(const lgfx::IFont* f)      { Font = f; OnFontChanged(); Dirty = true; }   // height follows the font
     void SetBorder(int size, uint16_t color){ BorderReq = size < 0 ? 0 : size; ColBorder = color; Dirty = true; }
     void SetBorderStyle(BorderStyle s)      { Style = s; Dirty = true; }
+    BorderStyle GetBorderStyle() const      { return Style; }
     void SetBezelColors(uint16_t bezel, uint16_t edge) { ColBezel = bezel; ColBezelEdge = edge; Dirty = true; }
     void SetPadding(int pixels)             { PadReq = pixels < 0 ? 0 : pixels; Dirty = true; }
     void SetAlign(Align a)                  { Alignment = a; Dirty = true; }
@@ -196,7 +205,9 @@ public:
         ColBg = t.Bg; ColFg = t.Fg; ColArrow = t.Arrow; ColBorder = t.Border; ColBezel = t.Bezel; ColBezelEdge = t.BezelEdge;
         ColLabel = t.Label; ColHighlight = t.Highlight; ColHighlightClear = t.Backdrop;
         ColCursor = t.Cursor; ColCursorFg = t.CursorFg; ColSel = t.Sel; ColSelFg = t.SelFg;
-        BorderReq = t.BorderSize; Style = t.BorderStyle ? BORDER_THREED : BORDER_STANDARD; PadReq = t.Padding;
+        if (t.LabelFont) LabelFont = t.LabelFont;
+        if (t.LabelAlign >= 0 && t.LabelAlign <= 2) LabelAlignment = (Align)t.LabelAlign;
+        BorderReq = t.BorderSize; Style = t.BorderStyle >= 2 ? BORDER_SLEEK : t.BorderStyle ? BORDER_THREED : BORDER_STANDARD; PadReq = t.Padding;
         Dirty = true;
     }
 
@@ -260,6 +271,7 @@ public:
     void SetLabelFont(const lgfx::IFont* f) { LabelFont = f; Dirty = true; }     // default: the control's font at construction
     void SetLabelColor(uint16_t c)          { ColLabel = c; Dirty = true; }
     void SetLabelAlign(Align a)             { LabelAlignment = a; Dirty = true; }
+    Align GetLabelAlign() const             { return LabelAlignment; }
     void SetLabelGap(int pixels)            { LabelGap = pixels < 0 ? 0 : pixels; Dirty = true; }   // default 2
     const std::string& GetLabel() const     { return Label; }
 
@@ -422,7 +434,7 @@ private:
         return Spr.fontHeight();
     }
     bool Keyed() const { return !Label.empty() && !LabelOpaque; }       // label area is transparent (colour-keyed)
-    int LabelBlock()  { return Label.empty() ? 0 : LabelH() + LabelGap; }
+    int LabelBlock()  { return Label.empty() ? 0 : LabelH() + (Style == BORDER_SLEEK ? 0 : LabelGap); }
     int BoxOffset()   { return (!Label.empty() && LabelPosition == LABEL_ABOVE) ? LabelBlock() : 0; }
 
     // ThreeD mitre: the b x b corner square at (x0,y0) is split along its 45 degree diagonal
@@ -439,7 +451,7 @@ private:
 
     void DrawBorder(int b, int oy, int H) {
         if (b <= 0) return;
-        if (Style == BORDER_STANDARD) {
+        if (Style == BORDER_STANDARD || Style == BORDER_SLEEK) {
             for (int i = 0; i < b; ++i) Spr.drawRect(i, oy + i, W - 2 * i, H - 2 * i, ColBorder);
             return;
         }
@@ -453,6 +465,42 @@ private:
         BevelCorner(W - b, oy + H - b, b, false, ColBezel,  ColBezel);    // bottom-right
     }
 
+    // BORDER_SLEEK with a label: draw the frame (its label-side line broken around the label) and the label on the line.
+    // boxH = the controls' box height; the frame extends half a label height beyond the box on the label side.
+    void DrawSleek(int boxH) {
+        int b = EffBorder(), lh = LabelH();
+        bool above = LabelPosition == LABEL_ABOVE;
+        int centre = above ? lh / 2 : boxH + lh / 2;                       // y of the middle of the label = the middle of the frame line
+        int fy = above ? centre - b / 2 : 0;                                // frame rectangle (sprite coordinates)
+        int fh = above ? (lh + boxH) - fy : centre + (b + 1) / 2;
+        Spr.fillRect(0, fy, W, fh, ColBg);
+        // the label text, cut with "..." when it is wider than the room between the two margins
+        Spr.setFont(LabelFont);
+        int maxW = std::max(0, W - 2 * SleekMargin);
+        std::string text = Label;
+        if ((int)Spr.textWidth(text.c_str()) > maxW) {
+            while (!text.empty() && (int)Spr.textWidth((text + "...").c_str()) > maxW) text.pop_back();
+            while (!text.empty() && text.back() == ' ') text.pop_back();
+            text += "...";
+        }
+        int tw = (int)Spr.textWidth(text.c_str());
+        int x = LabelAlignment == ALIGN_CENTER ? (W - tw) / 2 : LabelAlignment == ALIGN_RIGHT ? W - SleekMargin - tw : SleekMargin;
+        x = std::clamp(x, 0, std::max(0, W - tw));
+        int g = SleekGap;
+        if (b > 0) {
+            int ey = above ? fy : fy + fh - b;                              // the label-side edge
+            int oy2 = above ? fy + fh - b : fy;                             // the opposite edge
+            Spr.fillRect(0, oy2, W, b, ColBorder);                          // full line on the far side
+            Spr.fillRect(0, fy, b, fh, ColBorder);                          // left side
+            Spr.fillRect(W - b, fy, b, fh, ColBorder);                      // right side
+            int left = x - g, right = x + tw + g;                           // the label's gap: no line between left and right
+            if (left > 0)   Spr.fillRect(0, ey, left, b, ColBorder);
+            if (right < W)  Spr.fillRect(right, ey, W - right, b, ColBorder);
+        }
+        Spr.setTextColor(ColLabel);
+        Spr.setTextDatum(lgfx::textdatum_t::top_left);
+        Spr.drawString(text.c_str(), x, above ? 0 : boxH);
+    }
     void DrawLabel(int y, int lh) {
         Spr.setFont(LabelFont);
         Spr.setTextColor(ColLabel);
@@ -493,11 +541,16 @@ private:
         } else AllocFailed = false;
         Spr.setFont(Font);
         Spr.fillSprite(Keyed() ? KeyColor : (Label.empty() ? ColBg : ColHighlightClear));
-        Spr.fillRect(0, oy, W, boxH, ColBg);
-        DrawBorder(EffBorder(), oy, boxH);
-        if (!Label.empty()) {
-            int lh = LabelH();
-            DrawLabel(LabelPosition == LABEL_ABOVE ? 0 : boxH + LabelGap, lh);
+        if (Style == BORDER_SLEEK && !Label.empty()) {
+            Spr.fillRect(0, oy, W, boxH, ColBg);
+            DrawSleek(boxH);
+        } else {
+            Spr.fillRect(0, oy, W, boxH, ColBg);
+            DrawBorder(EffBorder(), oy, boxH);
+            if (!Label.empty()) {
+                int lh = LabelH();
+                DrawLabel(LabelPosition == LABEL_ABOVE ? 0 : boxH + LabelGap, lh);
+            }
         }
         Spr.setFont(Font);
         int ins = Inset();

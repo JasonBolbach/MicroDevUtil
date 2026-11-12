@@ -34,6 +34,8 @@
 class DemoUI {
 public:
   SuperForm* Form = nullptr;
+  // Label font for every control (set before Begin()). Font0 = small (6x8), Font2 = 8x16; each control's own body font is no longer used for labels.
+  const lgfx::IFont* LabelFont = &lgfx::fonts::Font0;
 
   void Begin(lgfx::LovyanGFX* dst, SuperEncoder* E, SuperButton* A, SuperButton* B) {
     Dst = dst;
@@ -91,7 +93,10 @@ public:
     }
     Mode.SetSelected(1);
 
-    Pages[1] = { Combo, Items, Check, Radio[0], Radio[1], Radio[2] };
+    SleekChk = new SuperCheckBox(dst, 160, 150, 150, F, "Sleek style");          // live switch: every control's frame / label style
+    SleekChk->SetOnAccept(&OnSleekThunk, this);
+
+    Pages[1] = { Combo, Items, Check, Radio[0], Radio[1], Radio[2], SleekChk };
 
     // ---- page 3: Values ----
     Slide = new SuperSlider(dst, 4, 34, 312, F, E, A, B);
@@ -125,9 +130,11 @@ public:
     Msg->AddButton("Yes"); Msg->AddButton("No"); Msg->SetDefault(1);
     Msg->SetRestore(&MsgClosedThunk, this);
 
+    for (auto* c : Styled()) { c->SetLabelFont(LabelFont); c->SetLabelAlign(SuperControl::ALIGN_LEFT); }   // small, left-aligned labels everywhere
+
     for (auto* c : std::vector<SuperControl*>{ Tabs })        Form->Add(c);
     for (auto* c : std::vector<SuperControl*>{ Phone, Name, Level, TimeBox, DateBox, Picker, Combo, Items, Check,
-                                               Radio[0], Radio[1], Radio[2], Slide, Push, Menu })
+                                               Radio[0], Radio[1], Radio[2], SleekChk, Slide, Push, Menu })
       Form->Add(c);
     Form->Add(Bar, false);
     Form->Add(Graph, false);
@@ -138,8 +145,17 @@ public:
     DrawStatus();
   }
 
+  // Switch the whole demo to the Sleek border style (label on the frame line) and back, restoring each control's own style.
+  void ApplyStyle(bool sleek) {
+    if (Saved.empty()) for (auto* c : Styled()) Saved.push_back({ c, c->GetBorderStyle() });   // remember the original look once
+    for (auto& s : Saved) s.first->SetBorderStyle(sleek ? SuperControl::BORDER_SLEEK : s.second);
+    SleekChk->SetChecked(sleek);                                      // keep the check box in step (silent: no callback)
+    ShowPage(Page);
+  }
+
   // Call from loop(): handles input, feeds the graph, redraws the status strip.
   void Service() {
+    if (StyleDirty) { StyleDirty = false; ApplyStyle(SleekChk->GetChecked()); }
     uint32_t now = lgfx::millis();
     if (now - LastSample >= 100) {
       LastSample = now;
@@ -157,14 +173,21 @@ private:
   lgfx::LGFX_Sprite Status{ nullptr };
 
   SuperInputBox* Phone; SuperInputBox* Name; SuperSpinBox* Level; SuperTimeBox* TimeBox; SuperDateBox* DateBox; SuperColorPicker* Picker;
-  SuperComboBox* Combo; SuperListBox* Items; SuperCheckBox* Check; SuperRadioButton* Radio[3]; SuperRadioGroup Mode;
+  SuperComboBox* Combo; SuperListBox* Items; SuperCheckBox* Check; SuperCheckBox* SleekChk; SuperRadioButton* Radio[3]; SuperRadioGroup Mode;
   SuperSlider* Slide; SuperProgressBar* Bar; SuperPushButton* Push;
   SuperMenu* Menu; SuperGraph* Graph;
   SuperTabBar* Tabs; SuperMessageBox* Msg;
   std::vector<SuperControl*> Pages[4];
+  std::vector<std::pair<SuperControl*, SuperControl::BorderStyle>> Saved;   // original border styles (ApplyStyle)
+  std::vector<SuperControl*> Styled() {                                     // every control that can show a label
+    std::vector<SuperControl*> v;
+    for (int p = 0; p < 4; ++p) for (auto* c : Pages[p]) v.push_back(c);
+    v.push_back(Msg);
+    return v;
+  }
 
   int Page = 0;
-  bool Redraw = false, StatusDirty = true;
+  bool Redraw = false, StatusDirty = true, StyleDirty = false;
   int RX = 0, RY = 0, RW = 0, RH = 0;                  // area to repaint after a popup closed
   uint32_t LastSample = 0, LastStatus = 0, Tick = 0;
   uint16_t PickColor = 0xF800;
@@ -188,6 +211,7 @@ private:
     if (Redraw) { x0 = std::min(x0, RX); y0 = std::min(y0, RY); x1 = std::max(x1, RX + RW); y1 = std::max(y1, RY + RH); }
     RX = x0; RY = y0; RW = x1 - x0; RH = y1 - y0; Redraw = true;
   }
+  static void OnSleekThunk(void* u) { static_cast<DemoUI*>(u)->StyleDirty = true; }   // applied from Service(), not from inside the touch handler
   static void OnTabThunk(void* u)  { auto* d = static_cast<DemoUI*>(u); d->ShowPage(d->Tabs->GetSelected()); }
   static void OnSlideThunk(void* u) { auto* d = static_cast<DemoUI*>(u); d->Bar->SetValue(d->Slide->GetLiveValue()); }
   static void OnEditThunk(SuperControl* c, SuperEditState s, void* u) { static_cast<DemoUI*>(u)->OnEdit(c, s); }
