@@ -1,14 +1,14 @@
-# SuperGUI Pico 2 W test
+# SuperGUI Pico W test
 
-Demo of every SuperGUI control on a Raspberry Pi Pico 2 W with a 320x240 SPI LCD, a rotary encoder and two buttons.
+Demo of every SuperGUI control on a Raspberry Pi Pico W with a 320x240 SPI LCD, a rotary encoder and two buttons.
 
 ## Before you build
-1. **Display:** replace the placeholder class in `include/MyLGFX.h` with your own LovyanGFX `class LGFX` (landscape 320x240).
-2. **Wiring:** edit `PIN_ENC_A`, `PIN_ENC_B`, `PIN_BTN_A`, `PIN_BTN_B` (GP numbers) and `BTN_ACTIVE_LOW` at the top of `src/main.cpp`.
+1. **Display:** replace `include/LGFX_User_TE004.h` (class `LGFX_TE004`, ST7789 on the TE004 board) with your own LovyanGFX class, and set the pins in `include/Pins.h` (landscape 320x240).
+2. **Wiring:** edit `PIN_Encoder_A`, `PIN_Encoder_B`, `PIN_ButtonA`, `PIN_ButtonB` in `include/Pins.h` (GP numbers), and `BTN_ACTIVE_LOW` at the top of `src/main.cpp`.
    Encoder turns the wrong way? Swap `PIN_ENC_A` and `PIN_ENC_B`.
 3. **Library:** `platformio.ini` uses the local clone `~/Documents/lib/SuperGUI`; switch to the GitHub URL line when you prefer.
 
-`pio run -e pico2w -t upload`
+`pio run -e picow -t upload`
 
 ## Using it
 Encoder = move the highlight / change a value. ButtonA short = edit the highlighted control. In an edit: ButtonA long = accept,
