@@ -35,3 +35,5 @@ tap outside = cancel. Tuning knobs: `SuperControl::TouchPad` (hit area) and `Sup
 The Choose page has a **Sleek style** check box that switches every control between the standard frames and the Sleek look (label on the frame
 line) live. Labels are small and left-aligned throughout: `DemoUI::LabelFont` (default `Font0`, set it to `&lgfx::fonts::Font2` for larger labels)
 is applied to every control in `Begin()`.
+
+The **Draw** page shows `SuperUserDraw`: an animated gauge (auto-redraw) and a sketch pad (persistent canvas + touch events; touch to draw, hold to clear).

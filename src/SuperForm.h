@@ -68,6 +68,7 @@ public:
 
     SuperEditState Service() {
         if (Touch) PumpTouch();
+        TickControls();
         if (Active) {
             SuperEditState r = Active->Service();
             if (r == EDIT_ACTIVE) return EDIT_ACTIVE;
@@ -155,6 +156,14 @@ private:
     void (*OnEdit)(SuperControl*, SuperEditState, void*) = nullptr;
     void* OnEditUser = nullptr;
 
+    // Controls that animate (SuperUserDraw with auto-redraw) say when they are due; they are redrawn in their normal / focused look.
+    void TickControls() {
+        for (int i = 0; i < Count(); ++i) {
+            SuperControl* c = Items[i].C;
+            if (c == Active || !c->IsVisible() || SuperControl::EditingNow) continue;
+            if (c->Tick()) { if (Items[i].Focusable) c->DrawPreview(i == Focus); else c->Push(); }
+        }
+    }
     void DrawItems(bool clip, int rx, int ry, int rw, int rh) {
         if (SuperControl::SharedBuffer) {                             // size the shared render buffer for the biggest control once
             size_t m = 0;

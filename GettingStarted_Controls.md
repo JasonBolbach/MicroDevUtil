@@ -348,6 +348,22 @@ if (box.BeginEdit()) {                              // true = a button was chose
 form.Draw();                                        // redraw the screen after it closes
 ```
 
+### 3.16 UserDraw (draw it yourself)
+
+```cpp
+#include <SuperUserDraw.h>
+SuperUserDraw gauge(&lcd, 10, 10, 150, /*body height*/ 90);
+// setup
+gauge.SetBorder(1, TFT_WHITE);  gauge.SetLabel("Gauge");
+gauge.SetOnDraw([](SuperUserDraw& c, lgfx::LGFX_Sprite* s, const SuperRect& r, void*) {
+    s->drawCircle(r.x + r.w / 2, r.y + r.h / 2, 30, TFT_GREEN);        // draw inside r
+});
+gauge.SetAutoRedraw(50);                                              // animation: repaint every 50 ms
+form.Add(&gauge, false);                                              // display only
+```
+You get a sprite and the rectangle to draw in; the library handles the frame, the dimming and the push. Add `SetPersistent(true)` for a canvas that
+keeps what you draw (sketch pads, traces), and `SetOnPointer(fn)` to react to touch with positions in your drawing area. See `examples/UserDrawExample`.
+
 ---
 
 ## 4. Run them together with SuperForm

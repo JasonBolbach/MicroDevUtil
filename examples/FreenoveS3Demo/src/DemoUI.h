@@ -31,6 +31,7 @@
 #include <SuperColorPicker.h>
 #include <SuperMenu.h>
 #include <SuperGraph.h>
+#include <SuperUserDraw.h>
 #include <SuperTouch.h>
 #include <SuperForm.h>
 
@@ -56,7 +57,7 @@ public:
     const int W = dst->width();
 
     Tabs = new SuperTabBar(dst, 0, 0, W, F, E, A, B);
-    Tabs->AddTab("Input"); Tabs->AddTab("Choose"); Tabs->AddTab("Values"); Tabs->AddTab("Menu");
+    Tabs->AddTab("Input"); Tabs->AddTab("Choose"); Tabs->AddTab("Values"); Tabs->AddTab("Menu"); Tabs->AddTab("Draw");
     Tabs->SetBorder(1, EDGE); Tabs->SetOnAccept(&OnTabThunk, this);
 
     // ---- page 1: Input ----
@@ -76,7 +77,7 @@ public:
     TimeBox->SetLabel("Time"); TimeBox->SetLabelColor(LBL); TimeBox->SetBorder(1, EDGE); TimeBox->SetTime(12, 30, 0);
 
     DateBox = new SuperDateBox(dst, 308, 108, W - 316, F4, E, A, B);
-    DateBox->SetLabel("Date"); DateBox->SetLabelColor(LBL); DateBox->SetBorder(1, EDGE); DateBox->SetDate(2026, 11, 11);
+    DateBox->SetStyle(SuperDateBox::DATE_YMD); DateBox->SetLabel("Date (YMD)"); DateBox->SetLabelColor(LBL); DateBox->SetBorder(1, EDGE); DateBox->SetDate(2026, 11, 11);
 
     Picker = new SuperColorPicker(dst, 8, 178, W - 16, F, E, A, B);
     Picker->SetLabel("Color picker (tap / drag a bar, or A short = next bar, A long = accept)"); Picker->SetLabelColor(LBL);
@@ -136,6 +137,18 @@ public:
 
     Pages[3] = { Menu, Graph };
 
+    // ---- page 5: Draw (SuperUserDraw) ----
+    Gauge = new SuperUserDraw(dst, 8, 36, 220, 140);
+    Gauge->SetLabel("Gauge (auto-redraw)"); Gauge->SetBorder(1, EDGE);
+    Gauge->SetOnDraw(&GaugeDraw, this); Gauge->SetAutoRedraw(40);              // normal mode: painted again on every redraw, every 40 ms
+
+    Pad = new SuperUserDraw(dst, 244, 36, W - 252, 140);
+    Pad->SetLabel("Sketch: touch to draw, hold to clear"); Pad->SetBorder(1, EDGE);
+    Pad->SetPersistent(true);                                                  // the canvas keeps the strokes between redraws
+    Pad->SetOnDraw(&PadDraw, this); Pad->SetOnPointer(&PadPointer, this);
+
+    Pages[4] = { Gauge, Pad };
+
     Msg = new SuperMessageBox(dst, 300, F, E, A, B);
     Msg->SetLabel("Confirm");
     Msg->AddButton("Yes"); Msg->AddButton("No"); Msg->SetDefault(1);
@@ -147,10 +160,12 @@ public:
     for (auto* c : std::vector<SuperControl*>{ Phone, Name, Level, TimeBox, DateBox, Picker, Combo, Items, Check,
                                                Radio[0], Radio[1], Radio[2], SleekChk, Slide, Push, Menu })
       Form->Add(c);
+    Form->Add(Pad);
+    Form->Add(Gauge, false);                                    // display only: animates, never focused
     Form->Add(Bar, false);
     Form->Add(Graph, false);
 
-    for (int i = 1; i < 4; ++i) for (auto* c : Pages[i]) c->SetVisible(false);
+    for (int i = 1; i < 5; ++i) for (auto* c : Pages[i]) c->SetVisible(false);
     dst->fillScreen(0);
     Form->Draw();
     DrawStatus();
@@ -194,12 +209,15 @@ private:
   SuperComboBox* Combo; SuperListBox* Items; SuperCheckBox* Check; SuperCheckBox* SleekChk; SuperRadioButton* Radio[3]; SuperRadioGroup Mode;
   SuperSlider* Slide; SuperProgressBar* Bar; SuperPushButton* Push;
   SuperMenu* Menu; SuperGraph* Graph;
+  SuperUserDraw* Gauge; SuperUserDraw* Pad;
+  int PadLX = 0, PadLY = 0, PadPen = 0;                     // sketch pad: last point and pen colour index
+  bool PadFresh = true;                                     // nothing drawn yet: the hint text is showing
   SuperTabBar* Tabs; SuperMessageBox* Msg;
-  std::vector<SuperControl*> Pages[4];
+  std::vector<SuperControl*> Pages[5];
   std::vector<std::pair<SuperControl*, SuperControl::BorderStyle>> Saved;   // original border styles (ApplyStyle)
   std::vector<SuperControl*> Styled() {                                     // every control that can show a label
     std::vector<SuperControl*> v;
-    for (int p = 0; p < 4; ++p) for (auto* c : Pages[p]) v.push_back(c);
+    for (int p = 0; p < 5; ++p) for (auto* c : Pages[p]) v.push_back(c);
     v.push_back(Msg);
     return v;
   }
@@ -213,7 +231,7 @@ private:
 
   void ShowPage(int p) {
     Page = p;
-    for (int i = 0; i < 4; ++i) if (i != p) for (auto* c : Pages[i]) c->SetVisible(false, false);   // flags only: no per-control erase
+    for (int i = 0; i < 5; ++i) if (i != p) for (auto* c : Pages[i]) c->SetVisible(false, false);   // flags only: no per-control erase
     for (auto* c : Pages[p]) c->SetVisible(true, false);                                           // ... and no draw at full brightness
     int top = Tabs->GetY() + Tabs->GetHeight() + 6;                                                 // below the tab bar's focus box
     Dst->fillRect(0, top, Dst->width(), Dst->height() - StatusH - top, 0);                          // clear the old page in one go
@@ -229,6 +247,45 @@ private:
     if (Redraw) { x0 = std::min(x0, RX); y0 = std::min(y0, RY); x1 = std::max(x1, RX + RW); y1 = std::max(y1, RY + RH); }
     RX = x0; RY = y0; RW = x1 - x0; RH = y1 - y0; Redraw = true;
   }
+  // ---- SuperUserDraw callbacks ----
+  // Gauge: a needle that sweeps back and forth, painted from scratch on every redraw (normal mode).
+  static void GaugeDraw(SuperUserDraw& c, lgfx::LGFX_Sprite* s, const SuperRect& r, void*) {
+    int cx = r.x + r.w / 2, cy = r.y + r.h - 14, rad = std::min(r.w / 2 - 10, r.h - 28);
+    for (int a = -90; a <= 90; a += 15) {                                       // tick marks
+      float t = a * 0.0174533f; int len = (a % 45 == 0) ? 10 : 5;
+      s->drawLine(cx + (int)(std::sin(t) * (rad - len)), cy - (int)(std::cos(t) * (rad - len)), cx + (int)(std::sin(t) * rad), cy - (int)(std::cos(t) * rad), 0x7BEF);
+    }
+    float v = 0.5f + 0.5f * std::sin(lgfx::millis() * 0.0015f);                 // 0..1
+    float t = (-90.f + 180.f * v) * 0.0174533f;
+    uint16_t col = v < 0.6f ? 0x07E0 : v < 0.85f ? 0xFFE0 : 0xF800;             // green, yellow, red
+    s->drawLine(cx, cy, cx + (int)(std::sin(t) * (rad - 6)), cy - (int)(std::cos(t) * (rad - 6)), col);
+    s->drawLine(cx + 1, cy, cx + 1 + (int)(std::sin(t) * (rad - 6)), cy - (int)(std::cos(t) * (rad - 6)), col);
+    s->fillCircle(cx, cy, 4, col);
+    s->setTextColor(0xFFFF); s->setTextDatum(lgfx::textdatum_t::top_center); s->setFont(&lgfx::fonts::Font2);
+    char b[16]; snprintf(b, sizeof b, "%d%%", (int)(v * 100.f + 0.5f)); s->drawString(b, cx, r.y + 2);
+  }
+  // Sketch pad: the canvas is persistent, so this only paints the hint; the strokes are drawn straight onto the canvas by PadPointer.
+  static void PadDraw(SuperUserDraw&, lgfx::LGFX_Sprite* s, const SuperRect& r, void*) {
+    s->setTextColor(0x4208); s->setTextDatum(lgfx::textdatum_t::middle_center); s->setFont(&lgfx::fonts::Font2);
+    s->drawString("draw here", r.x + r.w / 2, r.y + r.h / 2);
+  }
+  static void PadPointer(SuperUserDraw& c, const SuperUserPointer& e, void* u) {
+    static const uint16_t pens[] = { 0xFFE0, 0x07FF, 0xF81F, 0x07E0, 0xFD20, 0xFFFF };
+    DemoUI* d = static_cast<DemoUI*>(u);
+    lgfx::LGFX_Sprite* cv = c.GetCanvas();
+    if (!cv) return;
+    uint16_t col = pens[d->PadPen % 6];
+    switch (e.Type) {
+    case SuperUserPointer::PRESS:   if (d->PadFresh) { d->PadFresh = false; c.ClearCanvas(c.ColBg); }          // the first stroke wipes the hint
+                                    d->PadLX = e.X; d->PadLY = e.Y; cv->fillCircle(e.X, e.Y, 2, col); c.Invalidate(); break;
+    case SuperUserPointer::MOVE:    cv->drawLine(d->PadLX, d->PadLY, e.X, e.Y, col); cv->drawLine(d->PadLX + 1, d->PadLY, e.X + 1, e.Y, col);
+                                    d->PadLX = e.X; d->PadLY = e.Y; c.Invalidate(); break;
+    case SuperUserPointer::RELEASE: ++d->PadPen; break;                          // next stroke, next colour
+    case SuperUserPointer::LONG_PRESS: d->PadFresh = true; c.ClearCanvas(c.ColBg); c.Repaint(); break;   // hold = clear (and paint the hint again)
+    default: break;
+    }
+  }
+
   static void OnSleekThunk(void* u) { static_cast<DemoUI*>(u)->StyleDirty = true; }   // applied from Service(), not from inside the touch handler
   static void OnTabThunk(void* u)  { auto* d = static_cast<DemoUI*>(u); d->ShowPage(d->Tabs->GetSelected()); }
   static void OnSlideThunk(void* u) { auto* d = static_cast<DemoUI*>(u); d->Bar->SetValue(d->Slide->GetLiveValue()); }

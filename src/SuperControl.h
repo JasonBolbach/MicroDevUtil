@@ -265,6 +265,9 @@ public:
     //                 (tab bar, menu). Otherwise the first tap only focuses + starts the edit.
     virtual bool StartOnPress(int /*x*/, int /*y*/) { return false; }
     virtual bool IdleTapActs() const { return false; }
+    // Called often by SuperForm::Service(): return true when the control wants to be redrawn now (animations, auto-redraw). The form then
+    // redraws it in its proper look (focused or dimmed). Without a form, call it yourself from loop().
+    virtual bool Tick() { return false; }
 
     // ---- label ----
     void SetLabel(const std::string& text, LabelPos pos = LABEL_ABOVE) { Label = text; LabelPosition = pos; Dirty = true; }

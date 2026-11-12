@@ -1,7 +1,7 @@
 # SuperGUI Pico W demo
 
 Every SuperGUI control on a Raspberry Pi **Pico W** (RP2040) or **Pico 2 W** (RP2350) with the TE004 board: a 320x240 ST7789 SPI display,
-a rotary encoder with a push button, and one board button. The demo UI (`src/DemoUI.h`) has four tab pages: Input, Choose, Values, Menu.
+a rotary encoder with a push button, and one board button. The demo UI (`src/DemoUI.h`) has five tab pages: Input, Choose, Values, Menu, Draw.
 
 ```
 pio run -e picow  -t upload      # Pico W
@@ -45,3 +45,5 @@ draws in that window.
 The Choose page has a **Sleek style** check box that switches every control between the standard frames and the Sleek look (label on the frame
 line) live. Labels are small and left-aligned throughout: `DemoUI::LabelFont` (default `Font0`, set it to `&lgfx::fonts::Font2` for larger labels)
 is applied to every control in `Begin()`.
+
+The **Draw** page shows `SuperUserDraw`: an animated gauge (auto-redraw) and a sketch pad (persistent canvas + touch events; touch to draw, hold to clear).

@@ -22,6 +22,7 @@ Each control renders into its **own `LGFX_Sprite`** and pushes itself to a desti
 | `SuperMessageBox` | modal message + 1-3 buttons, restores what it covered |
 | `SuperProgressBar` | display-only progress bar with optional percent text |
 | `SuperGraph` | display-only scrolling line graph |
+| `SuperUserDraw` | a control YOUR code draws: a draw event gets a sprite and the body rectangle; optional persistent canvas, auto-redraw timer and touch (pointer) events |
 | `SuperForm` | not a control: focus handling for a set of controls (wheel moves the highlight, A edits) |
 
 Common to all (`SuperControl.h`): border (standard, ThreeD bevel or Sleek, see below), padding, optional label above / below with its own
@@ -211,3 +212,28 @@ its finger-down happened after the box opened. A long press (about 0.8 s) on an 
   back). Call `SuperForm::Redraw(x, y, w, h, backgroundColour)` from it (or set a flag and call it from your loop): it clears that
   rectangle to your screen colour and redraws every visible control that touches it. `SuperComboBox::GetPopupX/Y/Width/Height()` and the
   message box's `GetX/GetY/GetWidth/GetHeight()` give the rectangle. See `DemoUI.h` in the Pico / S3 test projects.
+
+## SuperUserDraw (your own drawing)
+`SuperUserDraw box(&lcd, x, y, width, bodyHeight)` is a control with the usual frame (border, Sleek style, label, focus highlight, dimming, DMA /
+shared buffer) whose inside is drawn by your code. Full description at the top of `src/SuperUserDraw.h`; `examples/UserDrawExample` and the Draw page of the demos
+show it working.
+
+```cpp
+gauge.SetOnDraw([](SuperUserDraw& c, lgfx::LGFX_Sprite* s, const SuperRect& r, void* user) {
+    s->drawCircle(r.x + r.w / 2, r.y + r.h / 2, 30, TFT_GREEN);        // draw inside r: it is the body, and everything is clipped to it
+});
+gauge.SetAutoRedraw(50);                                              // repaint every 50 ms, driven by SuperForm::Service()
+```
+| Call | Meaning |
+|---|---|
+| `SetOnDraw(fn, user)` | the draw event: `fn(ctl, sprite, bodyRect, user)`; the library pushes the result when it returns |
+| `SetPersistent(true)` | the control owns a canvas sprite of the body size that **keeps** what you drew; the event then runs only on `Repaint()` / auto-redraw, and focus or dimming just re-blit the canvas. Costs width x height x 2 bytes. `GetCanvas()` lets other code draw on it. |
+| `Repaint()` / `Invalidate()` | run the draw event at the next redraw / redraw (persistent mode: only re-blit) |
+| `SetAutoRedraw(ms)` | `Repaint()` every ms (animation); `DeltaMs()` = time since the last paint. `Update()` does it without a form |
+| `SetOnPointer(fn, user)` | touch events in body coordinates ((0,0) = top-left): `PRESS`, `MOVE`, then `TAP` or `LONG_PRESS` if it was a click, and always `RELEASE`. Touching focuses the control and the gesture is an "edit": when the finger lifts `SetOnAccept` fires |
+| `SetOnAccept(fn, user)` | the gesture ended (finger lifted) |
+
+Normal mode (default): the sprite is the control's own render sprite, valid only during the callback and holding just the background and the frame, so paint
+everything each time; do not keep the pointer or block. The sprite is 16-bit byte-swapped RGB565: use LovyanGFX's drawing calls. Avoid the colour `0x0001`
+(the transparent key) when labels are not opaque. Without a pointer callback the control is display only (`form.Add(&ctl, false)`).
+`SuperControl::Tick()` is the hook `SuperForm::Service()` calls so animated controls redraw in their proper focused / dimmed look.
