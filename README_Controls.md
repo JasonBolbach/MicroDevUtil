@@ -22,6 +22,7 @@ Each control renders into its **own `LGFX_Sprite`** and pushes itself to a desti
 | `SuperMessageBox` | modal message + 1-3 buttons, restores what it covered |
 | `SuperProgressBar` | display-only progress bar with optional percent text |
 | `SuperGraph` | display-only scrolling line graph |
+| `SuperGauge` | display-only dial: range, colour zones (the needle takes the zone's colour), tick marks and numbers, value as text, any sweep (half dial by default), smooth needle glide |
 | `SuperUserDraw` | a control YOUR code draws: a draw event gets a sprite and the body rectangle; optional persistent canvas, auto-redraw timer and touch (pointer) events |
 | `SuperForm` | not a control: focus handling for a set of controls (wheel moves the highlight, A edits) |
 
@@ -237,3 +238,24 @@ Normal mode (default): the sprite is the control's own render sprite, valid only
 everything each time; do not keep the pointer or block. The sprite is 16-bit byte-swapped RGB565: use LovyanGFX's drawing calls. Avoid the colour `0x0001`
 (the transparent key) when labels are not opaque. Without a pointer callback the control is display only (`form.Add(&ctl, false)`).
 `SuperControl::Tick()` is the hook `SuperForm::Service()` calls so animated controls redraw in their proper focused / dimmed look.
+
+## SuperGauge
+A display-only dial (`form.Add(&gauge, false)`), like the progress bar. Full description at the top of `src/SuperGauge.h`; `examples/GaugeExample` and the Draw page of the demos show it.
+
+```cpp
+SuperGauge g(&lcd, 10, 10, 200, /*body height*/ 120, &lgfx::fonts::Font2);
+g.SetRange(0, 100);
+g.AddZone(0, 60, TFT_GREEN);  g.AddZone(60, 85, TFT_YELLOW);  g.AddZone(85, 100, TFT_RED);
+g.SetFormat(0, "%");          g.SetLabel("Load");
+g.SetValue(42);               // the needle glides there
+```
+| Call / setting | Meaning |
+|---|---|
+| `SetRange(min, max)`, `SetValue(v)`, `GetValue()`, `GetShownValue()` | the value (clamped to the range) and where the needle is right now |
+| `SetSweep(startDeg, endDeg)` | degrees clockwise from 12 o'clock; default -90..+90 = half dial, -135..+135 = 270 degrees |
+| `SetTicks(major, minor)` | major intervals and minor ticks between them; numbers at the majors (`ShowTickLabels`, hidden on small dials) |
+| `AddZone(from, to, colour)`, `ClearZones()` | coloured bands along the dial; with `NeedleByZone` (default) the needle and hub take the zone's colour |
+| `SetFormat(decimals, unit)`, `ShowValue` | the value as text under the hub, in the control's font |
+| `Needle` | `NEEDLE_TAPER` (default) or `NEEDLE_LINE`; colours `ColTrack`, `ColTick`, `ColNeedle` |
+| `SetMinMax(windowMs, minDegrees, thickness)` | optional lines for the lowest and highest value `SetValue()` received in the last `windowMs` ms (a value counts for as long as it was held); each line crosses the dial ring centred on its value, `thickness` pixels wide (`MinMaxThickness`, default 2; odd numbers are exactly symmetric), in the inverted colour of the dial segment under it (the zone's colour, or the track's); a line is only drawn when it is at least `minDegrees` from the needle; `windowMs = 0` = off. The lines expire by themselves as old extremes age out. `GetWindowMin()` / `GetWindowMax()` / `ResetMinMax()`. History is a fixed 64 time buckets, so memory stays small however fast you call `SetValue()`. |
+| `SetSmoothing(on, ms)` | on by default (about 250 ms): `SetValue()` starts a glide, driven by `SuperControl::Tick()` from `SuperForm::Service()`; the gauge only redraws while the needle moves. Without a form call `Update()` from `loop()`. Off = the needle jumps. |

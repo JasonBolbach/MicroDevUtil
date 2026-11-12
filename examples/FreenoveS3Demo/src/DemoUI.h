@@ -32,6 +32,7 @@
 #include <SuperMenu.h>
 #include <SuperGraph.h>
 #include <SuperUserDraw.h>
+#include <SuperGauge.h>
 #include <SuperTouch.h>
 #include <SuperForm.h>
 
@@ -138,9 +139,11 @@ public:
     Pages[3] = { Menu, Graph };
 
     // ---- page 5: Draw (SuperUserDraw) ----
-    Gauge = new SuperUserDraw(dst, 8, 36, 220, 140);
-    Gauge->SetLabel("Gauge (auto-redraw)"); Gauge->SetBorder(1, EDGE);
-    Gauge->SetOnDraw(&GaugeDraw, this); Gauge->SetAutoRedraw(40);              // normal mode: painted again on every redraw, every 40 ms
+    Gauge = new SuperGauge(dst, 8, 36, 220, 140, F);                          // a real control: range, zones, smooth needle
+    Gauge->SetLabel("Gauge (SuperGauge)"); Gauge->SetBorder(1, EDGE);
+    Gauge->SetRange(0, 100); Gauge->SetFormat(0, "%");
+    Gauge->AddZone(0, 60, 0x07E0); Gauge->AddZone(60, 85, 0xFFE0); Gauge->AddZone(85, 100, 0xF800);   // green, yellow, red; the needle follows the zone
+    Gauge->SetMinMax(6000, 6.f);                                // MinMax lines: lowest / highest value of the last 6 s, shown when 6+ degrees from the needle
 
     Pad = new SuperUserDraw(dst, 244, 36, W - 252, 140);
     Pad->SetLabel("Sketch: touch to draw, hold to clear"); Pad->SetBorder(1, EDGE);
@@ -195,6 +198,10 @@ public:
       Graph->AddSample(std::sin(Tick * 0.12f) * 8 + std::sin(Tick * 0.5f) * 2, Page == 3);
       ++Tick;
     }
+    if (now - LastGauge >= 500) {                                  // a new target value twice a second: the needle glides to it
+      LastGauge = now;
+      Gauge->SetValue(50.f + 40.f * std::sin(now * 0.0011f) + 12.f * std::sin(now * 0.0037f));
+    }
     Form->Service();
     if (Redraw) { Redraw = false; Form->Redraw(RX, RY, RW, RH, 0); }
     if (now - LastStatus >= 100 || StatusDirty) { LastStatus = now; StatusDirty = false; DrawStatus(); }
@@ -209,7 +216,7 @@ private:
   SuperComboBox* Combo; SuperListBox* Items; SuperCheckBox* Check; SuperCheckBox* SleekChk; SuperRadioButton* Radio[3]; SuperRadioGroup Mode;
   SuperSlider* Slide; SuperProgressBar* Bar; SuperPushButton* Push;
   SuperMenu* Menu; SuperGraph* Graph;
-  SuperUserDraw* Gauge; SuperUserDraw* Pad;
+  SuperGauge* Gauge; SuperUserDraw* Pad;
   int PadLX = 0, PadLY = 0, PadPen = 0;                     // sketch pad: last point and pen colour index
   bool PadFresh = true;                                     // nothing drawn yet: the hint text is showing
   SuperTabBar* Tabs; SuperMessageBox* Msg;
@@ -225,7 +232,7 @@ private:
   int Page = 0;
   bool Redraw = false, StatusDirty = true, StyleDirty = false;
   int RX = 0, RY = 0, RW = 0, RH = 0;                  // area to repaint after a popup closed
-  uint32_t LastSample = 0, LastStatus = 0, Tick = 0;
+  uint32_t LastGauge = 0, LastSample = 0, LastStatus = 0, Tick = 0;
   uint16_t PickColor = 0xF800;
   std::string Last = "encoder = move, A = edit";
 
@@ -247,23 +254,7 @@ private:
     if (Redraw) { x0 = std::min(x0, RX); y0 = std::min(y0, RY); x1 = std::max(x1, RX + RW); y1 = std::max(y1, RY + RH); }
     RX = x0; RY = y0; RW = x1 - x0; RH = y1 - y0; Redraw = true;
   }
-  // ---- SuperUserDraw callbacks ----
-  // Gauge: a needle that sweeps back and forth, painted from scratch on every redraw (normal mode).
-  static void GaugeDraw(SuperUserDraw& c, lgfx::LGFX_Sprite* s, const SuperRect& r, void*) {
-    int cx = r.x + r.w / 2, cy = r.y + r.h - 14, rad = std::min(r.w / 2 - 10, r.h - 28);
-    for (int a = -90; a <= 90; a += 15) {                                       // tick marks
-      float t = a * 0.0174533f; int len = (a % 45 == 0) ? 10 : 5;
-      s->drawLine(cx + (int)(std::sin(t) * (rad - len)), cy - (int)(std::cos(t) * (rad - len)), cx + (int)(std::sin(t) * rad), cy - (int)(std::cos(t) * rad), 0x7BEF);
-    }
-    float v = 0.5f + 0.5f * std::sin(lgfx::millis() * 0.0015f);                 // 0..1
-    float t = (-90.f + 180.f * v) * 0.0174533f;
-    uint16_t col = v < 0.6f ? 0x07E0 : v < 0.85f ? 0xFFE0 : 0xF800;             // green, yellow, red
-    s->drawLine(cx, cy, cx + (int)(std::sin(t) * (rad - 6)), cy - (int)(std::cos(t) * (rad - 6)), col);
-    s->drawLine(cx + 1, cy, cx + 1 + (int)(std::sin(t) * (rad - 6)), cy - (int)(std::cos(t) * (rad - 6)), col);
-    s->fillCircle(cx, cy, 4, col);
-    s->setTextColor(0xFFFF); s->setTextDatum(lgfx::textdatum_t::top_center); s->setFont(&lgfx::fonts::Font2);
-    char b[16]; snprintf(b, sizeof b, "%d%%", (int)(v * 100.f + 0.5f)); s->drawString(b, cx, r.y + 2);
-  }
+  // ---- SuperUserDraw callbacks (the sketch pad) ----
   // Sketch pad: the canvas is persistent, so this only paints the hint; the strokes are drawn straight onto the canvas by PadPointer.
   static void PadDraw(SuperUserDraw&, lgfx::LGFX_Sprite* s, const SuperRect& r, void*) {
     s->setTextColor(0x4208); s->setTextDatum(lgfx::textdatum_t::middle_center); s->setFont(&lgfx::fonts::Font2);

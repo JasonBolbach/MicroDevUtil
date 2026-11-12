@@ -364,6 +364,22 @@ form.Add(&gauge, false);                                              // display
 You get a sprite and the rectangle to draw in; the library handles the frame, the dimming and the push. Add `SetPersistent(true)` for a canvas that
 keeps what you draw (sketch pads, traces), and `SetOnPointer(fn)` to react to touch with positions in your drawing area. See `examples/UserDrawExample`.
 
+### 3.17 Gauge
+
+```cpp
+#include <SuperGauge.h>
+SuperGauge load(&lcd, 10, 10, 200, 120, &lgfx::fonts::Font2);
+// setup
+load.SetRange(0, 100);
+load.AddZone(0, 60, TFT_GREEN);  load.AddZone(60, 85, TFT_YELLOW);  load.AddZone(85, 100, TFT_RED);
+load.SetFormat(0, "%");  load.SetLabel("Load");
+form.Add(&load, false);                          // display only
+// whenever you have a reading
+load.SetValue(cpuLoad);                          // the needle glides to it
+```
+A half dial by default (`SetSweep(-135, 135)` for 270 degrees), with ticks and numbers, colour zones, and a needle that takes the colour of its zone. `load.SetMinMax(5000, 4, 3)` adds lines for the lowest and highest value of the last 5 seconds, 3 pixels thick, in the inverted colour of the dial under them, shown when they are 4+ degrees from the needle. Smoothing is on by default
+and is driven by `form.Service()` (without a form call `load.Update()` from `loop()`). See `examples/GaugeExample`.
+
 ---
 
 ## 4. Run them together with SuperForm

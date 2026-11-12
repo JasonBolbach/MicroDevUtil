@@ -46,4 +46,4 @@ The Choose page has a **Sleek style** check box that switches every control betw
 line) live. Labels are small and left-aligned throughout: `DemoUI::LabelFont` (default `Font0`, set it to `&lgfx::fonts::Font2` for larger labels)
 is applied to every control in `Begin()`.
 
-The **Draw** page shows `SuperUserDraw`: an animated gauge (auto-redraw) and a sketch pad (persistent canvas + touch events; touch to draw, hold to clear).
+The **Draw** page shows `SuperGauge` (a dial with colour zones, a smooth needle and MinMax lines for the last 6 s, fed a new value twice a second) and `SuperUserDraw`: a sketch pad (persistent canvas + touch events; touch to draw, hold to clear).
