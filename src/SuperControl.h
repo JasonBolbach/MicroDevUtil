@@ -128,6 +128,12 @@ public:
     }
     static void   FreeShared()  { if (SharedBuf) lgfx::heap_free(SharedBuf); SharedBuf = nullptr; SharedCap = 0; }
     static size_t SharedBytes() { return SharedCap; }                // current size of the shared buffer
+    // Timing statistics (off by default): when CollectStats is true every draw adds its microseconds to these totals, so you can see
+    // where redraw time goes: StatRenderUs = drawing the control into its buffer, StatDimUs = brightness dimming (focus / disabled
+    // look), StatPushUs = sending the buffer to the display. Read them, then ResetStats(). The cost of measuring is a few microseconds.
+    inline static bool     CollectStats = false;
+    inline static uint32_t StatDraws = 0, StatRenderUs = 0, StatDimUs = 0, StatPushUs = 0;
+    static void ResetStats() { StatDraws = StatRenderUs = StatDimUs = StatPushUs = 0; }
     // True if the last draw could not allocate the sprite (out of memory). The control then shows a red outline instead of its look.
     bool AllocFailed = false;
 
@@ -238,9 +244,13 @@ public:
     void Refresh()    { if (Dirty && VisibleFlag) Push(); }                       // redraw + push only if something changed
     void Push() {                                                  // always redraw + push
         if (!VisibleFlag) return;
+        uint32_t t0 = CollectStats ? (uint32_t)lgfx::micros() : 0;
         if (!Render()) { ShowAllocFailure(); return; }
+        uint32_t t1 = CollectStats ? (uint32_t)lgfx::micros() : 0;
         if (!EnabledFlag) Dim(DisabledBrightness);
+        uint32_t t2 = CollectStats ? (uint32_t)lgfx::micros() : 0;
         Present();
+        if (CollectStats) Account(t0, t1, t2);
     }
     // Redraw (no input handling) and draw / erase a highlight box just outside the control.
     // highlight=true  -> full brightness + box (the focused control).
@@ -249,11 +259,15 @@ public:
     void DrawPreview(bool highlight)                { DrawPreview(highlight, ColHighlight); }
     void DrawPreview(bool highlight, uint16_t color) {
         if (!VisibleFlag) return;
+        uint32_t t0 = CollectStats ? (uint32_t)lgfx::micros() : 0;
         if (!Render()) ShowAllocFailure();
         else {
+        uint32_t t1 = CollectStats ? (uint32_t)lgfx::micros() : 0;
         if (!EnabledFlag) Dim(DisabledBrightness);
         if (!highlight) Dim(PreviewBrightness);
+        uint32_t t2 = CollectStats ? (uint32_t)lgfx::micros() : 0;
         Present();
+        if (CollectStats) Account(t0, t1, t2);
         }
         Dirty = true;                                              // the sprite now holds the preview look
         if (!Dst) return;
@@ -372,6 +386,10 @@ private:
         (void)lh;
     }
 
+    static void Account(uint32_t t0, uint32_t t1, uint32_t t2) {      // t3 = now
+        uint32_t t3 = (uint32_t)lgfx::micros();
+        ++StatDraws; StatRenderUs += t1 - t0; StatDimUs += t2 - t1; StatPushUs += t3 - t2;
+    }
     // Draw a red outline where the control should be: the sprite buffer could not be allocated (out of memory).
     void ShowAllocFailure() {
         if (!Dst) return;
