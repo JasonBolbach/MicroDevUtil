@@ -453,8 +453,8 @@ inline GenResult WriteDesigner(DForm& f, const std::string& dir) {
 
 struct UserResult { bool ok = false, created = false; std::string path, error, backup; std::vector<std::string> missing; };
 
-// Writes <dir>/<FormName>.h only when it does not exist yet. An existing file is never touched: it is read, and the handlers it does not
-// mention yet are returned in `missing`.
+// Writes <dir>/<FormName>.h. An existing file is first copied to <Form>.yyyy_mm_dd_hh_mm_ss.h.txt (`backup`) and then replaced; if the copy fails
+// the file is left alone and the export reports an error.
 inline UserResult WriteUserFile(const DForm& f, const std::string& dir) {
     namespace fs = std::filesystem;
     UserResult r; std::error_code ec;
@@ -463,19 +463,18 @@ inline UserResult WriteUserFile(const DForm& f, const std::string& dir) {
     r.path = p.string();
     if (fs::exists(p, ec)) {
         if (!fs::is_regular_file(p, ec)) { r.error = p.string() + " is not a file"; return r; }
-        std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf();
-        r.missing = UserFileMissing(f, ss.str()); r.ok = true;
-        // every export keeps a snapshot of your file next to it: <Form>.yyyy_mm_dd_hh_mm_ss.h.txt (a .txt so nothing ever includes it); a failure here never fails the export
-        { std::time_t now = std::time(nullptr); char stamp[32]; std::strftime(stamp, sizeof stamp, "%Y_%m_%d_%H_%M_%S", std::localtime(&now));
-          std::string stem = p.stem().string(), ext = p.extension().string();                            // Form1 + .h
-          fs::path bk = fs::path(dir) / (stem + "." + stamp + ext + ".txt");
-          std::error_code cec; fs::copy_file(p, bk, fs::copy_options::overwrite_existing, cec); if (!cec) r.backup = bk.string(); }
-        return r;
+        // the existing file is first copied next to itself: <Form>.yyyy_mm_dd_hh_mm_ss.h.txt (a .txt so nothing ever includes it); it is only replaced when that copy succeeded
+        std::time_t now = std::time(nullptr); char stamp[32]; std::strftime(stamp, sizeof stamp, "%Y_%m_%d_%H_%M_%S", std::localtime(&now));
+        std::string stem = p.stem().string(), ext = p.extension().string();                                  // Form1 + .h
+        fs::path bk = fs::path(dir) / (stem + "." + stamp + ext + ".txt");
+        std::error_code cec; fs::copy_file(p, bk, fs::copy_options::overwrite_existing, cec);
+        if (cec) { r.error = "cannot back up " + p.string() + " (not replaced)"; return r; }
+        r.backup = bk.string();
     }
     fs::path tmp = p; tmp += ".tmp";
     { std::ofstream out(tmp, std::ios::binary | std::ios::trunc); if (!out) { r.error = "cannot write " + tmp.string(); return r; } out << GenerateUserFile(f); if (!out) { r.error = "write failed: " + tmp.string(); return r; } }
     fs::rename(tmp, p, ec);
     if (ec) { fs::remove(tmp, ec); r.error = "cannot create " + p.string(); return r; }
-    r.ok = r.created = true; return r;
+    r.ok = true; r.created = r.backup.empty(); return r;
 }
 }

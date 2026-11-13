@@ -604,9 +604,9 @@ static void ExportForm(const std::string& dir) {
     if (dir.empty()) FixOutDir();
     FD::GenResult r = FD::WriteDesigner(form, dir.empty() ? form.outDir : dir);
     if (!r.ok) { Status("not exported: %s", r.error.c_str()); return; }
-    FD::UserResult u = FD::WriteUserFile(form, form.outDir);                    // <Form>.h: created once, never overwritten
+    FD::UserResult u = FD::WriteUserFile(form, form.outDir);                    // <Form>.h: an existing one is copied aside, then replaced
     if (!SaveForm()) return;
-    std::string note = !u.ok ? "  (" + u.error + ")" : u.created ? "  + created " + FD::UserFileName(form) : "  (" + FD::UserFileName(form) + " kept" + (u.backup.empty() ? "" : ", copy " + std::filesystem::path(u.backup).filename().string()) + ")";
+    std::string note = !u.ok ? "  (" + u.error + ")" : u.created ? "  + created " + FD::UserFileName(form) : "  (" + FD::UserFileName(form) + " replaced" + (u.backup.empty() ? "" : ", old copy " + std::filesystem::path(u.backup).filename().string()) + ")";
     if (u.ok && !u.missing.empty()) { note += "; add to it: " + u.missing[0]; if (u.missing.size() > 1) note += " +" + std::to_string(u.missing.size() - 1) + " more"; }
     Status("%s %s%s", r.unchanged ? "up to date:" : "exported", r.path.c_str(), note.c_str());
 }
@@ -1477,7 +1477,7 @@ static void SelfTest() {
         { FILE* f = fopen((udir + "/Demo.h").c_str(), "ab"); fputs("// MY OWN CODE\n", f); fclose(f); }
         ur = WriteUserFile(form, udir);
         { std::ifstream in(udir + "/Demo.h", std::ios::binary); std::stringstream ss; ss << in.rdbuf();
-          Check(ur.ok && !ur.created && ss.str() == uf + "// MY OWN CODE\n", "user file: an existing file is never touched (the user's edits stay)"); }
+          Check(ur.ok && !ur.created && ss.str() == uf, "user file: an existing file is replaced by the new one (the old one is kept as the backup)"); }
         { std::string bn = std::filesystem::path(ur.backup).filename().string(); std::ifstream in(ur.backup, std::ios::binary); std::stringstream ss; ss << in.rdbuf();
           bool shape = bn.size() == std::string("Demo.2026_11_13_09_30_00.h.txt").size() && bn.substr(0, 5) == "Demo." && bn.substr(bn.size() - 6) == ".h.txt" && bn[9] == '_' && bn[12] == '_' && bn[15] == '_' && bn[18] == '_' && bn[21] == '_';
           Check(!ur.backup.empty() && shape && ss.str() == uf + "// MY OWN CODE\n", "export: an existing user file is copied to <Form>.yyyy_mm_dd_hh_mm_ss.h.txt (identical copy)");
@@ -1486,10 +1486,10 @@ static void SelfTest() {
         { DControl c; c.type = C_RADIO; c.name = "modeA"; form.items.push_back(c); }
         { DControl c; c.type = C_PUSHBUTTON; c.name = "cancelBtn"; form.items.push_back(c); }
         ur = WriteUserFile(form, udir);
-        Check(ur.ok && ur.missing.size() == 2 && ur.missing[0] == "modeA_Change" && ur.missing[1] == "cancelBtn_Click", "user file: handlers for controls added later are reported as missing (the file is not edited)");
+        { std::ifstream in(udir + "/Demo.h", std::ios::binary); std::stringstream ss; ss << in.rdbuf(); Check(ur.ok && ss.str() == GenerateUserFile(form) && ss.str().find("modeA_Change") != std::string::npos, "user file: controls added later appear in the replaced file"); }
         ur = WriteUserFile(form, udir + "/nope"); Check(!ur.ok && !ur.error.empty(), "user file: a missing folder is an error");
         setenv("FD_FORM", (udir + "/demo.json").c_str(), 1); form.outDir = udir; ExportForm("");
-        Check(std::filesystem::exists(udir + "/Demo.designer.h", ufe) && std::filesystem::exists(udir + "/Demo.h", ufe) && status.find("kept") != std::string::npos && status.find("modeA_Change") != std::string::npos, "export: Ctrl+X writes both files and the status names the handlers missing from the user file");
+        Check(std::filesystem::exists(udir + "/Demo.designer.h", ufe) && std::filesystem::exists(udir + "/Demo.h", ufe) && status.find("replaced") != std::string::npos, "export: Ctrl+X writes both files and the status says the user file was replaced");
         std::filesystem::remove(udir + "/Demo.h", ufe); ExportForm("");
         Check(std::filesystem::exists(udir + "/Demo.h", ufe) && status.find("created Demo.h") != std::string::npos, "designer: a deleted user file is created again");
         unsetenv("FD_FORM"); std::filesystem::remove_all(udir, ufe); form.Clear(); FixOutDir();
@@ -2869,7 +2869,7 @@ void setup() {
         FD::GenResult r = FD::WriteDesigner(form, form.outDir);
         printf("%s %s\n", r.ok ? (r.unchanged ? "up to date:" : "generated:") : "FAILED:", r.ok ? r.path.c_str() : r.error.c_str());
         FD::UserResult u = r.ok ? FD::WriteUserFile(form, form.outDir) : FD::UserResult();
-        if (r.ok) { printf("%s %s\n", u.ok ? (u.created ? "created:  " : "kept:     ") : "FAILED:   ", u.ok ? u.path.c_str() : u.error.c_str()); for (auto& h : u.missing) printf("  not in %s yet: %s\n", FD::UserFileName(form).c_str(), h.c_str()); SaveForm(); }
+        if (r.ok) { printf("%s %s\n", u.ok ? (u.created ? "created:  " : "replaced: ") : "FAILED:   ", u.ok ? u.path.c_str() : u.error.c_str()); for (auto& h : u.missing) printf("  not in %s yet: %s\n", FD::UserFileName(form).c_str(), h.c_str()); SaveForm(); }
         fflush(stdout); exit(r.ok && u.ok ? 0 : 1);
     }
     if (getenv("FD_ZOOM")) { if (getenv("FD_ZOOM")[0] == 'f') ZoomFit(); else ZoomCentre(atoi(getenv("FD_ZOOM"))); }   // FD_ZOOM=fit | percent
