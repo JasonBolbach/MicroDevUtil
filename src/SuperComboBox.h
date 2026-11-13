@@ -53,6 +53,11 @@ public:
     void AddItem(const std::string& s) { List.AddItem(s); SyncText(); }
     void SetItems(const std::vector<std::string>& v) { List.SetItems(v); SyncText(); }
     void ClearItems() { List.ClearItems(); SyncText(); }
+    const std::string& GetItem(int i) const { return List.GetItem(i); }
+    // Change one item at run time (not while the popup is open); same rules as SuperListBox.
+    void InsertItem(int i, const std::string& s) { List.InsertItem(i, s); SyncText(); }
+    void RemoveItem(int i) { List.RemoveItem(i); SyncText(); }
+    void SetItem(int i, const std::string& s) { List.SetItem(i, s); SyncText(); }
     int  Count() const { return List.Count(); }
     void SetSelected(int i) { List.SetSelected(i); SyncText(); Refresh(); }
     int  GetSelected() const { return List.GetSelected(); }

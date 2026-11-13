@@ -39,6 +39,26 @@ public:
         Cursor = Sel; Keep(Sel); Dirty = true;
     }
     void ClearItems() { Items.clear(); Sel = Cursor = -1; First = 0; Dirty = true; }
+    // Change one item at run time (not while the list is being edited). The selection stays on the item it was on.
+    void InsertItem(int i, const std::string& s) {                 // before index i (i >= Count() appends)
+        i = std::clamp(i, 0, Count());
+        Items.insert(Items.begin() + i, s);
+        if (Sel < 0) { Sel = Cursor = 0; }
+        else { if (i <= Sel) ++Sel; if (i <= Cursor) ++Cursor; }
+        Keep(Sel); Dirty = true;
+    }
+    void RemoveItem(int i) {                                       // if it was the selected item, the selection moves to the item now at that index
+        if (i < 0 || i >= Count()) return;
+        Items.erase(Items.begin() + i);
+        if (Items.empty()) { Sel = Cursor = -1; First = 0; }
+        else {
+            if (i < Sel) --Sel; else if (i == Sel) Sel = std::min(Sel, Count() - 1);
+            if (i < Cursor) --Cursor; else if (i == Cursor) Cursor = std::min(Cursor, Count() - 1);
+            First = std::min(First, std::max(0, Count() - 1)); Keep(Sel);
+        }
+        Dirty = true;
+    }
+    void SetItem(int i, const std::string& s) { if (i >= 0 && i < Count()) { Items[i] = s; Dirty = true; } }      // rename
     int  Count() const { return (int)Items.size(); }
     const std::string& GetItem(int i) const { static const std::string none; return (i >= 0 && i < Count()) ? Items[i] : none; }
 

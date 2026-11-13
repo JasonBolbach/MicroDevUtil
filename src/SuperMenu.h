@@ -44,14 +44,37 @@ public:
 
     // The returned pointer stays valid; pass it as 'parent' to build sub-menus.
     Item* AddItem(const std::string& text, int id = 0, Item* parent = nullptr) {
-        Pool.push_back(Item());
-        Item* it = &Pool.back();
+        Item* it;
+        if (!Free.empty()) { it = Free.back(); Free.pop_back(); *it = Item(); }           // reuse an item that RemoveItem() released
+        else { Pool.push_back(Item()); it = &Pool.back(); }
         it->Text = text; it->Id = id; it->Parent = parent;
         (parent ? parent->Kids : Top.Kids).push_back(it);
         Dirty = true;
         return it;
     }
-    void Clear() { Pool.clear(); Top.Kids.clear(); Level = &Top; Cursor = First = 0; Result = nullptr; Dirty = true; }
+    void Clear() { Pool.clear(); Free.clear(); Top.Kids.clear(); Level = &Top; Cursor = First = 0; Result = nullptr; Dirty = true; }
+    // Run-time changes (not while the menu is open; they make it start again at the top level):
+    // RemoveItem removes an item with everything below it; pointers to the removed items must not be used afterwards (the memory is reused by AddItem).
+    bool RemoveItem(Item* it) {
+        if (!it || it == &Top || it == &BackItem) return false;
+        std::vector<Item*>& sib = it->Parent ? it->Parent->Kids : Top.Kids;
+        auto pos = std::find(sib.begin(), sib.end(), it);
+        if (pos == sib.end()) return false;                                                   // not an item of this menu (or already removed)
+        sib.erase(pos);
+        std::vector<Item*> stack{ it };
+        while (!stack.empty()) {                                                              // the whole subtree goes to the free list
+            Item* x = stack.back(); stack.pop_back();
+            if (x == Result) Result = nullptr;
+            for (Item* k : x->Kids) stack.push_back(k);
+            x->Kids.clear(); Free.push_back(x);
+        }
+        Level = &Top; Cursor = First = 0; Dirty = true;
+        return true;
+    }
+    // The first item (depth first, in menu order) with this id, or nullptr. Parents usually have id 0; leaves carry your command ids.
+    const Item* FindById(int id) const { return Find(&Top, id); }
+    Item* FindById(int id) { return const_cast<Item*>(static_cast<const SuperMenu*>(this)->FindById(id)); }
+    const Item* Root() const { return &Top; }                                                 // Root()->Kids are the top-level items
     int  GetResultId() const { return Result ? Result->Id : -1; }
     const Item* GetResultItem() const { return Result; }
     const Item* GetCurrentLevel() const { return Level == &Top ? nullptr : Level; }   // nullptr = top level
@@ -203,6 +226,11 @@ private:
     int Rows;
     SuperEditIO IO;
     std::deque<Item> Pool;
+    std::vector<Item*> Free;                                   // items released by RemoveItem(), reused by AddItem()
+    static const Item* Find(const Item* from, int id) {
+        for (const Item* k : from->Kids) { if (k->Id == id) return k; if (const Item* f = Find(k, id)) return f; }
+        return nullptr;
+    }
     Item Top;
     Item* Level = &Top;
     Item* Result = nullptr;

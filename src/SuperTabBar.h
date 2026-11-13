@@ -24,6 +24,32 @@ public:
 
     void AddTab(const std::string& s) { Tabs.push_back(s); if (Sel < 0) Sel = Cursor = 0; Dirty = true; }
     void ClearTabs() { Tabs.clear(); Sel = Cursor = -1; First = 0; Dirty = true; }
+    // The same list API as SuperListBox / SuperComboBox (GetTab is the same as GetItem). Change tabs at run time, not while the bar is being edited.
+    const std::string& GetItem(int i) const { return GetTab(i); }
+    void SetItems(const std::vector<std::string>& v) {
+        Tabs = v; First = 0;
+        Sel = Tabs.empty() ? -1 : std::clamp(Sel, 0, (int)Tabs.size() - 1);
+        Cursor = Sel; Dirty = true;
+    }
+    void InsertItem(int i, const std::string& s) {                 // before index i (i >= Count() appends); the selection stays on its tab
+        i = std::clamp(i, 0, Count());
+        Tabs.insert(Tabs.begin() + i, s);
+        if (Sel < 0) { Sel = Cursor = 0; }
+        else { if (i <= Sel) ++Sel; if (i <= Cursor) ++Cursor; }
+        Dirty = true;
+    }
+    void RemoveItem(int i) {                                       // if it was the selected tab, the selection moves to the tab now at that index
+        if (i < 0 || i >= Count()) return;
+        Tabs.erase(Tabs.begin() + i);
+        if (Tabs.empty()) { Sel = Cursor = -1; First = 0; }
+        else {
+            if (i < Sel) --Sel; else if (i == Sel) Sel = std::min(Sel, Count() - 1);
+            if (i < Cursor) --Cursor; else if (i == Cursor) Cursor = std::min(Cursor, Count() - 1);
+            First = std::min(First, std::max(0, Count() - 1));
+        }
+        Dirty = true;
+    }
+    void SetItem(int i, const std::string& s) { if (i >= 0 && i < Count()) { Tabs[i] = s; Dirty = true; } }
     int  Count() const { return (int)Tabs.size(); }
     const std::string& GetTab(int i) const { static const std::string none; return (i >= 0 && i < Count()) ? Tabs[i] : none; }
     void SetSelected(int i) { Sel = Tabs.empty() ? -1 : std::clamp(i, 0, Count() - 1); Cursor = Sel; Dirty = true; Refresh(); }
