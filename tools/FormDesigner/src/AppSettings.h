@@ -17,6 +17,7 @@ namespace FD {
 struct AppSettings {
     std::string lastOpenDir;        // the folder the Open dialog was showing when it was closed last
     std::string lastSaveDir;        // the same for Save (used for a form that has no file yet)
+    std::string lastForm;           // the form file opened or saved last: reopened at the next start
 
     static std::string File() {
         if (const char* o = getenv("FD_SETTINGS")) if (*o) return o;
@@ -38,6 +39,7 @@ struct AppSettings {
         if (!p.Parse(root, err) || root.t != JV::OBJ) return false;
         if (const JV* v = root.Get("lastOpenFolder")) if (v->t == JV::STR) lastOpenDir = v->s;
         if (const JV* v = root.Get("lastSaveFolder")) if (v->t == JV::STR) lastSaveDir = v->s;
+        if (const JV* v = root.Get("lastForm")) if (v->t == JV::STR) lastForm = v->s;
         return true;
     }
     bool Save() const {
@@ -45,7 +47,7 @@ struct AppSettings {
         fs::path p = File(); if (p.has_parent_path()) fs::create_directories(p.parent_path(), ec);
         auto esc = [](const std::string& s) { std::string r; for (char c : s) { if (c == '"' || c == '\\') r += '\\'; r += c; } return r; };
         std::ofstream out(p, std::ios::binary | std::ios::trunc); if (!out) return false;
-        out << "{\n  \"lastOpenFolder\": \"" << esc(lastOpenDir) << "\",\n  \"lastSaveFolder\": \"" << esc(lastSaveDir) << "\"\n}\n";
+        out << "{\n  \"lastOpenFolder\": \"" << esc(lastOpenDir) << "\",\n  \"lastSaveFolder\": \"" << esc(lastSaveDir) << "\",\n  \"lastForm\": \"" << esc(lastForm) << "\"\n}\n";
         return (bool)out;
     }
 };

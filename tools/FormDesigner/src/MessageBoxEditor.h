@@ -24,6 +24,8 @@
 #include "DesignerWidgets.h"
 #include "DesignerControls.h"
 #include "ItemsDialog.h"
+#include "FontDialog.h"
+#include "ColorDialog.h"
 
 namespace FD {
 class MessageBoxEditor {
@@ -40,7 +42,7 @@ public:
         Sel = F.boxes.empty() ? -1 : 0; Rebuild();
     }
 
-    static constexpr int W = 1040, H = 620, X = (FD::WIN_W - W) / 2, Y = (FD::WIN_H - H) / 2, LIST_W = 240, ROWS = 12;
+    static constexpr int W = 1040, H = 740, X = (FD::WIN_W - W) / 2, Y = (FD::WIN_H - H) / 2, LIST_W = 240, ROWS = 12;
     std::vector<DMessageBox>& Boxes() { return F.boxes; }
     // geometry (public: the self-test aims at it)
     int RX() const { return X + 16 + LIST_W + 16; }
@@ -49,6 +51,13 @@ public:
                           case F_N0: case F_N1: case F_N2: return RX() + 240; default: return RX() + dx[k - F_W]; } }
     int FY(int k) const { if (k <= F_TITLE) return Y + 64; if (k <= F_Y) return Y + 120; return Y + 236 + ((k - F_T0) / 2) * 36; }
     int FW(int k) const { switch (k) { case F_NAME: return 200; case F_TITLE: return RW() - 220; case F_T0: case F_T1: case F_T2: return 220; case F_N0: case F_N1: case F_N2: return RW() - 240 - 120; default: return 80; } }
+    // the look: font, three colours, rich text, style fonts
+    int LookY() const { return Y + 404; }
+    int FontBtnX() const { return RX(); }
+    int ColBtnX(int k) const { return RX() + 230 + k * 74; }                      // 0 text, 1 back, 2 border
+    int RichX(int seg) const { return RX() + 480 + seg * 56; }                    // 0 No, 1 Yes
+    int StyleY() const { return Y + 462; }
+    int StyleX(int k) const { return RX() + k * 186; }
     int CenterX() const { return RX() + 400; }
     int CenterY() const { return Y + 120; }
     int MsgBtnX() const { return RX(); }
@@ -64,6 +73,8 @@ public:
     int CancelX() const { return OkX() - 10 - 90; }
     SuperListBox* Lb() { return List.get(); }
     ItemsDialog* Sub() { return Sub_.get(); }
+    FontDialog* FontDlg() { return FDlg.get(); }
+    ColorDialog* ColorDlg() { return CDlg.get(); }
     int Selected() const { return Sel; }
     int FocusedField() const { return Focus; }                  // -1 = the list
     const std::string& FieldText(int k) const { return Fld[k].text; }
@@ -71,6 +82,8 @@ public:
     int BadField() const { return Bad; }
 
     void Event(const InputEvent& e) {
+        if (FDlg) { FDlg->Event(e); if (FDlg->state != FontDialog::OPEN) EndFont(); return; }
+        if (CDlg) { CDlg->Event(e); if (CDlg->state != ColorDialog::OPEN) EndColor(); return; }
         if (Sub_) { Sub_->Event(e); if (Sub_->state != ItemsDialog::OPEN) EndSub(); return; }
         switch (e.type) {
         case InputEvent::DOWN: if (e.button == SDL_BUTTON_LEFT) Down(e); break;
@@ -105,7 +118,7 @@ public:
         if (b) { char s[40]; for (int k = 0; k < 3; ++k) { snprintf(s, sizeof s, "result %d", k); g.drawString(s, RX() + RW() - 110, FY(F_T0) + k * 36 + 6); }
                  std::string sm = std::to_string(b->lines.size()) + (b->lines.size() == 1 ? " line: " : " lines: "); for (size_t i = 0; i < b->lines.size() && sm.size() < 70; ++i) sm += (i ? " / " : "") + b->lines[i];
                  g.setClipRect(RX() + 176, MsgBtnY(), RW() - 180, 30); g.drawString(sm.c_str(), RX() + 176, MsgBtnY() + 6); g.clearClipRect(); }
-        if (!Msg.empty()) { g.setTextColor(COL_ERR); g.drawString(Msg.c_str(), RX(), Y + 352 - 0); }
+        if (!Msg.empty()) { g.setTextColor(COL_ERR); g.drawString(Msg.c_str(), RX(), Y + 352); }
         { SuperPushButton c(G, CenterX(), CenterY(), 150, &lgfx::fonts::Font2, b && !b->centered ? "Centered: No" : "Centered: Yes"); c.Push();
           SuperPushButton m(G, MsgBtnX(), MsgBtnY(), 160, &lgfx::fonts::Font2, "Edit message..."); m.Push();
           SuperPushButton a(G, AutoX(), AutoY() + 36 * 3 - 4, 100, &lgfx::fonts::Font2, "Auto names"); a.Push(); }
@@ -114,20 +127,39 @@ public:
         for (int k = 0; k < 4; ++k) { SuperPushButton bb(G, LBX(k), LBY(), 56, &lgfx::fonts::Font2, l1[k]); bb.Push(); }
         g.setFont(&lgfx::fonts::Font2); g.setTextDatum(lgfx::textdatum_t::top_left); g.setTextColor(COL_DIM);
         char s[60]; snprintf(s, sizeof s, "%d message box%s", (int)F.boxes.size(), F.boxes.size() == 1 ? "" : "es"); g.drawString(s, X + 16, LBY() + 66);
+        // the look
+        g.setFont(&lgfx::fonts::Font2); g.setTextDatum(lgfx::textdatum_t::top_left); g.setTextColor(0xFFFF);
+        g.drawString("Font", FontBtnX(), LookY() - 22); g.drawString("Text", ColBtnX(0), LookY() - 22); g.drawString("Back", ColBtnX(1), LookY() - 22); g.drawString("Border", ColBtnX(2), LookY() - 22); g.drawString("Rich text (tags)", RichX(0), LookY() - 22);
+        g.drawString("Style fonts for <b> <i> <b><i> <h1> (Rich text only; empty = ignored)", RX(), StyleY() - 22);
+        if (b) {
+            g.fillRect(FontBtnX(), LookY(), 220, 26, 0x0000); g.drawRect(FontBtnX(), LookY(), 220, 26, 0x7BEF); g.setTextColor(0xFFFF); g.drawString(FindFont(b->font).label, FontBtnX() + 6, LookY() + 5);
+            const uint16_t cols[3] = { b->fg, b->bg, b->border };
+            for (int k = 0; k < 3; ++k) { g.fillRect(ColBtnX(k), LookY(), 64, 26, cols[k]); g.drawRect(ColBtnX(k), LookY(), 64, 26, 0xFFFF); }
+            for (int k = 0; k < 2; ++k) { bool on = (k == 1) == b->rich; g.fillRect(RichX(k), LookY(), 52, 26, on ? COL_SEL : 0x0000); g.drawRect(RichX(k), LookY(), 52, 26, on ? COL_ACCENT : 0x7BEF); g.setTextDatum(lgfx::textdatum_t::middle_center); g.setTextColor(on ? 0xFFFF : COL_DIM); g.drawString(k ? "Yes" : "No", RichX(k) + 26, LookY() + 13); g.setTextDatum(lgfx::textdatum_t::top_left); }
+            static const char* nm[4] = { "Bold", "Italic", "Bold italic", "Heading" };
+            for (int k = 0; k < 4; ++k) {
+                g.fillRect(StyleX(k), StyleY(), 176, 26, 0x0000); g.drawRect(StyleX(k), StyleY(), 176, 26, 0x7BEF);
+                g.setClipRect(StyleX(k) + 2, StyleY() + 2, 172, 22); g.setTextColor(b->styleFont[k].empty() ? COL_DIM : 0xFFFF);
+                g.drawString(b->styleFont[k].empty() ? (std::string(nm[k]) + ": none").c_str() : (std::string(nm[k]) + ": " + FindFont(b->styleFont[k]).label).c_str(), StyleX(k) + 5, StyleY() + 5); g.clearClipRect();
+                if (!b->styleFont[k].empty()) { g.setTextColor(COL_ERR); g.drawString("x", StyleX(k) + 176 - 16, StyleY() + 5); }       // click the x to clear it
+            }
+        }
         // the real message box
-        int py = Y + 380, ph = BtnY() - 14 - py;
+        int py = Y + 520, ph = BtnY() - 14 - py;
         g.fillRect(RX(), py, RW(), ph, FormBg); g.drawRect(RX(), py, RW(), ph, COL_LINE);
         if (b) { DMessageBox t = *b; t.centered = false; t.x = RX() + 16; t.y = py + 28;
                  g.setClipRect(RX() + 1, py + 1, RW() - 2, ph - 2); auto m = MakeMessageBox(&g, t); m->StartEdit(); g.clearClipRect(); }
         SuperPushButton cancel(G, CancelX(), BtnY(), 90, &lgfx::fonts::Font2, "Cancel"), ok(G, OkX(), BtnY(), 90, &lgfx::fonts::Font2, "OK");
         ok.ColBorder = COL_ACCENT; cancel.Push(); ok.Push();
         if (Sub_) Sub_->Draw(ticks);
+        if (FDlg) FDlg->Draw();
+        if (CDlg) CDlg->Draw(ticks);
     }
 
 private:
     enum Drag { D_NONE, D_LIST, D_TEXT } Drag = D_NONE;
     DForm F; lgfx::LGFX_Sprite* G; std::string Title; uint16_t FormBg;
-    std::unique_ptr<SuperListBox> List; TextField Fld[N_FIELDS]; std::unique_ptr<ItemsDialog> Sub_; std::string Msg;
+    std::unique_ptr<SuperListBox> List; TextField Fld[N_FIELDS]; std::unique_ptr<ItemsDialog> Sub_; std::unique_ptr<FontDialog> FDlg; std::unique_ptr<ColorDialog> CDlg; int DlgFor = -1; std::string Msg;      // DlgFor: 0 font, 1..3 colours, 4..7 style fonts
     int Sel = -1, Focus = -1, Bad = -1, BtnH = 20, PressX = 0, PressY = 0; bool Started = false;
 
     DMessageBox* Cur() { return Sel >= 0 && Sel < (int)F.boxes.size() ? &F.boxes[(size_t)Sel] : nullptr; }
@@ -227,6 +259,28 @@ private:
         }
         Sub_.reset(); Drag = D_NONE;
     }
+    void OpenFont(int which) {                                    // 0 = the box's font, 4..7 = a style font
+        DMessageBox* b = Cur(); if (!b) return;
+        DControl proto; proto.type = C_LABEL; proto.text = "Sample 123"; proto.font = which == 0 ? b->font : (b->styleFont[which - 4].empty() ? b->font : b->styleFont[which - 4]); proto.fg = b->fg; proto.bg = b->bg;
+        static const char* nm[4] = { "bold", "italic", "bold italic", "heading" };
+        FDlg.reset(new FontDialog(G, which == 0 ? "Font of " + b->name : std::string("Style font (") + nm[which - 4] + ") of " + b->name, proto, FormBg)); DlgFor = which; Focus = -1; Msg.clear();
+    }
+    void EndFont() {
+        DMessageBox* b = Cur();
+        if (FDlg->state == FontDialog::OK && b) { if (DlgFor == 0) b->font = FDlg->font; else b->styleFont[DlgFor - 4] = FDlg->font; }
+        FDlg.reset(); DlgFor = -1; Drag = D_NONE;
+    }
+    void OpenColor(int k) {                                       // 0 text, 1 back, 2 border
+        DMessageBox* b = Cur(); if (!b) return;
+        static const char* nm[3] = { "Text color", "Back color", "Border color" };
+        uint16_t cur = k == 0 ? b->fg : k == 1 ? b->bg : b->border, partner = k == 0 ? b->bg : k == 1 ? b->fg : b->bg;
+        CDlg.reset(new ColorDialog(G, std::string(nm[k]) + " of " + b->name, cur, partner, k == 0)); DlgFor = 1 + k; Focus = -1; Msg.clear();
+    }
+    void EndColor() {
+        DMessageBox* b = Cur();
+        if (CDlg->state == ColorDialog::OK && b) { if (DlgFor == 1) b->fg = CDlg->color; else if (DlgFor == 2) b->bg = CDlg->color; else b->border = CDlg->color; }
+        CDlg.reset(); DlgFor = -1; Drag = D_NONE;
+    }
     void Leave() { Focus = -1; Msg.clear(); Load(); }
     void Down(const InputEvent& e) {
         auto in = [&](int x, int y, int w, int h) { return e.x >= x && e.x < x + w && e.y >= y && e.y < y + h; };
@@ -235,6 +289,14 @@ private:
             if (Focus != k) { if (Focus >= 0 && Bad >= 0) Load(); Focus = k; Msg.clear(); Bad = -1; }
             Drag = D_TEXT; Fld[k].SetCaretFromX(e.x - FX(k) - 6, (SDL_GetModState() & KMOD_SHIFT) != 0, Measure());
             if (e.clicks == 2) Fld[k].SelectWord(Fld[k].caret); else if (e.clicks >= 3) Fld[k].SelectAll(); return; }
+        if (Cur()) {
+            if (in(FontBtnX(), LookY(), 220, 26)) { OpenFont(0); return; }
+            for (int k = 0; k < 3; ++k) if (in(ColBtnX(k), LookY(), 64, 26)) { OpenColor(k); return; }
+            for (int k = 0; k < 2; ++k) if (in(RichX(k), LookY(), 52, 26)) { Cur()->rich = k == 1; return; }
+            for (int k = 0; k < 4; ++k) if (in(StyleX(k), StyleY(), 176, 26)) {
+                if (e.x >= StyleX(k) + 156 && !Cur()->styleFont[k].empty()) Cur()->styleFont[k].clear(); else OpenFont(4 + k);        // the right end of a set font clears it
+                return; }
+        }
         if (in(CenterX(), CenterY(), 150, BtnH)) { if (DMessageBox* b = Cur()) { b->centered = !b->centered; Msg.clear(); } return; }
         if (in(MsgBtnX(), MsgBtnY(), 160, BtnH)) { OpenSub(); return; }
         if (in(AutoX(), AutoY() + 36 * 3 - 4, 100, BtnH)) { AutoNames(); return; }

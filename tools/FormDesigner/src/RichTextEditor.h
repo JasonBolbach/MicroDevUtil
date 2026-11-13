@@ -85,7 +85,7 @@ public:
         if (Mode == M_SOURCE) DrawSource(ticks); else DrawRendered();
         g.clearClipRect();
         g.setFont(&lgfx::fonts::Font2); g.setTextDatum(lgfx::textdatum_t::top_left); g.setTextColor(COL_DIM);
-        g.drawString("tags: <br> <tab> <hr> <color=red></color> <bg=#003> <u> <s> <big> <left> <center> <right>   &lt; &gt; &amp; &nbsp;   (other tags are ignored)", X + 16, AY() + AH() + 8);
+        g.drawString("tags: <br> <tab> <hr> <color=red></color> <bg=#003> <u> <s> <big> <left> <center> <right> <b> <i> <h1>   &lt; &gt; &amp;   (<b> <i> <h1> need style fonts; other tags are ignored)", X + 16, AY() + AH() + 8);
         g.drawString("Ctrl/Cmd + R: Source / Rendered     Ctrl/Cmd + Enter: OK     Esc: Cancel", X + 16, AY() + AH() + 28);
         SuperPushButton cancel(G, CancelX(), BtnY(), 90, &lgfx::fonts::Font2, "Cancel"), ok(G, OkX(), BtnY(), 90, &lgfx::fonts::Font2, "OK");
         ok.ColBorder = COL_ACCENT; cancel.Push(); ok.Push();

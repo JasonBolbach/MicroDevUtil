@@ -49,6 +49,8 @@ inline std::unique_ptr<SuperMessageBox> MakeMessageBox(lgfx::LovyanGFX* dst, con
     if (!b.title.empty()) m->SetLabel(b.title);
     if (!b.centered) { m->SetCentered(false); m->SetDisplayPos(b.x, b.y); }
     m->SetBorder(2, b.border); m->ColFg = b.fg; m->ColBg = b.bg;
+    if (b.rich) m->SetRich(true);
+    for (int k = 0; k < 4; ++k) if (!b.styleFont[k].empty()) m->SetStyleFont(k, FindFont(b.styleFont[k]).font);
     m->SetRestore(&NoRestore, nullptr);
     return m;
 }
@@ -96,6 +98,11 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     }
     // the type's own settings
     switch (c.type) {
+    case C_LABEL: {
+        auto* l = static_cast<SuperLabel*>(p.get());
+        if (XBool(c, "rich")) l->SetRich(true);
+        for (int k = 0; k < 4; ++k) { std::string f = XStr(c, STYLE_FONT_KEYS[k]); if (!f.empty()) l->SetStyleFont(k, FindFont(f).font); }
+        break; }
     case C_PROGRESS: static_cast<SuperProgressBar*>(p.get())->SetValue(60); break;                 // a sample value so the bar shows something
     case C_SPINBOX: {
         auto* b = static_cast<SuperSpinBox*>(p.get());
@@ -154,6 +161,7 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     case C_RICHTEXT: {
         auto* r = static_cast<SuperRichText*>(p.get());
         std::string t; for (size_t i = 0; i < c.list.size(); ++i) t += (i ? "\n" : "") + c.list[i];
+        for (int k = 0; k < 4; ++k) { std::string f = XStr(c, STYLE_FONT_KEYS[k]); if (!f.empty()) r->SetStyleFont(k, FindFont(f).font); }
         r->SetText(t); r->SetTabChars((int)XInt(c, "tabChars")); r->SetLineGap((int)XInt(c, "lineGap")); r->SetShowSource(XBool(c, "showSource"));
         break; }
     case C_USERDRAW: {

@@ -92,6 +92,8 @@ public:
         "Drag a side handle<tab>Change its width\n"
         "Arrows<tab>Nudge 1 pixel (Shift: one grid step)\n"
         "Tab<tab>Select the next control\n"
+        "Up / Down / Front / Back<tab>Buttons above the controls list: change the draw order<br>(the last control is in front; the tab order is not touched)\n"
+        "Tab order row<tab>The number (1, 2, 3 ...) of a control in the encoder's focus order;<br>set when the control is added, then only you change it\n"
         "Delete / Backspace<tab>Delete the selected control\n"
         "Esc<tab>Cancel placing, or select nothing\n"
         "G<tab>Change the grid step\n"

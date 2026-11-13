@@ -19,7 +19,7 @@ build/FormDesigner</code></pre>
 <p>LovyanGFX is looked up next to the SuperGUI folder (<code>../../../LovyanGFX</code>); otherwise add <code>-DLGFX_ROOT=/path/to/LovyanGFX</code>. On Windows point <code>CMakeLists.txt</code> at your SDL2 development files.</p>
 <h2>Your first form in ten steps</h2>
 <ol>
-<li><b>Name and size the form.</b> With nothing selected the right panel edits the form: Name, Width, Height (32x32 to 1024x768) and Back color. Use your display's real size.</li>
+<li><b>Name and size the form.</b> With nothing selected the right panel edits the form: Name, Width, Height (32x32 to 1920x1080: a big form scrolls and zooms) and Back color. Use your display's real size.</li>
 <li><b>Click a toolbox item, then click the form</b> to place a control. It snaps to the grid (press <code>G</code> to change the grid).</li>
 <li><b>Click a control to select it.</b> Drag to move it, drag the handles on its left / right edge to resize it, arrow keys nudge (Shift = one grid step), Delete removes it, Tab selects the next one.</li>
 <li><b>Name it.</b> The Name is the C++ member you will use in code (<code>okBtn</code>, <code>volume</code>). Names must be safe C++ names; the field turns red and says why when they are not.</li>
@@ -38,7 +38,7 @@ build/FormDesigner</code></pre>
 add('designer-usage', 'Using the designer', 'Surface, panel, zoom, files, shortcuts', f'''
 <h2>The three panels</h2>
 <table><tr><th>Panel</th><th>What it does</th></tr>
-<tr><td>Toolbox (left)</td><td>Click a type, then the form, to place it. Below it, <i>Controls on form</i> lists every control with its control group and type: click one to select it (handy for controls that are hidden or hard to hit).</td></tr>
+<tr><td>Toolbox (left)</td><td>Click a type, then the form, to place it. Below it, <i>Controls on form</i> lists every control with its control group and type: click one to select it (handy for controls that are hidden or hard to hit). The list scrolls (wheel or its scroll bar) and follows the selection. The <b>Up / Down / Front / Back</b> buttons above it change the order of the selected control: that order is the order the controls are added to the form, so it is the <b>draw order</b>: the last control is in front, and where controls overlap a click hits the front one. The encoder&rsquo;s <b>focus (tab) order</b> is separate: each focusable control has a <b>Tab order</b> number (shown in front of its name in the list). It is set once when the control is added, as the next free number, and is <b>never changed by moving controls</b>; you change it yourself in the <i>Tab order</i> row. In the generated code <code>SetTabOrder(n)</code> is written only when the focus order differs from the list order (equal numbers keep the list order).</td></tr>
 <tr><td>Design surface (middle)</td><td>The form drawn by the real controls, pixel-exact, scaled by the zoom. Place, select, drag, resize here. A thin yellow frame is the form's edge.</td></tr>
 <tr><td>Property panel (right)</td><td>The selected control's properties, or the form's when nothing is selected. Changes apply live. The panel scrolls with the wheel when a control has many rows.</td></tr></table>
 <h2>Mouse and keys</h2>
@@ -65,6 +65,7 @@ add('designer-usage', 'Using the designer', 'Surface, panel, zoom, files, shortc
 <li>Controls with a frame of their own caption (everything except Label, Push button, Check box and Radio button) get a <b>label group</b>: label text, position (Above / Below), alignment, font and colour.</li>
 </ul>
 <h2>Files</h2>
+<p><b>At start</b> the designer reopens the form you opened or saved last. If that file is gone it looks for a file called <code>template.json</code> in the folder of the FormDesigner program and, if there is one, opens it as a starting point named <code>NewForm</code> (a new, unsaved form: Save asks for a name). Otherwise you get the regular new form. So to make your own starting form, build it, save it as <code>template.json</code> next to the program, and use it whenever the last file is not available.</p>
 <p>The form is saved as a readable JSON file (see <a href="designer-json.html">The form file</a>). Open starts in the folder it was last looking at (an application setting kept per user, not per form). Save starts on the form's own file. The folder the code was last exported to is remembered inside the form file (<code>outputPath</code>); if it no longer exists, the folder of the FormDesigner program is used. In scripts you can skip the dialogs: <code>FD_FORM=form.json FD_OPEN=1 FD_EXPORT=1 build/FormDesigner</code> exports from the command line.</p>
 ''')
 
@@ -134,7 +135,8 @@ add('designer-groups', 'Lists, menus, tab pages and groups', 'Items dialogs, the
 <li><b>Rendered</b> mode shows the real control with your text (read-only; the wheel scrolls). Switch with the buttons or <code>Ctrl/Cmd + R</code>.</li>
 <li><code>Ctrl/Cmd + Enter</code> = OK, Esc = Cancel. Nothing is checked: what you type is what the control gets.</li>
 <li>In the JSON the text is a readable array of lines: <code>"richText": ["&lt;center&gt;Title&lt;/center&gt;", "Some text"]</code>. The generated code uses <code>SetTextStatic(...)</code>: a string literal that stays in flash.</li>
-<li>Other rows: Body height, Tab stops, Line gap, <i>Show source</i> (draws the markup itself, for debugging).</li>
+<li>Other rows: Body height, Tab stops, Line gap, <i>Show source</i> (draws the markup itself, for debugging), and four optional <b>style fonts</b> (Bold, Italic, Bold italic, Heading): pick a font and <code>&lt;b&gt; &lt;i&gt; &lt;b&gt;&lt;i&gt; &lt;h1&gt;</code> use it; leave a slot empty and that tag is ignored.</li>
+<li>A <b>Label</b> has a <b>Rich text</b> row (off by default) and the same four style fonts: type the tags in its Text (use <code>&lt;br&gt;</code> for a second line).</li>
 </ul>
 <h2>Control groups</h2>
 <p>Every control has a <b>Control group</b> row: a name (empty = no group). Controls with the same name are a group, and each group becomes a constant <code>GRP_X</code>. Do not confuse it with the radio button's <i>Group</i>, which only says which radio buttons exclude each other.</p>
@@ -144,7 +146,7 @@ Form.SetGroupEnabled(GRP_ADVANCED, true);    // enable / disable a set</code></p
 <p>In the tab bar's items dialog every tab has a <b>Page group</b>: the control group shown while that tab is chosen. The generated code does the switching (<code>tabs1_ShowPage(i)</code>), then calls your <code>tabs1_Accept()</code>. The first tab's page is shown at start; the other pages start hidden.</p>
 <p>Use the <b>View</b> button above the surface to look at one page at a time (All, then each group): only that group's controls, and the ones without a group, are shown and clickable, so pages that overlap on the form can be edited separately.</p>
 {tip('Put controls that appear on every page (a title, a footer) in <b>no group</b>: they are always shown.')}
-{warn('A group operation overrides a control&rsquo;s own Visible / Enabled: <code>SetGroupVisible(g, true)</code> shows every control in the group, including ones you set to Visible = No. A control that must stay hidden should not share a group with controls that get shown.')}
+{warn('A group operation overrides a control&rsquo;s own Visible / Enabled: <code>SetGroupVisible(g, true)</code> shows every control in the group, including ones you set to Visible = No. To keep those hidden, set the form&rsquo;s <b>Keep hidden</b> row to Yes (off by default): the generated code then calls <code>SetKeepHidden(true)</code> on every Visible = No control, and group shows (and tab pages) leave it hidden until you call its own <code>SetVisible(true)</code>.')}
 ''')
 
 add('designer-boxes', 'Message boxes', 'Confirmations without placing anything', f'''
@@ -156,6 +158,7 @@ add('designer-boxes', 'Message boxes', 'Confirmations without placing anything',
 <li><b>Width</b>, <b>Default button</b> (the highlighted one), <b>Centered</b> or an X / Y position.</li>
 <li><b>Edit message...</b>: the message is a list of lines (one entry per line, at most 12). Long lines are word-wrapped on the device.</li>
 <li><b>Buttons</b>: 1 to 3. Type the text; the <i>name</i> next to it is optional and becomes a constant. Emptying a button's text removes the button.</li>
+<li><b>Look:</b> the <b>Font</b>, <b>Text / Back / Border</b> colours (click to open the font / colour dialog), <b>Rich text</b> (Yes lets the message use the tags: colour, underline, big, <code>&lt;br&gt;</code> ... see <a href="../controls/richtext.html">SuperRichText</a>) and four optional <b>style fonts</b> for <code>&lt;b&gt; &lt;i&gt; &lt;b&gt;&lt;i&gt; &lt;h1&gt;</code> (click the right end of a set font to clear it).</li>
 <li><b>Auto names</b> fills in <code>MSG_DELETE_YES</code>-style names. <b>Add Yes/No</b> adds a ready-made confirmation box ("Confirm?", Yes / No, No highlighted).</li>
 </ul>
 <h2>Using a box in your code</h2>
@@ -172,7 +175,6 @@ int r = msgDelete_Poll();                   // every pass: MSG_PENDING while it 
 <p>When a box closes, the form is redrawn over the area it covered. The text can be changed at run time with <code>msgDelete.SetMessage("...")</code>. Encoder turn moves between buttons, ButtonA chooses, ButtonB cancels (touch works too).</p>
 {tip('Name the buttons you test for: <code>MSG_DELETE_YES</code> reads better than <code>== 0</code> and survives re-ordering the buttons in the designer.')}
 {warn('<code>_Ask()</code> blocks until the user answers: the rest of your <code>loop()</code> (sensors, networking, animation) does not run meanwhile. Use <code>_Open()</code> / <code>_Poll()</code> when that matters.')}
-{warn('Fonts and colours of a box (<code>"font"</code>, <code>"textColor"</code>, <code>"backColor"</code>, <code>"borderColor"</code>) are only editable in the JSON file for now.')}
 ''')
 
 add('designer-json', 'The form file (JSON)', 'Readable, hand-editable, repaired on load', f'''
@@ -208,6 +210,8 @@ add('designer-tips', 'Designer tips, tricks and pitfalls', 'Things that save tim
 {tip('<b>Gauge:</b> the Zones dialog has <b>Fill 3 bands</b> (green / yellow / red at 60 / 85 / 100 % of the range). Update the needle with <code>load.SetValue(v)</code>.')}
 {tip('<b>Graph:</b> <i>Preview data</i> (Sine / Rising / Noise) only exists so the designer shows something. It is not generated: feed the real graph with <code>trace.AddSample(v)</code>.')}
 {tip('<b>Press <code>?</code></b> in the designer for the key list. A <b>Rich text</b> control is a good place for your own help screen: write it in the editor, scroll it with the encoder.')}
+{tip('<b>Tab order:</b> add the controls in the order the user should visit them, or type the numbers in the Tab order row (1, 2, 3 ... or 10, 20, 30 to leave room). Display-only controls (labels, gauges ...) have no tab number.')}
+{tip('<b>Overlapping controls:</b> select one in the Controls on form list and use <b>Front</b> / <b>Back</b>. The list reads from back (top of the list) to front (bottom).')}
 {tip('<b>Pages:</b> design every page in the same area of the form and use the <b>View</b> button to edit one page at a time.')}
 {tip('<b>Hand edits:</b> the JSON file is meant to be edited. Rename a group, reorder menu items, paste a long message: save, open in the designer and it repairs anything unsafe.')}
 <h2>Pitfalls</h2>
@@ -215,7 +219,7 @@ add('designer-tips', 'Designer tips, tricks and pitfalls', 'Things that save tim
 {warn('<b>A new handler is not in your file.</b> After you add a control, export and read the status line: it names the handlers <code>Form1.h</code> does not have. Copy the stubs from the <code>protected:</code> list.')}
 {warn('<b>Names are strictly checked.</b> A C++ keyword (<code>class</code>, <code>int</code>), a library or Arduino name (<code>delay</code>, <code>Serial</code>, <code>PI</code>, <code>HIGH</code>), a pin name (<code>A0</code>, <code>D13</code>), a macro defined by the headers, a name starting with an underscore or <code>fd_</code>, or one that ends like a handler (<code>x_Click</code>) is refused. Two things can never share a name: controls, radio groups, menu IDs, control groups, message boxes and their button names, and the form (<code>Form1</code>, <code>Form1Base</code>).')}
 {warn('<b>The constructor needs both buttons</b>: <code>(dst, enc, btnA, btnB)</code>.')}
-{warn('<b>A group show overrides Visible.</b> <code>SetGroupVisible(g, true)</code> shows every control of the group, even those set to Visible = No.')}
+{warn('<b>A group show overrides Visible</b> unless the form&rsquo;s <b>Keep hidden</b> row is Yes: then a Visible = No control stays hidden when its group (or tab page) is shown; <code>ctl.SetVisible(true)</code> shows it.')}
 {warn('<b>Text is US-ASCII.</b> Accented letters and symbols outside the printable ASCII range are dropped when typed, pasted or loaded.')}
 {warn('<b>Message boxes block.</b> <code>_Ask()</code> does not return until the user answers. Use <code>_Open()</code> / <code>_Poll()</code> in a loop that must keep running.')}
 {warn('<b>User draw cannot be previewed.</b> The designer cannot run your drawing code, so it shows a placeholder. Your <code>name_Draw(spr, body)</code> is what the device draws.')}

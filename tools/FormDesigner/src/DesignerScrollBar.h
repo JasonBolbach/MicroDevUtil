@@ -1,8 +1,8 @@
 #pragma once
-// DesignerScrollBar - a scroll bar, vertical or horizontal, for the Form Designer (desktop only for now).
+// DesignerScrollBar - a scroll bar, vertical or horizontal, for the Form Designer. Desktop only, on purpose: the micro controls draw their own small position
+// indicators (list box triangles, the thin bar of SuperRichText), and a full scroll bar would only cost code and RAM there.
 //
 // It knows nothing about SDL or the designer: give it a rectangle, the size of the content and of the visible part, and feed it pointer positions.
-// That keeps it ready to become a SuperGUI control later (the API would stay the same; only Draw() uses LovyanGFX).
 //
 //   ScrollBar bar(ScrollBar::VERTICAL, 12);
 //   bar.SetGeometry(x, y, length);              // the track: x, y, thickness x length (HORIZONTAL: length x thickness)

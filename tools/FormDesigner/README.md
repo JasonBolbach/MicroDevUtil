@@ -1,12 +1,10 @@
-# SuperGUI Form Designer (work in progress)
+# SuperGUI Form Designer
 
 A desktop-only designer for SuperGUI forms: macOS, Linux and Windows, LovyanGFX + SDL2, one CMake project. Forms are saved as JSON (designer
 only); the output is C++ (`X.designer.h`, regenerated every time, plus a user file written once).
 
-**Status: step 2, the form model and the design surface.** Toolbox (Label, Push button, Check box, Radio button, Progress bar) -> design
-surface (draws the REAL SuperGUI controls) -> property panel. Click a toolbox item, then the form, to place a control; click to select, drag to
-move, drag the handles on the left / right edge to resize (snapped to the grid, `G` changes it), arrows nudge (Shift = a grid step), Delete
-removes, Tab selects the next control, wheel scrolls (Shift = sideways). Properties (Name, Text, X, Y, Width, Font, Text / Back / Border color, Border style (Standard / 3D / Sleek), Border size, Padding, Align; for the form: Name, Width, Height, Back color) change live. Forms are 32x32 .. 1024x768 (limits in `src/DesignerConfig.h`).
+**Status:** every SuperGUI control type can be placed (see the chunk notes below); the designer draws the real controls, and exports C++.
+
 
 **Files:** Ctrl/Cmd+O (Open) and Ctrl/Cmd+S (Save) always show the file dialog. Open starts where it was last looking (an application setting, see below). Save starts on the
 form's own file; saving over it asks nothing, and typing another name saves under that name and remembers it as the form's file (as Save As). Ctrl/Cmd+X exports the code: it always shows the folder dialog (starting at the folder saved in the form), then writes the code there and remembers the folder (`outputPath`). If that folder no longer exists, the folder of the FormDesigner program is used instead. `FD_FORM=file.json` names the file without a dialog (default `form.json`). JSON layout: `src/FormModel.h`. `outputPath` in the
@@ -47,7 +45,11 @@ yours: the designer never changes it again, even when you add controls later. In
 mention yet (`add to it: cancelBtn_Click +1 more`), and you copy the stubs you want from the designer header's `protected:` list. Delete the file to get a fresh one.
 The pair was built and run as a real SDL app (LovyanGFX) to check that it draws what the designer shows.
 
-**Application settings** (`src/AppSettings.h`): the folders the Open and Save dialogs were last looking at are kept per user, not per form, in
+**Start-up:** the designer reopens the form file you opened or saved last (`lastForm` in the application settings). If that file is not accessible it looks for **`template.json` in the folder of the program**:
+if it exists it is opened as a starting point (no file yet: Save asks for a name) and the form is named `NewForm` (`NewForm2` ... if a control has that name); if neither works you get the regular default new form
+(with the ready-made `msgYesNo` box). An explicit `FD_FORM=file.json` skips all this (with `FD_OPEN=1` it loads that file).
+
+**Application settings** (`src/AppSettings.h`): the folders the Open and Save dialogs were last looking at, and the last form file, are kept per user, not per form, in
 `~/Library/Application Support/SuperGUI FormDesigner/settings.json` (macOS), `$XDG_CONFIG_HOME` or `~/.config/SuperGUI-FormDesigner/settings.json` (Linux),
 `%APPDATA%\SuperGUI FormDesigner\settings.json` (Windows). `FD_SETTINGS=file` overrides the location (the self-test does).
 
@@ -74,8 +76,7 @@ at most 40 cells; OK needs at least one slot). Time box: Seconds, Value `HH:MM[:
 a template without a slot) is refused: the model keeps the old value, the field turns red, and the reason is shown under the rows and in the status line. Valid values are stored the way the box prints them
 (`7:5` becomes `07:05:00`). A new template that the old value no longer fits clears the value (and says so). **Fit** (on the Width row of text-like controls) sets the exact width that shows the whole text;
 new input / time / date boxes are placed that wide. They raise `<name>_Change()` / `<name>_Accept()` like the spin box (`GetLiveValue()` / `GetValue()`). Library additions: `GetLiveValue()` on the input,
-time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: chunk 5 (Gauge, Graph, UserDraw),
-chunk 5 MessageBox and ColorPicker.
+time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes.
 
 **Chunk 3a: lists.** **List box**, **Combo box**, **Tab bar**. Their items are edited in a modal **items dialog** (the **Edit...** button on the Items / Tabs row): the real `SuperListBox` of items, a text
 field for the selected item (changes apply live; an empty item is refused), Add / Insert / Delete / Move up / Move down / Sort A-Z / **Paste lines** (each non-empty clipboard line becomes an item) / Clear all,
@@ -123,7 +124,7 @@ JSON: `"zones": [ { "from": 0, "to": 60, "color": "0x07E0" }, ... ]`. The genera
 *Graph:* Samples (capacity; 0 = one per pixel), Auto range or a fixed Range from / to, Grid, Show range, Line / Grid colours, and **Preview data** (Sine / Rising / Noise / None): sample data so the designer shows a
 graph. It is **designer only** and is not generated; at run time call `graph1.AddSample(v)`.
 *User draw:* Persistent canvas, Auto redraw (ms), Touch input. The designer cannot run your code, so it shows a placeholder (diagonals and the control's name). The generated class has `<name>_Draw(spr, body)`
-(and, with Touch input on, `<name>_Pointer(const SuperUserPointer& e)` and `<name>_Accept()`); your file gets stubs with a drawing example. With Touch input the control takes focus. Planned next: chunk 5 (MessageBox and ColorPicker).
+(and, with Touch input on, `<name>_Pointer(const SuperUserPointer& e)` and `<name>_Accept()`); your file gets stubs with a drawing example. With Touch input the control takes focus.
 
 **Names** (`src/ReservedNames.h`, `FD::ValidName`): a control, radio group or form name must be a plain identifier that is safe in the generated C++ for Arduino, ESP32, Pico and the desktop.
 Refused: every C++ keyword (C++23, incl. `wchar_t`, `static_assert`, `bitand`, `co_await`, contextual `final` / `override`), the generated class's own names (`Form`, `Show`, `Service`, ...),
@@ -132,8 +133,6 @@ reserved identifier shapes (leading underscore, double underscore), handler name
 (`src/ReservedMacros.h`, ~3900 names, produced by `sh scripts/gen_reserved_macros.sh`: rerun it when LovyanGFX or SuperGUI change). Inside one form no name may repeat, and none may equal the form's
 class names (`<Form>`, `<Form>Base`); a form cannot be renamed onto a control or group name. Files that break these rules are repaired on load. The curated Arduino list comes from the Arduino API, not
 from the Arduino core headers (they are not in this repository): extend `IsPlatformName()` if a board package adds more.
-
-Not yet: more control types, Visible / Enabled.
 
 The input layer also hosts the reusable text field (`src/DesignerTextField.h`, used by the property panel): arrows, Home/End, Shift to
 select, Alt/Ctrl+arrows by word, Cmd+Left/Right line start/end, Backspace/Delete (+Alt = word), Ctrl/Cmd+A/C/X/V, undo/redo (Ctrl/Cmd+Z,
@@ -156,8 +155,18 @@ Rendered mode shows the real control; Ctrl/Cmd+R switches, Ctrl/Cmd+Enter = OK. 
 `SetRich(true)` on `SuperLabel` and `SuperMessageBox` (off by default).
 
 **Scroll bars.** A zoomed form that is larger than the design surface gets a vertical and a horizontal scroll bar (drag the thumb, click the track to move a page; the wheel and Shift+wheel still work); the property panel has one too.
-They are one generic class, `src/DesignerScrollBar.h` (`FD::ScrollBar`, vertical or horizontal, no SDL: give it a rectangle, the content size and the visible size), kept ready to become a SuperGUI control later.
+They are one generic class, `src/DesignerScrollBar.h` (`FD::ScrollBar`, vertical or horizontal, no SDL: give it a rectangle, the content size and the visible size), it stays in the designer: the micro controls have their own small position indicators.
 Also fixed: a gauge has about 42 property rows, more than the old 40-row field table, which overwrote memory next to it (now 64, with a guard and a test).
+
+**Rich options, style fonts, Keep hidden, list scroll.** *Style fonts:* `SuperRichText`, `SuperLabel` and `SuperMessageBox` have `SetStyleFont(slot, font)` (`FONT_BOLD`, `FONT_ITALIC`, `FONT_BOLDITALIC`, `FONT_HEADING`):
+`<b> <i> <b><i> <h1>` use the registered font, a slot with no font leaves the tag ignored; the line is as tall as its tallest font. The designer: a **Rich text** row on Label (off by default) and four optional
+style-font rows on Label and Rich text; the **message box editor** now also has the box's **Font**, **Text / Back / Border colours** (real font and colour dialogs), **Rich text** Yes/No and the four style fonts.
+*Keep hidden:* a form row (off by default). On, every Visible = No control is generated with `SetKeepHidden(true)` and group shows / tab pages leave it hidden (`SuperControl::SetKeepHidden`, `SuperForm` group
+operations skip it; a direct `SetVisible(true)` shows it and clears the mark). *Controls on form:* that list now scrolls (wheel / scroll bar) and follows the selection.
+
+**Control order and big forms.** The **Up / Down / Front / Back** buttons above the "Controls on form" list move the selected control in the list. The list order is the order the controls are added to the form
+(`Form.Add`), so it is the draw order (the last one is in front; the designer's click-hit test agrees). The encoder's **focus (tab) order** is separate: every focusable control has a **Tab order** number that is set once when it is added (the next free number) and never changes by itself, so moving a control in the list does not change its tab position; you edit the number in the Tab order row (the list shows it in front of the name). It is saved as `"tabOrder"` and generated as `SetTabOrder(n)` only when the focus order differs from the list order; equal numbers keep the list order, as the library does. Forms can now be up to **1920 x 1080** (`MAX_FORM_W` / `MAX_FORM_H`
+in `src/DesignerConfig.h`); the zoom and scroll bars handle them.
 
 ## Build and run
 ```

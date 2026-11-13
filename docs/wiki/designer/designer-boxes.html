@@ -61,6 +61,7 @@
 <li><b>Width</b>, <b>Default button</b> (the highlighted one), <b>Centered</b> or an X / Y position.</li>
 <li><b>Edit message...</b>: the message is a list of lines (one entry per line, at most 12). Long lines are word-wrapped on the device.</li>
 <li><b>Buttons</b>: 1 to 3. Type the text; the <i>name</i> next to it is optional and becomes a constant. Emptying a button's text removes the button.</li>
+<li><b>Look:</b> the <b>Font</b>, <b>Text / Back / Border</b> colours (click to open the font / colour dialog), <b>Rich text</b> (Yes lets the message use the tags: colour, underline, big, <code>&lt;br&gt;</code> ... see <a href="../controls/richtext.html">SuperRichText</a>) and four optional <b>style fonts</b> for <code>&lt;b&gt; &lt;i&gt; &lt;b&gt;&lt;i&gt; &lt;h1&gt;</code> (click the right end of a set font to clear it).</li>
 <li><b>Auto names</b> fills in <code>MSG_DELETE_YES</code>-style names. <b>Add Yes/No</b> adds a ready-made confirmation box ("Confirm?", Yes / No, No highlighted).</li>
 </ul>
 <h2>Using a box in your code</h2>
@@ -77,7 +78,6 @@ int r = msgDelete_Poll();                   // every pass: MSG_PENDING while it 
 <p>When a box closes, the form is redrawn over the area it covered. The text can be changed at run time with <code>msgDelete.SetMessage("...")</code>. Encoder turn moves between buttons, ButtonA chooses, ButtonB cancels (touch works too).</p>
 <div class="box tip"><b class="h">Tip</b>Name the buttons you test for: <code>MSG_DELETE_YES</code> reads better than <code>== 0</code> and survives re-ordering the buttons in the designer.</div>
 <div class="box warn"><b class="h">Watch out</b><code>_Ask()</code> blocks until the user answers: the rest of your <code>loop()</code> (sensors, networking, animation) does not run meanwhile. Use <code>_Open()</code> / <code>_Poll()</code> when that matters.</div>
-<div class="box warn"><b class="h">Watch out</b>Fonts and colours of a box (<code>"font"</code>, <code>"textColor"</code>, <code>"backColor"</code>, <code>"borderColor"</code>) are only editable in the JSON file for now.</div>
 
 <div class="pn"><span>&larr; <a href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a></span><span><a href="../designer/designer-json.html">The form file (JSON)</a> &rarr;</span></div>
 </main><script src="../assets/wiki.js"></script></body></html>

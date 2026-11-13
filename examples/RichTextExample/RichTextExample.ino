@@ -63,6 +63,7 @@ void setup() {
   Enc.Begin(); BtnA.Begin(INPUT_PULLUP); BtnB.Begin(INPUT_PULLUP);
 
   help.SetBorder(1, TFT_DARKGREY);
+  // help.SetStyleFont(SuperRichText::FONT_BOLD, &lgfx::fonts::FreeSansBold9pt7b);   // register a font and <b> becomes real bold (also FONT_ITALIC, FONT_BOLDITALIC, FONT_HEADING)
   help.SetTabChars(10);                         // tab stops every 10 spaces
   help.SetTextStatic(HELP);                     // no copy: the literal stays in flash
   // help.SetShowSource(true);                  // debugging: shows the markup itself instead of interpreting it

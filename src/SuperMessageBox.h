@@ -37,6 +37,10 @@ public:
     void SetMessage(const std::string& m) { Msg = m; LinesOk = false; Dirty = true; }
     // SetRich(true): the message may contain the tags of SuperRichCore.h (<color=red>, <u>, <big>, <br>, ...); lines are centred unless you say otherwise
     // with <left> / <right>. Default off: every character is shown as it is.
+    // Style fonts (optional): <b> <i> <b><i> and <h1> use the fonts you register here, e.g. SetStyleFont(FONT_BOLD, &lgfx::fonts::FreeSansBold9pt7b).
+    // A slot with no font leaves its tag ignored. The line height follows the tallest font on the line.
+    static constexpr int FONT_BOLD = SuperRich::FS_BOLD, FONT_ITALIC = SuperRich::FS_ITALIC, FONT_BOLDITALIC = SuperRich::FS_BOLDITALIC, FONT_HEADING = SuperRich::FS_HEADING;
+    void SetStyleFont(int slot, const lgfx::IFont* f) { if (slot >= 0 && slot < SuperRich::FS_COUNT) { StyleFonts.Slot[slot] = f; LinesOk = false; Dirty = true; } }
     void SetRich(bool on) { if (on != Rich) { Rich = on; LinesOk = false; Dirty = true; } }
     void ClearButtons() { Btns.clear(); Dirty = true; }
     void AddButton(const std::string& s) { if (Btns.size() < 3) Btns.push_back(s); Dirty = true; }
@@ -140,7 +144,7 @@ private:
     lgfx::LovyanGFX* Backdrop = nullptr;
     void (*RestoreFn)(void*) = nullptr; void* RestoreUser = nullptr;
     bool Backed = false, Centered = true, LinesOk = false, Rich = false;
-    std::vector<SuperRich::Line> RichLines;
+    std::vector<SuperRich::Line> RichLines; SuperRich::Fonts StyleFonts;
     int  Cursor = 0, Default = 0, Result = -1;
     uint32_t OpenedAt = 0;
     bool PressSeen = false;
@@ -148,7 +152,7 @@ private:
     std::vector<std::string> Btns, Lines;
     SuperEditState State = EDIT_IDLE;
 
-    SuperRich::Options RichOpts() { SuperRich::Options o; o.Def.Fg = ColFg; o.Def.Bg = ColBg; o.Def.Align = SuperRich::A_CENTER; Spr.setFont(Font); o.TabPx = std::max(1, 8 * (int)Spr.textWidth(" ")); return o; }
+    SuperRich::Options RichOpts() { SuperRich::Options o; o.Base = Font; o.StyleFonts = &StyleFonts; o.Def.Fg = ColFg; o.Def.Bg = ColBg; o.Def.Align = SuperRich::A_CENTER; Spr.setFont(Font); o.TabPx = std::max(1, 8 * (int)Spr.textWidth(" ")); return o; }
     int MsgHeight() { return SuperRich::ContentHeight(RichLines); }
     void BuildLines() {                                  // word-wrap Msg to the inner width
         if (LinesOk) return;

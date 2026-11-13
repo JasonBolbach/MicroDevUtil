@@ -48,7 +48,12 @@ static int winW = 0, winH = 0;
 
 // ---- layout (logical pixels) ----
 static const int TOOL_Y0 = 84, TOOL_H = 25;                              // toolbox rows
-static const int TREE_Y0 = TOOL_Y0 + FD::C_COUNT * TOOL_H + 40, TREE_H = 20;   // "controls on form" list
+static const int TREE_Y0 = TOOL_Y0 + FD::C_COUNT * TOOL_H + 68, TREE_H = 20, TREE_BOT = 806;   // "controls on form" list
+static int TreeRows() { return std::max(1, (TREE_BOT - TREE_Y0) / TREE_H); }
+static const int ORD_BTN_W = 64, ORD_BTN_GAP = 6;                         // the order buttons above the list: Up, Down, Front, Back
+static int OrdBtnX(int k) { return 18 + k * (ORD_BTN_W + ORD_BTN_GAP); }
+static int OrdBtnY() { return TREE_Y0 - 28; }
+static int treeFirst = 0;                                                  // the first visible row of that list (it scrolls)
 static const int VX = 320, VY = 84, VW = 660, VH = 716;                  // the design surface's viewport
 static const int PAD = 20;                                               // space around the form inside the viewport
 static const int FIELD_X = 1105, FIELD_Y0 = 96, FIELD_W = 276, FIELD_H = 26, FIELD_GAP = 34, FIELD_PAD = 6;
@@ -67,6 +72,8 @@ static DragMode drag = D_NONE; static int dragDX = 0, dragDY = 0, dragRight = 0;
 
 // ---- property fields ----
 enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN, P_CGROUP, P_VISIBLE, P_ENABLED,
+            P_TABORDER = 93,                       // the focus (tab) order number of a control
+            P_KEEPHIDDEN = 94,                     // form: keep controls with Visible = No hidden when their group is shown
             P_RICH = 95,                           // the text of a rich text control (opens the rich text editor)
             P_MSGBOXES = 96,                       // the form's message boxes (opens the message box editor)
             P_ZONES = 97,                          // the colour zones of a gauge (opens the zones dialog)
@@ -120,13 +127,15 @@ static int ToFY(int sy) { return FloorDiv((sy - FormOY()) * 100, zoom); }
 static int Snap(int v) { if (v < 0) v = 0; return grid > 1 ? (v + grid / 2) / grid * grid : v; }
 // ---- scroll bars: one for the property panel, two for the design surface (they overlay the edge of the viewport: PAD is wider than a bar, so they never hide the form) ----
 static const int SB = 12;
-static FD::ScrollBar propBar(FD::ScrollBar::VERTICAL, 8), surfV(FD::ScrollBar::VERTICAL, SB), surfH(FD::ScrollBar::HORIZONTAL, SB);
+static FD::ScrollBar treeBar(FD::ScrollBar::VERTICAL, 8), propBar(FD::ScrollBar::VERTICAL, 8), surfV(FD::ScrollBar::VERTICAL, SB), surfH(FD::ScrollBar::HORIZONTAL, SB);
 static FD::ScrollBar* barDrag = nullptr;             // the bar being dragged with the mouse
 static void ClampScroll() {
     int mx = std::max(0, ZW() + 2 * PAD - VW), my = std::max(0, ZH() + 2 * PAD - VH);
     scrollX = std::min(std::max(scrollX, 0), mx); scrollY = std::min(std::max(scrollY, 0), my);
 }
-static void SyncBars() {                             // geometry, range and position of the three bars follow the model
+static void ClampTree() { treeFirst = std::max(0, std::min(treeFirst, std::max(0, (int)form.items.size() - TreeRows()))); }
+static void SyncBars() {                             // geometry, range and position of the four bars follow the model
+    ClampTree(); treeBar.SetGeometry(284, TREE_Y0, TreeRows() * TREE_H); treeBar.SetRange((int)form.items.size(), TreeRows()); treeBar.SetPos(treeFirst);
     int th = PANEL_BOT - PANEL_TOP;
     propBar.SetGeometry(1382, PANEL_TOP, th); propBar.SetRange(th + MaxPropScroll(), th); propBar.SetPos(propScroll);
     bool needV = ZH() + 2 * PAD > VH, needH = ZW() + 2 * PAD > VW;
@@ -154,7 +163,7 @@ static int RowKindOf(int p) {
         switch (d->kind) { case FD::PK_COLOR: return RK_COLOR; case FD::PK_FONT: return RK_FONT; case FD::PK_BOOL: case FD::PK_ENUM: return RK_SEG; default: return RK_TEXT; }
     }
     if (p == P_HINT) return RK_HINT;
-    if (p == P_VISIBLE || p == P_ENABLED) return RK_SEG;
+    if (p == P_VISIBLE || p == P_ENABLED || p == P_KEEPHIDDEN) return RK_SEG;
     if (p == P_ITEMS || p == P_ZONES || p == P_MSGBOXES || p == P_RICH) return RK_ITEMS;
     if (p == P_FONT) return RK_FONT;
     if (p == P_BSTYLE || p == P_ALIGN) return RK_SEG;
@@ -168,6 +177,8 @@ static std::string PropLabel(int p) {
     static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align", "Control group", "Visible", "Enabled" };
     if (p == P_ZONES) return "Zones";
     if (p == P_MSGBOXES) return "Message boxes";
+    if (p == P_TABORDER) return "Tab order";
+    if (p == P_KEEPHIDDEN) return "Keep hidden";
     if (p == P_RICH) return "Text";
     if (p == P_ITEMS) return Sel() && Sel()->type == FD::C_TABBAR ? "Tabs" : Sel() && Sel()->type == FD::C_MENU ? "Menu items" : "Items";
     return p >= 0 && p <= P_ENABLED ? L[p] : "";
@@ -175,16 +186,17 @@ static std::string PropLabel(int p) {
 // segments of a RK_SEG row
 static int SegCount(int p) {
     if (const FD::ExtraDef* d = ExtraOf(p)) return FD::ChoiceCount(*d);
-    if (p == P_VISIBLE || p == P_ENABLED) return 2;
+    if (p == P_VISIBLE || p == P_ENABLED || p == P_KEEPHIDDEN) return 2;
     return 3;
 }
 static std::string SegLabel(int p, int k) {
     static const char* S[] = { "Standard", "3D", "Sleek" }; static const char* A[] = { "Left", "Center", "Right" };
     if (const FD::ExtraDef* d = ExtraOf(p)) return FD::ChoiceName(*d, k);
-    if (p == P_VISIBLE || p == P_ENABLED) return k ? "Yes" : "No";
+    if (p == P_VISIBLE || p == P_ENABLED || p == P_KEEPHIDDEN) return k ? "Yes" : "No";
     return p == P_BSTYLE ? S[k] : A[k];
 }
 static int SegCurrent(int p) {
+    if (p == P_KEEPHIDDEN) return form.keepHidden ? 1 : 0;
     const DControl* c = Sel(); if (!c) return 0;
     if (const FD::ExtraDef* d = ExtraOf(p)) { std::string v = FD::ExtraGet(*c, *d); return d->kind == FD::PK_BOOL ? (v == "true" ? 1 : 0) : atoi(v.c_str()); }
     if (p == P_VISIBLE) return c->visible ? 1 : 0;
@@ -196,7 +208,9 @@ static int SegCurrent(int p) {
 static bool DirExists(const std::string& p) { std::error_code ec; return !p.empty() && std::filesystem::is_directory(p, ec); }
 static std::string WorkDir() { std::error_code ec; return std::filesystem::current_path(ec).string(); }     // the executable's working folder
 // The folder the FormDesigner program itself lives in (the default export folder); the working folder if SDL cannot tell.
+static std::string appDirOverride;                   // (the self-test points the program folder somewhere else)
 static std::string AppDir() {
+    if (!appDirOverride.empty()) return appDirOverride;
     std::string d; if (char* b = SDL_GetBasePath()) { d = b; SDL_free(b); }
     while (d.size() > 1 && (d.back() == '/' || d.back() == '\\')) d.pop_back();
     return DirExists(d) ? d : WorkDir();
@@ -254,6 +268,7 @@ static std::string PropValue(int p) {
     case P_PAD: return c ? std::to_string(c->padding >= 0 ? c->padding : c->defPad) : "";
     case P_GROUP: return c ? c->group : "";
     case P_CGROUP: return c ? c->ctlGroup : "";
+    case P_TABORDER: return c && sel >= 0 ? std::to_string(form.EffTab((size_t)sel)) : "";
     case P_X: return c ? std::to_string(c->x) : ""; case P_Y: return c ? std::to_string(c->y) : ""; case P_W: return c ? std::to_string(c->w) : "";
     case P_FNAME: return form.name; case P_FW: return std::to_string(form.w); case P_FH: return std::to_string(form.h);
     }
@@ -282,7 +297,8 @@ static bool ApplyExtra(int p, const std::string& v) {
 static bool ApplyProp(int p, const std::string& v) {
     DControl* c = Sel();
     if (ExtraOf(p)) return ApplyExtra(p, v);
-    if ((p <= P_GROUP || (p >= P_CGROUP && p <= P_ENABLED)) != (c != nullptr)) return false;
+    if ((p <= P_GROUP || (p >= P_CGROUP && p <= P_ENABLED) || p == P_TABORDER) != (c != nullptr)) return false;
+    if (p == P_TABORDER) { if (v.empty()) return false; int n = std::min(atoi(v.c_str()), FD::MAX_TAB_ORDER); if (n < 1) return false; c->tabOrder = n; return true; }       // a number from 1: the user decides the focus order
     if (p == P_BSIZE || p == P_PAD) {                    // empty = back to the control's own default; a value equal to the default is not an override
         bool size = p == P_BSIZE; int n = v.empty() ? -1 : std::min(atoi(v.c_str()), size ? FD::MAX_BORDER : FD::MAX_PADDING);
         (size ? c->borderSize : c->padding) = n == (size ? c->defSize : c->defPad) ? -1 : n; return true;
@@ -315,12 +331,13 @@ static void BuildFields() {
     nFields = 0;
     auto add = [](int p) { if (nFields >= MAX_FIELDS) return; FD::TextField& f = fields[nFields]; fieldProp[nFields++] = p; f.filter = FD::TextField::ANY; f.maxLen = 64;
                            if (p == P_NAME || p == P_FNAME || p == P_GROUP || p == P_CGROUP) { f.filter = FD::TextField::IDENT; if (p == P_CGROUP) f.maxLen = 32; }
+                           if (p == P_TABORDER) { f.filter = FD::TextField::DIGITS; f.maxLen = 4; }
                            if (p == P_X || p == P_Y || p == P_W || p == P_FW || p == P_FH) { f.filter = FD::TextField::DIGITS; f.maxLen = 4; }
                            if (p == P_BSIZE || p == P_PAD) { f.filter = FD::TextField::DIGITS; f.maxLen = 2; }
                            if (const FD::ExtraDef* d = ExtraOf(p)) { if (d->kind == FD::PK_INT) { f.filter = d->lo < 0 ? FD::TextField::SIGNED : FD::TextField::DIGITS; f.maxLen = 11; } else if (d->kind == FD::PK_FLOAT) { f.filter = FD::TextField::DECIMAL; f.maxLen = 12; } else f.maxLen = 40; } };
     if (Sel()) {
         const FD::TypeInfo& ti = FD::Info(Sel()->type);
-        add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W); add(P_CGROUP); add(P_VISIBLE); add(P_ENABLED);
+        add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W); if (FD::Focusable(*Sel())) add(P_TABORDER); add(P_CGROUP); add(P_VISIBLE); add(P_ENABLED);
         if (FD::HasList(Sel()->type) || Sel()->type == FD::C_MENU) add(P_ITEMS);
         if (Sel()->type == FD::C_GAUGE) add(P_ZONES);
         if (Sel()->type == FD::C_RICHTEXT) add(P_RICH);
@@ -328,7 +345,7 @@ static void BuildFields() {
         add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (ti.hasAlign) add(P_ALIGN);
         if (ti.hasLabel) for (int i = 0; i < FD::N_LABEL_EXTRAS; ++i) add(P_EXTRA + ti.nExtras + i);   // the label group
     }
-    else       { add(P_FNAME); add(P_FW); add(P_FH); add(P_FBG); add(P_MSGBOXES); }
+    else       { add(P_FNAME); add(P_FW); add(P_FH); add(P_FBG); add(P_KEEPHIDDEN); add(P_MSGBOXES); }
     focus = -1; drag = drag == D_TEXT ? D_NONE : drag; propScroll = 0;
     for (int i = 0; i < nFields; ++i) if (!IsPickRow(fieldProp[i])) fields[i].SetText(PropValue(fieldProp[i]));
     dirty = true;
@@ -338,9 +355,23 @@ static void SyncFields() {                           // model -> fields (the fie
     dirty = true;
 }
 static bool InView(const DControl& c) { return viewGroup.empty() || c.ctlGroup.empty() || c.ctlGroup == viewGroup; }
+// ---- the order of the controls = the order they are added to the form = draw order (the last one is in front) and focus order ----
+static void MoveSel(int how) {                       // 0 up (one earlier), 1 down (one later), 2 to the front (last), 3 to the back (first)
+    if (sel < 0 || sel >= (int)form.items.size()) return;
+    int n = (int)form.items.size(), to = how == 0 ? sel - 1 : how == 1 ? sel + 1 : how == 2 ? n - 1 : 0;
+    if (to < 0 || to >= n || to == sel) { Status("%s is already %s", form.items[sel].name.c_str(), how == 0 || how == 3 ? "the first (at the back)" : "the last (in front)"); return; }
+    form.FreezeTabOrder();                           // a control's focus number is fixed before anything moves: the move changes the draw order only
+    DControl c = form.items[sel]; form.items.erase(form.items.begin() + sel); form.items.insert(form.items.begin() + to, c); sel = to;
+    if (sel < treeFirst) treeFirst = sel; else if (sel >= treeFirst + TreeRows()) treeFirst = sel - TreeRows() + 1;
+    BuildFields(); dirty = true;
+    static const char* what[4] = { "moved one step toward the back", "moved one step toward the front", "brought to the front", "sent to the back" };
+    Status("%s %s (position %d of %d: drawn %s; its tab number %d is unchanged)", c.name.c_str(), what[how], sel + 1, n, sel == n - 1 ? "on top" : sel == 0 ? "at the bottom" : "in between", form.EffTab((size_t)sel));
+}
 static void Select(int i) {
     if (i >= 0 && i < (int)form.items.size() && !InView(form.items[i])) viewGroup = form.items[i].ctlGroup;        // selecting a control of another page switches the view to it
-    if (i != sel) { sel = i; BuildFields(); } dirty = true;
+    if (i != sel) { sel = i; BuildFields(); }
+    if (i >= 0) { if (i < treeFirst) treeFirst = i; else if (i >= treeFirst + TreeRows()) treeFirst = i - TreeRows() + 1; ClampTree(); }      // the list shows the selected control
+    dirty = true;
 }
 static void SetFocus(int i) {
     int old = focus; focus = i; EnsureRowVisible(i); if (old != i) rejectMsg.clear();
@@ -453,7 +484,7 @@ static void FitSel() {                                // Fit: the control is exa
 }
 
 // ---- the file dialog (modal): Open, Save As, and the folder the code is generated into ----
-static bool SaveForm(); static bool OpenForm(); static void ExportForm(const std::string& dir);
+static bool SaveForm(); static bool OpenForm(); static void ExportForm(const std::string& dir); static std::string StartupForm();
 enum FilePurpose { FP_OPEN, FP_SAVE, FP_EXPORT };
 static FD::FileDialog* fileDlg = nullptr; static int filePurpose = FP_OPEN;
 static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg || menuDlg || zonesDlg || boxDlg || helpDlg || richDlg; }
@@ -483,13 +514,15 @@ static void CloseFileDialog() {
     }
     if (!ok) return;
     std::string old = currentFile;
-    if (filePurpose == FP_OPEN) { currentFile = path; if (!OpenForm()) currentFile = old; }
-    else if (filePurpose == FP_SAVE) { currentFile = path; if (!SaveForm()) currentFile = old; }      // a changed name becomes the form's file name
+    auto remember = [&]() { std::error_code ec; settings.lastForm = std::filesystem::absolute(currentFile, ec).string(); settings.Save(); };     // reopened at the next start
+    if (filePurpose == FP_OPEN) { currentFile = path; if (!OpenForm()) currentFile = old; else remember(); }
+    else if (filePurpose == FP_SAVE) { currentFile = path; if (!SaveForm()) currentFile = old; else remember(); }      // a changed name becomes the form's file name
     else ExportForm(path);
 }
 
 // a segmented row (border style / alignment): a value equal to the control's own default is stored as "no override"
 static void SetEnumProp(int p, int v) {
+    if (p == P_KEEPHIDDEN) { form.keepHidden = v != 0; SyncFields(); return; }
     DControl* c = Sel(); if (!c) return;
     if (const FD::ExtraDef* d = ExtraOf(p)) ApplyExtra(p, d->kind == FD::PK_BOOL ? (v ? "true" : "false") : std::to_string(v));
     else if (p == P_VISIBLE) c->visible = v != 0;
@@ -502,7 +535,7 @@ static void SetEnumProp(int p, int v) {
 // ---- model operations ----
 static void Place(int type, int fx, int fy) {        // fx, fy in form coordinates
     DControl c; c.type = type; c.name = form.UniqueName(FD::Info(type).prefix); c.text = FD::Info(type).defText;
-    c.w = FD::Info(type).defW; c.x = Snap(fx); c.y = Snap(fy);
+    c.w = FD::Info(type).defW; c.x = Snap(fx); c.y = Snap(fy); c.tabOrder = form.NextTabOrder();          // the focus number is set once, here: later list moves do not change it
     if (type == FD::C_RADIO) { c.group = form.UniqueGroupName(); for (const DControl& o : form.items) if (o.type == FD::C_RADIO) { c.group = o.group; break; } }   // joins the form's first group
     if (type == FD::C_RICHTEXT) c.list = { "<center><color=yellow><big>Rich</big> text</color></center>", "<hr>", "Plain, <u>underlined</u>, <color=#0F0>green</color>." };
     if (FD::HasList(type)) for (int i = 1; i <= 3; ++i) c.list.push_back(std::string(type == FD::C_TABBAR ? "Tab " : "Item ") + std::to_string(i));      // a few sample items
@@ -655,13 +688,20 @@ static void Render() {
         scr.setTextColor(0xFFFF); scr.drawString(FD::Info(i).title, 28, y + 5);
         scr.setTextColor(0x8410); scr.drawString(FD::Info(i).key, 150, y + 5);
     }
-    scr.setTextColor(C_ACCENT); scr.drawString("Controls on form", 18, TREE_Y0 - 22);
-    for (int i = 0; i < (int)form.items.size() && TREE_Y0 + (i + 1) * TREE_H < 806; ++i) {
-        int y = TREE_Y0 + i * TREE_H;
+    scr.setTextColor(C_ACCENT); scr.drawString("Controls on form", 18, TREE_Y0 - 50);
+    scr.setTextColor(0x8410); scr.drawString("(# = tab order)", 150, TREE_Y0 - 50);
+    { static const char* ol[4] = { "Up", "Down", "Front", "Back" };
+      for (int k = 0; k < 4; ++k) { SuperPushButton b(&scr, OrdBtnX(k), OrdBtnY(), ORD_BTN_W, &lgfx::fonts::Font2, ol[k]); if (sel < 0) b.SetEnabled(false); b.Push(); } }
+    ClampTree();
+    for (int i = treeFirst; i < (int)form.items.size() && i < treeFirst + TreeRows(); ++i) {
+        int y = TREE_Y0 + (i - treeFirst) * TREE_H;
         if (i == sel) scr.fillRect(18, y, 274, TREE_H - 2, C_SEL);
-        scr.setTextColor(InView(form.items[i]) ? 0xFFFF : 0x4A69); scr.drawString(form.items[i].name.c_str(), 24, y + 2);        // (dim: on another page than the one in view)
-        if (!form.items[i].ctlGroup.empty()) { scr.setTextColor(0x8410); scr.drawString(form.items[i].ctlGroup.c_str(), 100, y + 2); }
-        scr.setTextColor(0x8410); scr.drawString(FD::Info(form.items[i].type).title, form.items[i].ctlGroup.empty() ? 170 : 210, y + 2);
+        scr.setClipRect(18, y, 264, TREE_H);
+        if (FD::Focusable(form.items[i])) { scr.setTextColor(C_ACCENT); scr.drawString(std::to_string(form.EffTab((size_t)i)).c_str(), 22, y + 2); }          // the focus (tab) number
+        scr.setTextColor(InView(form.items[i]) ? 0xFFFF : 0x4A69); scr.drawString(form.items[i].name.c_str(), 46, y + 2);        // (dim: on another page than the one in view)
+        if (!form.items[i].ctlGroup.empty()) { scr.setTextColor(0x8410); scr.drawString(form.items[i].ctlGroup.c_str(), 116, y + 2); }
+        scr.setTextColor(0x8410); scr.drawString(FD::Info(form.items[i].type).title, form.items[i].ctlGroup.empty() ? 190 : 214, y + 2);
+        scr.clearClipRect();
     }
 
     // design surface
@@ -770,7 +810,7 @@ static void Render() {
               scr.drawString(m.substr(0, cut).c_str(), 1010, yy); m = m.size() > cut ? m.substr(cut + (m[cut] == ' ' ? 1 : 0)) : ""; yy += 18; }
       } }
     scr.clearClipRect();
-    SyncBars(); propBar.Draw(scr, 0x2124, 0x4A69, C_ACCENT);                                   // the property panel's bar
+    SyncBars(); treeBar.Draw(scr, 0x2124, 0x4A69, C_ACCENT); propBar.Draw(scr, 0x2124, 0x4A69, C_ACCENT);                                   // the property panel's bar
     if (colorDlg) colorDlg->Draw(SDL_GetTicks());
     if (fontDlg) fontDlg->Draw();
     if (fileDlg) fileDlg->Draw(SDL_GetTicks());
@@ -814,7 +854,7 @@ static void Handle(const InputEvent& e) {
     switch (e.type) {
     case InputEvent::MOVE: {
         dirty = true;
-        if (barDrag) { if (barDrag->Move(e.x, e.y)) { if (barDrag == &propBar) propScroll = barDrag->Pos(); else if (barDrag == &surfV) scrollY = barDrag->Pos(); else scrollX = barDrag->Pos(); ClampPropScroll(); ClampScroll(); } break; }
+        if (barDrag) { if (barDrag->Move(e.x, e.y)) { if (barDrag == &treeBar) treeFirst = barDrag->Pos(); else if (barDrag == &propBar) propScroll = barDrag->Pos(); else if (barDrag == &surfV) scrollY = barDrag->Pos(); else scrollX = barDrag->Pos(); ClampPropScroll(); ClampScroll(); } break; }
         if (spinDrag) { SpinPointer(spinStarted ? SuperPointerEvent::DRAG_MOVE : SuperPointerEvent::DRAG_START, e.x, e.y); spinStarted = true; break; }
         if (drag == D_TEXT && focus >= 0) { fields[focus].SetCaretFromX(e.x - FIELD_X - FIELD_PAD, true, MeasureText); Reveal(focus); break; }
         DControl* c = Sel(); if (!c || drag == D_NONE) break;
@@ -864,17 +904,18 @@ static void Handle(const InputEvent& e) {
             Reveal(fi); break;
         }
         SetFocus(-1);
+        for (int k = 0; k < 4; ++k) if (e.x >= OrdBtnX(k) && e.x < OrdBtnX(k) + ORD_BTN_W && e.y >= OrdBtnY() && e.y < OrdBtnY() + 26) { MoveSel(k); return; }       // the order buttons
         SyncBars();
-        for (FD::ScrollBar* b : { &propBar, &surfV, &surfH }) if (b->Down(e.x, e.y)) {                // a scroll bar: grab the thumb or page toward the click
+        for (FD::ScrollBar* b : { &treeBar, &propBar, &surfV, &surfH }) if (b->Down(e.x, e.y)) {                // a scroll bar: grab the thumb or page toward the click
             barDrag = b->Dragging() ? b : nullptr;
-            if (b == &propBar) propScroll = b->Pos(); else if (b == &surfV) scrollY = b->Pos(); else scrollX = b->Pos();
+            if (b == &treeBar) treeFirst = b->Pos(); else if (b == &propBar) propScroll = b->Pos(); else if (b == &surfV) scrollY = b->Pos(); else scrollX = b->Pos();
             ClampPropScroll(); ClampScroll(); dirty = true; return;
         }
         if (e.x >= 18 && e.x < 292 && e.y >= TOOL_Y0 && e.y < TOOL_Y0 + FD::C_COUNT * TOOL_H) {   // toolbox
             int t = (e.y - TOOL_Y0) / TOOL_H; tool = tool == t ? -1 : t; dirty = true; break;
         }
-        if (e.x >= 18 && e.x < 292 && e.y >= TREE_Y0) {                                           // controls-on-form list
-            int i = (e.y - TREE_Y0) / TREE_H; if (i < (int)form.items.size()) Select(i); break;
+        if (e.x >= 18 && e.x < 292 && e.y >= TREE_Y0 && e.y < TREE_Y0 + TreeRows() * TREE_H) {    // controls-on-form list (only the rows that are drawn)
+            int i = (e.y - TREE_Y0) / TREE_H + treeFirst; if (i < (int)form.items.size()) Select(i); break;
         }
         if (e.x >= VX && e.x < VX + VW && e.y >= VY && e.y < VY + VH) {                           // design surface
             int fx = ToFX(e.x), fy = ToFY(e.y);
@@ -891,6 +932,7 @@ static void Handle(const InputEvent& e) {
         if (barDrag) { barDrag->Up(); barDrag = nullptr; }
         drag = D_NONE; break;
     case InputEvent::WHEEL:
+        if (e.x >= 18 && e.x < 292 && e.y >= TREE_Y0 - 22 && e.y < TREE_BOT) { treeFirst -= e.wheel; ClampTree(); dirty = true; break; }      // the controls-on-form list scrolls
         if (e.x >= 1000 && e.x < 1390 && e.y >= 56 && e.y < 810) { propScroll -= e.wheel * FIELD_GAP * 2; ClampPropScroll(); dirty = true; break; }      // the property panel scrolls
         if (InRect(e.x, e.y, ZSPIN_X, ZROW_Y, ZSPIN_W, ZRowH())) { ZoomCentre(zoom + (e.wheel > 0 ? ZOOM_STEP : -ZOOM_STEP)); break; }
         if (e.x >= VX && e.x < VX + VW && e.y >= VY && e.y < VY + VH) {
@@ -1076,7 +1118,7 @@ static void SelfTest() {
         Key(SDLK_TAB); Check(sel == 0, "designer: Tab selects the next control (wraps)");
         Click(10, 700); Click(ox + 280, oy + 220); Check(sel == -1 && form.items.size() == 2, "designer: clicking empty form space deselects");
         // form properties
-        Check(nFields == 5 && fieldProp[1] == P_FW && fieldProp[3] == P_FBG && fieldProp[4] == P_MSGBOXES, "designer: with nothing selected the property panel edits the form");
+        Check(nFields == 6 && fieldProp[1] == P_FW && fieldProp[3] == P_FBG && fieldProp[4] == P_KEEPHIDDEN && fieldProp[5] == P_MSGBOXES, "designer: with nothing selected the property panel edits the form");
         Click(FIELD_X + 20, FieldY(1) + 5); Key(SDLK_a, KMOD_LCTRL); Type("4000"); Key(SDLK_RETURN);
         Check(form.w == MAX_FORM_W, "designer: form width is limited to the maximum");
         Click(FIELD_X + 20, FieldY(1) + 5); Key(SDLK_a, KMOD_LCTRL); Type("2"); Key(SDLK_RETURN);
@@ -1527,7 +1569,7 @@ static void SelfTest() {
         // ---- chunk 1: spin box and slider, the property schema, the label, the scrolling panel ----
         form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ctl";
         Check(C_COUNT == 20 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
-        Check(ExtraCount(C_SPINBOX) == 8 + N_LABEL_EXTRAS && ExtraCount(C_SLIDER) == 5 + N_LABEL_EXTRAS && ExtraCount(C_LABEL) == 0 && ExtraCount(C_PROGRESS) == N_LABEL_EXTRAS, "chunk 1: a control has its own extras plus the label group (SuperLabel has none)");
+        Check(ExtraCount(C_SPINBOX) == 8 + N_LABEL_EXTRAS && ExtraCount(C_SLIDER) == 5 + N_LABEL_EXTRAS && ExtraCount(C_LABEL) == 5 && ExtraCount(C_PROGRESS) == N_LABEL_EXTRAS, "chunk 1: a control has its own extras plus the label group (SuperLabel has only the rich text options: no label group)");
         { DControl d; d.type = C_SPINBOX; const ExtraDef& mn = *FindExtra(C_SPINBOX, "min");
           Check(ExtraSet(d, mn, "-5") && XInt(d, "min") == -5 && d.extra.count("min") && ExtraSet(d, mn, "0") && !d.extra.count("min"), "extras: a value equal to the default is not stored");
           Check(ExtraSet(d, *FindExtra(C_SPINBOX, "step"), "0") && XInt(d, "step") == 1 && !XSet(d, "step"), "extras: numbers are clamped to their limits (step >= 1)");
@@ -2278,12 +2320,142 @@ static void SelfTest() {
             { int x = boxDlg->YesNoX() + 5, y = boxDlg->YesNoY() + 3; Click5(x, y); const DMessageBox& yn = boxDlg->Boxes()[boxDlg->Selected()];
               Check(yn.name == "msgYesNo" && yn.lines == std::vector<std::string>({ "Confirm?" }) && yn.buttons.size() == 2 && yn.buttons[0].text == "Yes" && yn.buttons[0].itemId == "MSG_YESNO_YES" && yn.buttons[1].itemId == "MSG_YESNO_NO" && yn.defaultBtn == 1, "message box editor: Add Yes/No makes the ready-made Confirm? box with named buttons");
               Click5(x, y); Check(boxDlg->Boxes()[boxDlg->Selected()].name == "msgYesNo2" && boxDlg->Boxes()[boxDlg->Selected()].buttons[0].itemId != "MSG_YESNO_YES", "message box editor: a second Yes/No gets its own names"); Key5(SDLK_ESCAPE); Key5(SDLK_DELETE); Key5(SDLK_DELETE); }
+            // the look rows: font, colours, rich text, style fonts
+            { const DMessageBox& cb = boxDlg->Boxes()[boxDlg->Selected()];
+              Click5(boxDlg->RichX(1) + 5, boxDlg->LookY() + 5); Check(cb.rich, "message box editor: Rich text Yes"); Click5(boxDlg->RichX(0) + 5, boxDlg->LookY() + 5); Check(!cb.rich, "message box editor: Rich text No");
+              Click5(boxDlg->FontBtnX() + 10, boxDlg->LookY() + 5); Check(boxDlg->FontDlg() != nullptr, "message box editor: the Font button opens the font dialog");
+              { int g0 = grid; Key5(SDLK_g); Check(grid == g0 && boxDlg->FontDlg() != nullptr, "message box editor: (the font dialog is modal)"); }
+              std::string before = cb.font; Key5(SDLK_DOWN); Key5(SDLK_ESCAPE); Check(boxDlg != nullptr && boxDlg->FontDlg() == nullptr && cb.font == before, "message box editor: Esc in the font dialog changes nothing (and keeps the editor open)");
+              Click5(boxDlg->FontBtnX() + 10, boxDlg->LookY() + 5); Key5(SDLK_DOWN); Key5(SDLK_RETURN); Check(boxDlg->FontDlg() == nullptr && cb.font != before, "message box editor: choosing a font in the dialog sets the box font");
+              Click5(boxDlg->ColBtnX(1) + 5, boxDlg->LookY() + 5); Check(boxDlg->ColorDlg() != nullptr, "message box editor: a colour swatch opens the colour dialog"); Key5(SDLK_ESCAPE); Check(boxDlg->ColorDlg() == nullptr, "message box editor: Esc closes it");
+              Click5(boxDlg->ColBtnX(0) + 5, boxDlg->LookY() + 5); boxDlg->ColorDlg()->color = 0x07E0; Key5(SDLK_RETURN); Check(boxDlg->ColorDlg() == nullptr && cb.fg == 0x07E0, "message box editor: OK in the colour dialog sets the text colour");
+              Click5(boxDlg->StyleX(0) + 10, boxDlg->StyleY() + 5); Check(boxDlg->FontDlg() != nullptr, "message box editor: a style font button opens the font dialog"); Key5(SDLK_DOWN); Key5(SDLK_RETURN); Check(!cb.styleFont[0].empty() && cb.styleFont[1].empty(), "message box editor: the chosen font becomes the bold style font");
+              Click5(boxDlg->StyleX(0) + 170, boxDlg->StyleY() + 5); Check(cb.styleFont[0].empty(), "message box editor: clicking the right end of a set style font clears it"); }
             Key5(SDLK_ESCAPE); Check(boxDlg == nullptr && form.boxes.empty(), "message box editor: Esc cancels (the form keeps its boxes)");
             Click5(FIELD_X + FIELD_W - 30, FieldY(br) + 5); Key5(SDLK_INSERT); SetF(MessageBoxEditor::F_NAME, "msgAsk"); SetF(MessageBoxEditor::F_T0, "Go"); Key5(SDLK_ESCAPE);
             { int x = boxDlg->OkX() + 5, y = boxDlg->BtnY() + 3; Click5(x, y); }
             Check(boxDlg == nullptr && form.boxes.size() == 1 && form.boxes[0].name == "msgAsk" && form.boxes[0].buttons[0].text == "Go", "message box editor: OK stores the boxes in the form");
             { std::string g = GenerateDesigner(form); Check(g.find("int msgAsk_Ask()") != std::string::npos, "message box editor: the generated code has the box"); }
             form.boxes.clear(); sel = -1; BuildFields();
+        }
+        // ---- start-up: the last form, else template.json, else the default ----
+        {
+            namespace fs = std::filesystem; std::error_code se; std::string dir = fs::temp_directory_path(se).string() + "/fd_startup"; fs::remove_all(dir, se); fs::create_directories(dir + "/app", se);
+            auto put = [&](const std::string& p, const std::string& t) { std::ofstream o(p, std::ios::binary); o << t; };
+            setenv("FD_SETTINGS", (dir + "/settings.json").c_str(), 1); settings = AppSettings(); std::string savedFD = getenv("FD_FORM") ? getenv("FD_FORM") : ""; unsetenv("FD_FORM"); appDirOverride = dir + "/app"; currentFile.clear();
+            put(dir + "/mine.json", "{\"form\":{\"name\":\"Mine\"},\"controls\":[{\"type\":\"SuperLabel\",\"name\":\"hello\",\"text\":\"Hi\"}]}");
+            put(dir + "/app/template.json", "{\"form\":{\"name\":\"Tmpl\"},\"controls\":[{\"type\":\"SuperPushButton\",\"name\":\"go\",\"text\":\"Go\"}]}");
+            form.Clear(); FixOutDir(); settings.lastForm = dir + "/mine.json";
+            Check(StartupForm() == "last" && form.name == "Mine" && form.items.size() == 1 && form.items[0].name == "hello" && currentFile == dir + "/mine.json", "start-up: the last form file is reopened (and is the current file)");
+            currentFile.clear(); form.Clear(); settings.lastForm = dir + "/gone.json";
+            Check(StartupForm() == "template" && form.name == "NewForm" && form.items.size() == 1 && form.items[0].name == "go" && currentFile.empty(), "start-up: a last form that is not accessible falls back to template.json, named NewForm, with no file yet");
+            form.Clear(); settings.lastForm = ""; Check(StartupForm() == "template" && form.name == "NewForm", "start-up: no last form: template.json too");
+            put(dir + "/broken.json", "not json"); form.Clear(); settings.lastForm = dir + "/broken.json"; currentFile.clear();
+            Check(StartupForm() == "template" && form.name == "NewForm" && currentFile.empty(), "start-up: a last form that cannot be read falls back to the template");
+            put(dir + "/app/template.json", "{\"form\":{\"name\":\"T\"},\"controls\":[{\"type\":\"SuperLabel\",\"name\":\"NewForm\"}]}"); form.Clear(); settings.lastForm = "";
+            Check(StartupForm() == "template" && form.name == "NewForm2", "start-up: the form name NewForm gives way to a control with that name");
+            fs::remove(dir + "/app/template.json", se); form.Clear(); Place(C_LABEL, 8, 8); form.name = "Keep"; settings.lastForm = dir + "/gone.json"; currentFile.clear();
+            Check(StartupForm() == "" && form.name == "Keep" && form.items.size() == 1 && currentFile.empty(), "start-up: neither exists: the form is left as it is (the regular default new form)");
+            put(dir + "/app/template.json", "not json"); Check(StartupForm() == "", "start-up: a template that cannot be read is ignored too");
+            setenv("FD_FORM", (dir + "/mine.json").c_str(), 1); settings.lastForm = dir + "/mine.json"; form.Clear(); Check(StartupForm() == "" && form.items.empty(), "start-up: an explicit FD_FORM wins (the old behaviour: FD_OPEN loads it)");
+            // the setting is saved and loaded
+            unsetenv("FD_FORM"); settings.lastForm = dir + "/mine.json"; settings.Save(); { AppSettings back; Check(back.Load() && back.lastForm == dir + "/mine.json", "start-up: lastForm is kept in the application settings json"); }
+            { std::ifstream in(dir + "/settings.json"); std::stringstream ss; ss << in.rdbuf(); Check(ss.str().find("\"lastForm\"") != std::string::npos, "start-up: ... as a readable key"); }
+            // opening and saving through the dialogs remembers the file
+            settings.lastForm = ""; form.Clear(); currentFile.clear(); OpenFileDialog(FP_OPEN); fileDlg->path = dir + "/mine.json"; fileDlg->state = FD::FileDialog::OK; CloseFileDialog();
+            Check(settings.lastForm == dir + "/mine.json" && form.name == "Mine", "start-up: opening a file through the dialog remembers it as the last form");
+            settings.lastForm = ""; currentFile.clear(); OpenFileDialog(FP_SAVE); fileDlg->path = dir + "/saved.json"; fileDlg->state = FD::FileDialog::OK; CloseFileDialog();
+            Check(settings.lastForm == dir + "/saved.json" && fs::exists(dir + "/saved.json", se), "start-up: saving through the dialog remembers it as well");
+            appDirOverride.clear(); currentFile.clear(); fs::remove_all(dir, se); unsetenv("FD_SETTINGS"); settings = AppSettings(); if (!savedFD.empty()) setenv("FD_FORM", savedFD.c_str(), 1);
+            form.Clear(); FixOutDir(); sel = -1; BuildFields();
+        }
+        // ---- control order: move up / down / front / back ----
+        {
+            form.Clear(); for (int i = 0; i < 4; ++i) { Place(C_LABEL, 8, 8); form.items.back().name = "c" + std::to_string(i + 1); form.items.back().x = 8; form.items.back().y = 8; form.items.back().w = 60; } sel = -1; treeFirst = 0; BuildFields();
+            auto names = [&]() { std::string r; for (auto& c : form.items) r += c.name + ","; return r; };
+            auto Ob = [&](int k) { Handle(ev(InputEvent::DOWN, OrdBtnX(k) + 5, OrdBtnY() + 5)); Handle(ev(InputEvent::UP, 0, 0)); };
+            Ob(1); Check(names() == "c1,c2,c3,c4," && sel == -1, "order: with nothing selected the order buttons do nothing");
+            Select(1); Ob(0); Check(names() == "c2,c1,c3,c4," && sel == 0 && Sel()->name == "c2", "order: Up moves the selected control one place earlier and keeps it selected");
+            Ob(0); Check(names() == "c2,c1,c3,c4," && sel == 0 && status.find("already") != std::string::npos, "order: Up on the first control does nothing and says why");
+            Ob(1); Ob(1); Check(names() == "c1,c3,c2,c4," && sel == 2, "order: Down moves it one place later");
+            Ob(2); Check(names() == "c1,c3,c4,c2," && sel == 3 && Sel()->name == "c2", "order: Front moves it to the end (drawn last, on top)");
+            Ob(1); Check(names() == "c1,c3,c4,c2," && status.find("already") != std::string::npos, "order: Down on the last control does nothing");
+            Ob(3); Check(names() == "c2,c1,c3,c4," && sel == 0, "order: Back moves it to the start (drawn first, behind)");
+            // draw order decides what a click hits where controls overlap
+            Select(-1); Check(HitControl(10, 10) == 3, "order: the last control is the one a click hits where all four overlap");
+            Select(0); Ob(2); Check(HitControl(10, 10) == 3 && Sel()->name == "c2", "order: after Front the control is the one a click hits");
+            { std::string j = form.ToJson(); DForm lf; std::string le; lf.FromJson(j, le); Check(lf.items[3].name == "c2" && lf.items[0].name == "c1", "order: the order is saved (and so is the generated Form.Add order)"); }
+            { std::string g = GenerateDesigner(form); Check(g.find("Form.Add(&c1") < g.find("Form.Add(&c3") && g.find("Form.Add(&c4") < g.find("Form.Add(&c2"), "order: the code adds the controls in that order (the last is in front)"); }
+            for (int i = 0; i < 12; ++i) { Place(C_LABEL, 8, 8); } Select(0); Ob(2); Check(sel == (int)form.items.size() - 1 && treeFirst + TreeRows() > sel && treeFirst <= sel, "order: the list scrolls to show the moved control");
+            form.Clear(); sel = -1; treeFirst = 0; BuildFields();
+        }
+        { form.Clear(); form.w = 5000; form.h = 5000; Check(MAX_FORM_W == 1920 && MAX_FORM_H == 1080, "size: the largest form is 1920 x 1080"); form.w = MAX_FORM_W; form.h = MAX_FORM_H; DForm lf; std::string le; Check(lf.FromJson(form.ToJson(), le) && lf.w == 1920 && lf.h == 1080, "size: a 1920 x 1080 form is saved and loaded");
+          lf.FromJson("{\"form\":{\"width\":99999,\"height\":99999},\"controls\":[]}", le); Check(lf.w == 1920 && lf.h == 1080, "size: a file asking for more is cut to 1920 x 1080");
+          zoom = 100; scrollX = scrollY = 0; ZoomCentre(100); ClampScroll(); SyncBars(); Check(surfV.Needed() && surfH.Needed() && surfV.Total() == 1080 + 2 * PAD && surfH.Total() == 1920 + 2 * PAD, "size: the big form scrolls on both axes");
+          Fit(); Check(zoom == std::min((VW - 2 * PAD) * 100 / 1920, (VH - 2 * PAD) * 100 / 1080) && ZW() + 2 * PAD <= VW && ZH() + 2 * PAD <= VH, "size: Fit shrinks it into the surface");
+          RenderFormSprite(); Check(formSpr.width() == 1920 && formSpr.height() == 1080, "size: the design sprite is the full size");
+          form.Clear(); sel = -1; zoom = 100; ZoomCentre(100); scrollX = scrollY = 0; BuildFields(); }
+        // ---- tab (focus) order: set once, independent of the list order ----
+        {
+            form.Clear(); for (int i = 0; i < 4; ++i) { Place(C_PUSHBUTTON, 8, 8 + i * 30); form.items.back().name = "b" + std::to_string(i + 1); } sel = -1; treeFirst = 0; BuildFields();
+            auto tabs = [&]() { std::string r; for (size_t i = 0; i < form.items.size(); ++i) r += form.items[i].name + "=" + std::to_string(form.EffTab(i)) + ","; return r; };
+            auto Ob = [&](int k) { Handle(ev(InputEvent::DOWN, OrdBtnX(k) + 5, OrdBtnY() + 5)); Handle(ev(InputEvent::UP, 0, 0)); };
+            Check(tabs() == "b1=1,b2=2,b3=3,b4=4," && !form.TabOrderCustom() && !NeedsExplicitTabs(form), "tab order: new controls get the next number as they are added");
+            Check(form.ToJson().find("tabOrder") == std::string::npos && GenerateDesigner(form).find("SetTabOrder") == std::string::npos, "tab order: while it equals the list order nothing is saved or generated");
+            Select(0); Ob(2); Check(tabs() == "b2=2,b3=3,b4=4,b1=1,", "tab order: moving a control to the front changes its draw order but NOT its tab number");
+            Check(form.TabOrderCustom() && NeedsExplicitTabs(form), "tab order: now the focus order differs from the list order");
+            { std::string j = form.ToJson(); DForm lf; std::string le; Check(j.find("\"tabOrder\": 1") != std::string::npos && lf.FromJson(j, le) && lf.TabSequence() == std::vector<int>({ 3, 0, 1, 2 }) && lf.ToJson() == j, "tab order: the numbers are saved when they differ, and loaded back"); }
+            { std::string g = GenerateDesigner(form); Check(g.find("b1.SetTabOrder(1);") != std::string::npos && g.find("b2.SetTabOrder(2);") != std::string::npos && g.find("b4.SetTabOrder(4);") != std::string::npos && g.find("Form.Add(&b2") < g.find("Form.Add(&b1"), "tab order: the code sets SetTabOrder on every focusable control (and adds them in list order)"); }
+            // the user edits the number
+            { int tr = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_TABORDER) tr = i; Select(3); tr = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_TABORDER) tr = i; Check(tr >= 0 && PropLabel(P_TABORDER) == "Tab order" && fields[tr].text == "1", "tab order: a Tab order row shows the control's number");
+              EnsureRowVisible(tr); Click(FIELD_X + 20, FieldY(tr) + 5); Key(SDLK_a, KMOD_LCTRL); Type("9"); Key(SDLK_RETURN); Check(form.items[3].tabOrder == 9 && form.TabSequence() == std::vector<int>({ 0, 1, 2, 3 }), "tab order: typing a number changes the focus order (here b1 goes last)");
+              Click(FIELD_X + 20, FieldY(tr) + 5); Key(SDLK_a, KMOD_LCTRL); Key(SDLK_BACKSPACE); Check(form.items[3].tabOrder == 9, "tab order: an empty number is refused (the old one stays)");
+              Ob(3); Check(form.items[0].name == "b1" && form.items[0].tabOrder == 9 && form.items[1].tabOrder == 2, "tab order: moving it to the back again changes the draw order only"); }
+            // a form without numbers keeps its list positions, and they stick
+            { DForm lf; std::string le; lf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperPushButton\",\"name\":\"x\"},{\"type\":\"SuperPushButton\",\"name\":\"y\"},{\"type\":\"SuperPushButton\",\"name\":\"z\"}]}", le);
+              Check(lf.items[0].tabOrder == 1 && lf.items[1].tabOrder == 2 && lf.items[2].tabOrder == 3, "tab order: a file without numbers gets the list positions, fixed from then on");
+              lf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperPushButton\",\"name\":\"x\",\"tabOrder\":5},{\"type\":\"SuperPushButton\",\"name\":\"y\"}]}", le); Check(lf.items[0].tabOrder == 5 && lf.items[1].tabOrder == 2, "tab order: a mixed file keeps the given number, the other gets its position"); }
+            { DForm lf; DControl a, b, c; a.type = C_PUSHBUTTON; a.name = "a"; b = a; b.name = "b"; c = a; c.name = "c"; a.tabOrder = 2; b.tabOrder = 2; c.tabOrder = 1; lf.items = { a, b, c }; Check(lf.TabSequence() == std::vector<int>({ 2, 0, 1 }), "tab order: equal numbers keep the list order (as the library does)"); }
+            // display-only controls have no tab number and are not given SetTabOrder
+            { form.Clear(); Place(C_LABEL, 8, 8); Place(C_PUSHBUTTON, 8, 40); Place(C_PUSHBUTTON, 8, 80); form.items[2].tabOrder = 1; Select(0); bool has = false; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_TABORDER) has = true; Check(!has, "tab order: a label has no Tab order row");
+              std::string g = GenerateDesigner(form); Check(g.find("button1.SetTabOrder(2);") != std::string::npos && g.find("button2.SetTabOrder(1);") != std::string::npos && g.find("label1.SetTabOrder") == std::string::npos, "tab order: only focusable controls get SetTabOrder"); }
+            form.Clear(); sel = -1; treeFirst = 0; BuildFields();
+        }
+        // ---- Keep hidden controls hidden (form property) ----
+        {
+            form.Clear(); Place(C_LABEL, 8, 8); Place(C_LABEL, 8, 40); form.items[0].ctlGroup = "GRP_A"; form.items[1].ctlGroup = "GRP_A"; form.items[1].visible = false; sel = -1; BuildFields();
+            int kr = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_KEEPHIDDEN) kr = i;
+            Check(kr >= 0 && PropLabel(P_KEEPHIDDEN) == "Keep hidden" && !form.keepHidden && SegCurrent(P_KEEPHIDDEN) == 0, "keep hidden: a form row, off by default");
+            { std::string g = GenerateDesigner(form); Check(g.find("SetKeepHidden") == std::string::npos && g.find("label2.SetVisible(false, false);") != std::string::npos, "keep hidden: off: nothing extra is generated"); }
+            EnsureRowVisible(kr); Click(FIELD_X + FIELD_W - 10, FieldY(kr) + 5); Check(form.keepHidden && SegCurrent(P_KEEPHIDDEN) == 1, "keep hidden: clicking Yes turns it on");
+            { std::string g = GenerateDesigner(form); Check(g.find("label2.SetKeepHidden(true);") != std::string::npos && g.find("label1.SetKeepHidden") == std::string::npos && g.find("label2.SetVisible(false, false);") < g.find("label2.SetKeepHidden(true);"), "keep hidden: on: only the Visible = No control gets SetKeepHidden(true), after SetVisible(false, false)"); }
+            { std::string j = form.ToJson(); DForm lf; std::string le; Check(j.find("\"keepHidden\": true") != std::string::npos && lf.FromJson(j, le) && lf.keepHidden && lf.ToJson() == j, "keep hidden: saved in the form and loaded back"); form.keepHidden = false; Check(form.ToJson().find("keepHidden") == std::string::npos, "keep hidden: off is not saved"); }
+            form.keepHidden = true; form.Clear(); Check(!form.keepHidden, "keep hidden: Clear() resets it");
+            form.Clear(); sel = -1; BuildFields();
+        }
+        // ---- rich text options: Label, Rich text control, message boxes; style fonts ----
+        {
+            form.Clear(); Place(C_LABEL, 8, 8); Place(C_RICHTEXT, 8, 40); form.items[0].name = "lbl"; form.items[1].name = "rt"; form.items[0].text = "<color=red>Hot</color> <b>bold</b>";
+            Check(FindExtra(C_LABEL, "rich") && FindExtra(C_LABEL, "boldFont") && FindExtra(C_RICHTEXT, "headingFont") && !XBool(form.items[0], "rich"), "rich options: the label has Rich text (off) and the four style fonts, the rich text control the style fonts");
+            { std::string g = GenerateDesigner(form); Check(g.find("SetRich") == std::string::npos && g.find("SetStyleFont") == std::string::npos, "rich options: a plain label generates nothing extra"); }
+            { auto lc = MakeControl(&scr, form.items[0], 0, 0); lc->Push(); int h0 = lc->GetHeight(); (void)h0; Select(0); SyncFields();
+              int rr = -1; for (int i = 0; i < nFields; ++i) if (const ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == "rich") rr = i; Check(rr >= 0 && PropLabel(fieldProp[rr]) == "Rich text", "rich options: the label has a Rich text row");
+              EnsureRowVisible(rr); Click(FIELD_X + FIELD_W - 10, FieldY(rr) + 5); Check(XBool(form.items[0], "rich"), "rich options: clicking Yes turns it on"); }
+            ExtraSet(form.items[0], *FindExtra(C_LABEL, "boldFont"), "FreeSansBold12pt7b");
+            { std::string g = GenerateDesigner(form); Check(g.find("lbl.SetRich(true);") != std::string::npos && g.find("lbl.SetStyleFont(SuperLabel::FONT_BOLD, &lgfx::fonts::FreeSansBold12pt7b);") != std::string::npos, "rich options: a rich label gets SetRich(true) and its style fonts"); }
+            { DControl plain = form.items[0]; plain.extra["rich"] = "false"; plain.extra["boldFont"] = "FreeSansBold12pt7b"; DForm f2; f2.items.push_back(plain); f2.items[0].name = "l2"; Check(GenerateDesigner(f2).find("SetStyleFont") == std::string::npos, "rich options: a style font on a label that is not rich is not generated"); }
+            { auto a = MakeControl(&scr, form.items[0], 0, 0); DControl rich = form.items[0]; ExtraSet(rich, *FindExtra(C_LABEL, "boldFont"), ""); auto b = MakeControl(&scr, rich, 0, 0); Check(a->GetHeight() > b->GetHeight(), "rich options: the preview uses the bold font (a taller line)"); }
+            ExtraSet(form.items[1], *FindExtra(C_RICHTEXT, "italicFont"), "FreeSansOblique12pt7b"); ExtraSet(form.items[1], *FindExtra(C_RICHTEXT, "headingFont"), "FreeSansBold24pt7b");
+            { std::string g = GenerateDesigner(form); Check(g.find("rt.SetStyleFont(SuperRichText::FONT_ITALIC, &lgfx::fonts::FreeSansOblique12pt7b);") != std::string::npos && g.find("rt.SetStyleFont(SuperRichText::FONT_HEADING, &lgfx::fonts::FreeSansBold24pt7b);") != std::string::npos, "rich options: the rich text control generates its style fonts"); }
+            { std::string j = form.ToJson(); DForm lf; std::string le; Check(lf.FromJson(j, le) && XBool(lf.items[0], "rich") && XStr(lf.items[0], "boldFont") == "FreeSansBold12pt7b" && XStr(lf.items[1], "headingFont") == "FreeSansBold24pt7b" && lf.ToJson() == j, "rich options: saved and loaded back"); }
+            // message boxes
+            DMessageBox mb; mb.name = "msgR"; mb.lines = { "<color=red>Danger</color>" }; mb.buttons = { { "OK", "" } }; mb.rich = true; mb.styleFont[0] = "FreeSansBold12pt7b"; mb.font = "Font4"; mb.fg = 0xFFE0; mb.bg = 0x0010; mb.border = 0xF800;
+            form.boxes.push_back(mb);
+            { std::string g = GenerateDesigner(form); Check(g.find("msgR.SetRich(true);") != std::string::npos && g.find("msgR.SetStyleFont(SuperMessageBox::FONT_BOLD, &lgfx::fonts::FreeSansBold12pt7b);") != std::string::npos && g.find("msgR.ColFg = 0xFFE0;") != std::string::npos && g.find("msgR.ColBg = 0x0010;") != std::string::npos, "rich options: a message box generates SetRich, style fonts and its colours"); }
+            { std::string j = form.ToJson(); DForm lf; std::string le; Check(j.find("\"rich\": true") != std::string::npos && lf.FromJson(j, le) && lf.boxes.size() == 1 && lf.boxes[0].rich && lf.boxes[0].styleFont[0] == "FreeSansBold12pt7b" && lf.boxes[0].font == "Font4" && lf.ToJson() == j, "rich options: message box rich flag and fonts saved and loaded back"); }
+            { DForm lf; std::string le; lf.FromJson("{\"form\":{},\"controls\":[],\"messageBoxes\":[{\"name\":\"m\",\"message\":\"x\",\"buttons\":[\"OK\"],\"rich\":true,\"boldFont\":\"NoSuchFont\"}]}", le); Check(lf.boxes.size() == 1 && lf.boxes[0].rich && lf.boxes[0].styleFont[0].empty(), "rich options: an unknown style font in a file is dropped"); }
+            { DMessageBox hb = form.boxes[0]; hb.lines = { "<h1>Big</h1>" }; hb.styleFont[3] = "FreeSansBold24pt7b"; hb.font = "Font2"; auto pm = MakeMessageBox(&scr, hb); DMessageBox plain = hb; plain.rich = false; auto pp = MakeMessageBox(&scr, plain); Check(pm->GetHeight() > 0 && pm->GetHeight() != pp->GetHeight(), "rich options: the message box preview is rich when asked"); }
+            form.Clear(); sel = -1; BuildFields();
         }
         // ---- the ? help window ----
         {
@@ -2394,6 +2566,15 @@ static void SelfTest() {
             { int ty = propBar.TrackY() + propBar.ThumbStart() + 3; Dn(propBar.TrackX() + 3, ty); Mv(propBar.TrackX() + 3, 5000); Check(propScroll == MaxPropScroll(), "property bar: dragging the thumb scrolls the rows to the end"); Up(); }
             Dn(propBar.TrackX() + 3, propBar.TrackY() + 5); Up(); Check(propScroll < MaxPropScroll() && propScroll >= 0, "property bar: a click above the thumb pages up");
             form.Clear(); sel = -1; BuildFields(); SyncBars(); Check(!propBar.Needed(), "property bar: the form's own few rows need none");
+            // the controls-on-form list
+            form.Clear(); for (int i = 0; i < 12; ++i) Place(C_LABEL, 8, 8 + i * 4); sel = -1; treeFirst = 0; BuildFields(); SyncBars();
+            Check(TreeRows() >= 3 && TreeRows() < 12 && treeBar.Needed() && treeBar.PageSize() == TreeRows() && treeBar.Total() == 12, "list bar: more controls than rows gives the controls list a scroll bar");
+            { InputEvent w; w.type = InputEvent::WHEEL; w.x = 100; w.y = TREE_Y0 + 10; w.wheel = -3; Handle(w); Check(treeFirst == 3, "list bar: the wheel scrolls the list"); }
+            { Handle(ev(InputEvent::DOWN, 100, TREE_Y0 + 5)); Handle(ev(InputEvent::UP, 0, 0)); Check(sel == 3, "list bar: a click selects the row under it (not the first one)"); }
+            { int ty = treeBar.TrackY() + treeBar.ThumbStart() + 3; Handle(ev(InputEvent::DOWN, treeBar.TrackX() + 3, ty)); Handle(ev(InputEvent::MOVE, treeBar.TrackX() + 3, 5000)); Handle(ev(InputEvent::UP, 0, 0)); Check(treeFirst == 12 - TreeRows() && sel == 3, "list bar: dragging the thumb scrolls to the end without selecting anything"); }
+            { int below = TREE_Y0 + TreeRows() * TREE_H + 2; if (below < TREE_BOT + 12) { int sb = sel; treeFirst = 0; Handle(ev(InputEvent::DOWN, 100, below)); Handle(ev(InputEvent::UP, 0, 0)); Check(sel == sb, "list: a click below the last drawn row selects nothing"); } }
+            Select(0); Check(treeFirst == 0, "list bar: selecting a control scrolls it into view"); Select(11); Check(treeFirst == 12 - TreeRows(), "list bar: ... also at the end");
+            form.Clear(); sel = -1; treeFirst = 0; BuildFields();
             { int worst = 0; for (int t = 0; t < C_COUNT; ++t) { form.Clear(); Place(t, 8, 8); Select(0); worst = std::max(worst, nFields); } Check(worst > 0 && worst < MAX_FIELDS, "property panel: no control type needs more rows than the field table holds (a gauge has about 42)"); form.Clear(); sel = -1; BuildFields(); }
         }
         form.Clear(); FixOutDir(); sel = -1; BuildFields();
@@ -2404,6 +2585,28 @@ static void SelfTest() {
     printf("%s (%d failed)\n", fails ? "SELFTEST FAILED" : "SELFTEST PASSED", fails);
     fflush(stdout);
     exit(fails ? 1 : 0);
+}
+
+// At start (no FD_FORM given): the form file used last (an application setting); if that is not accessible, template.json in the program's folder, named NewForm;
+// else nothing: the regular default new form stays. Returns what was used: "last", "template" or "".
+static std::string StartupForm() {
+    if (getenv("FD_FORM") && *getenv("FD_FORM")) return "";
+    namespace fs = std::filesystem; std::error_code ec;
+    if (!settings.lastForm.empty() && fs::is_regular_file(settings.lastForm, ec)) {
+        currentFile = settings.lastForm;
+        if (OpenForm()) return "last";
+        currentFile.clear();
+    }
+    fs::path t = fs::path(AppDir()) / "template.json";
+    if (fs::is_regular_file(t, ec)) {
+        currentFile = t.string(); bool ok = OpenForm(); currentFile.clear();                       // the template is a starting point: saving asks for a new name
+        if (ok) {
+            std::string nm = "NewForm"; for (int k = 2; form.FormNameClashes(nm); ++k) nm = "NewForm" + std::to_string(k);
+            form.name = nm; SyncFields(); Status("started from template.json as %s", nm.c_str());
+            return "template";
+        }
+    }
+    return "";
 }
 
 void setup() {
@@ -2421,6 +2624,7 @@ void setup() {
     if (!getenv("FD_SELFTEST")) form.boxes.push_back(form.MakeYesNoBox());     // a new form starts with the ready-made Yes/No box (a form opened from a file has what the file has)
     BuildFields();
     if (getenv("FD_OPEN")) OpenForm();                    // FD_OPEN=1: load the form file at start
+    else if (!getenv("FD_SELFTEST") && !getenv("FD_EXPORT")) { std::string how = StartupForm(); (void)how; }          // else the last form, or template.json, or the default new form
     if (getenv("FD_EXPORT")) {                            // FD_EXPORT=1: export <Form>.designer.h from the form file, print the result and exit (0 / 1)
         FD::GenResult r = FD::WriteDesigner(form, form.outDir);
         printf("%s %s\n", r.ok ? (r.unchanged ? "up to date:" : "generated:") : "FAILED:", r.ok ? r.path.c_str() : r.error.c_str());

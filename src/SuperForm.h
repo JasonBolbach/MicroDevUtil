@@ -70,10 +70,11 @@ public:
     //  * ShowPage(pages, n, show)  tab pages: shows the controls of group `show` and hides the controls of the other groups listed in pages[0..n)
     //    in one pass (hidden first, then shown, so overlapping pages do not flicker). show = 0 hides all of them. Groups that are not listed stay as they are.
     //  Afterwards the focus moves to a control that can take it. draw = false only changes the state (use it before the first Draw()).
-    //  Group operations override a control's own Visible / Enabled setting: showing a group shows all of its controls.
+    //  Group operations override a control's own Visible / Enabled setting: showing a group shows all of its controls, EXCEPT a control that was marked
+    //  with SetKeepHidden(true) (the designer's "Keep hidden controls hidden" option): that one stays hidden until you call its own SetVisible(true).
     void SetGroupVisible(uint16_t g, bool v, bool draw = true) {
         if (!g) return;
-        for (auto& it : Items) if (it.C->GetGroup() == g) it.C->SetVisible(v, draw);
+        for (auto& it : Items) if (it.C->GetGroup() == g && !(v && it.C->GetKeepHidden())) it.C->SetVisible(v, draw);
         AfterGroupChange(draw);
     }
     void SetGroupEnabled(uint16_t g, bool e) {
@@ -84,7 +85,7 @@ public:
     void ShowPage(const uint16_t* pages, int n, uint16_t show, bool draw = true) {
         for (int k = 0; k < n; ++k) if (pages[k] && pages[k] != show)
             for (auto& it : Items) if (it.C->GetGroup() == pages[k]) it.C->SetVisible(false, draw);
-        if (show) for (auto& it : Items) if (it.C->GetGroup() == show) it.C->SetVisible(true, draw);
+        if (show) for (auto& it : Items) if (it.C->GetGroup() == show && !it.C->GetKeepHidden()) it.C->SetVisible(true, draw);
         AfterGroupChange(draw);
     }
     int GroupCount(uint16_t g) const { int n = 0; if (g) for (auto& it : Items) if (it.C->GetGroup() == g) ++n; return n; }

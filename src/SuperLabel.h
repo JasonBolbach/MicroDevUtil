@@ -54,6 +54,10 @@ public:
     // Default off: a plain label shows every character as it is. In rich mode SetWrap / SetAlign / SetVAlign / SetBodyHeight / SetLineGap still work;
     // SetMaxLines, SetEllipsis and SetUnderline do not (use the tags).
     void SetRich(bool on)         { if (on != Rich) { Rich = on; LinesOk = false; Dirty = true; } }
+    // Style fonts (optional): <b> <i> <b><i> and <h1> use the fonts you register here, e.g. SetStyleFont(FONT_BOLD, &lgfx::fonts::FreeSansBold9pt7b).
+    // A slot with no font leaves its tag ignored. The line height follows the tallest font on the line.
+    static constexpr int FONT_BOLD = SuperRich::FS_BOLD, FONT_ITALIC = SuperRich::FS_ITALIC, FONT_BOLDITALIC = SuperRich::FS_BOLDITALIC, FONT_HEADING = SuperRich::FS_HEADING;
+    void SetStyleFont(int slot, const lgfx::IFont* f) { if (slot >= 0 && slot < SuperRich::FS_COUNT) { StyleFonts.Slot[slot] = f; LinesOk = false; Dirty = true; } }
     bool GetRich() const          { return Rich; }
     int  GetLineCount()           { Layout(); return Rich ? (int)RichLines.size() : (int)Lines.size(); }
 
@@ -104,13 +108,14 @@ private:
     int  MaxLines = 0, Gap = 0, FixedH = 0;
     std::vector<std::string> Lines;
     std::vector<SuperRich::Line> RichLines;
+    SuperRich::Fonts StyleFonts;
     bool Rich = false;
     bool LinesOk = false;
     int  LinesW = -1;
 
     int InnerWidth() { return InnerW(); }
     SuperRich::Options RichOpts() {
-        SuperRich::Options o; o.Def.Fg = ColFg; o.Def.Bg = ColBg; o.Def.Align = (uint8_t)Alignment; o.Wrap = Wrap;
+        SuperRich::Options o; o.Def.Fg = ColFg; o.Def.Bg = ColBg; o.Def.Align = (uint8_t)Alignment; o.Wrap = Wrap; o.Base = Font; o.StyleFonts = &StyleFonts;
         Spr.setFont(Font); o.TabPx = std::max(1, 8 * (int)Spr.textWidth(" ")); return o;
     }
     int BlockHeight() {

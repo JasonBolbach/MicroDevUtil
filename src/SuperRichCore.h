@@ -13,10 +13,12 @@
 //   <bg=#003366> ... </bg>     colour behind the text
 //   <font color=red bg=blue>   both at once;  </font> returns to the control's colours
 //   <u> </u>   <s> </s>        underline / strike through (drawn as lines)
+//   <b> <i> <h1> (and </..>)   bold / italic / heading (also <strong> <em> <h2> <h3>): ONLY when the app registered a font for that slot with SetStyleFont(); otherwise ignored.
+//                              <b><i> together use the bold-italic slot (else bold, else italic). Slots are fonts you choose, e.g. &lgfx::fonts::FreeSansBold9pt7b.
 //   <big> </big>               text at double size (LovyanGFX text scaling)
 //   <left> <center> <right>    alignment of the line (taken where its first text starts);  </center> etc. return to the control's alignment
 //   &lt; &gt; &amp; &quot; &apos; &nbsp; &#65; &#x41;     entities (ASCII range)
-//   Anything else (<b>, <i>, <p>, <img>, ...) is ignored. Closing tags (</color>, </u>, ...) reset to the control's default: there is no nesting stack,
+//   Anything else (<p>, <img>, ...) is ignored. Closing tags (</color>, </u>, ...) reset to the control's default: there is no nesting stack,
 //   so  <color=red>a<color=blue>b</color>c  shows c in the default colour.
 // Words wrap at the width; a word wider than the width is broken inside. Spaces are kept as written (no HTML whitespace collapsing).
 // "Show source" mode (Interpret = false) draws the same text with every tag and entity as plain characters (new lines and tabs still work).
@@ -28,7 +30,9 @@
 
 namespace SuperRich {
 
-enum : uint8_t { F_UNDER = 1, F_STRIKE = 2, F_BIG = 4, F_HASBG = 8 };            // style flags
+enum : uint8_t { F_UNDER = 1, F_STRIKE = 2, F_BIG = 4, F_HASBG = 8, F_BOLD = 16, F_ITALIC = 32, F_HEAD = 64 };            // style flags
+enum FontSlot : uint8_t { FS_BOLD = 0, FS_ITALIC = 1, FS_BOLDITALIC = 2, FS_HEADING = 3, FS_COUNT = 4 };
+struct Fonts { const lgfx::IFont* Slot[FS_COUNT] = { nullptr, nullptr, nullptr, nullptr }; };        // the optional fonts of <b> <i> <b><i> <h1>
 enum : uint8_t { A_LEFT = 0, A_CENTER = 1, A_RIGHT = 2 };
 
 struct Style { uint16_t Fg = 0xFFFF, Bg = 0; uint8_t Flags = 0, Align = A_LEFT; };
@@ -38,6 +42,8 @@ struct Options {
     bool  Interpret = true;          // false: show the source (no tags, no entities)
     bool  Wrap = true;               // false: a line never wraps (it is as wide as its text; the control clips it)
     int   TabPx = 32;                // tab stop distance in pixels
+    const lgfx::IFont* Base = nullptr;       // the control's font (what plain text uses); nullptr = leave g's font alone (and then no style fonts)
+    const Fonts* StyleFonts = nullptr;       // the registered style fonts, or nullptr
 };
 
 // One visual line of the layout: enough to draw it (and to start drawing from any line) without storing the text again.
@@ -49,8 +55,19 @@ struct Line {
     bool     Cont = false;           // follows a soft wrap (leading spaces are dropped)
 };
 
-struct Atom { std::string T; Style St; int X = 0, W = 0; bool Space = false; };
-struct LineOut { std::vector<Atom> Atoms; int Width = 0, H = 0; uint8_t Align = A_LEFT; bool Rule = false, SoftWrap = false, Content = false; };
+struct Atom { std::string T; Style St; int X = 0, W = 0, H = 0, B = 0; bool Space = false; };            // H = height, B = baseline (from the top) at this atom's font and scale
+struct LineOut { std::vector<Atom> Atoms; int Width = 0, H = 0, B = 0; uint8_t Align = A_LEFT; bool Rule = false, SoftWrap = false, Content = false; };
+
+// The font of a style: the registered slot (heading first, then bold / italic) or the control's own font.
+inline const lgfx::IFont* FontFor(const Options& o, const Style& st) {
+    const lgfx::IFont* f = nullptr;
+    if (o.StyleFonts) {
+        const Fonts& F = *o.StyleFonts; bool b = (st.Flags & F_BOLD) != 0, i = (st.Flags & F_ITALIC) != 0;
+        if (st.Flags & F_HEAD) f = F.Slot[FS_HEADING];
+        if (!f) { if (b && i) f = F.Slot[FS_BOLDITALIC] ? F.Slot[FS_BOLDITALIC] : F.Slot[FS_BOLD] ? F.Slot[FS_BOLD] : F.Slot[FS_ITALIC]; else if (b) f = F.Slot[FS_BOLD]; else if (i) f = F.Slot[FS_ITALIC]; }
+    }
+    return f ? f : o.Base;
+}
 
 // ---- colours ----
 inline uint16_t Rgb565(int r, int g, int b) { return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xFF) >> 3)); }
@@ -121,6 +138,9 @@ inline void Apply(const Tag& g, Style& st, const Options& o) {                 /
         else if (g.Name == "u") st.Flags &= ~F_UNDER;
         else if (g.Name == "s" || g.Name == "strike" || g.Name == "del") st.Flags &= ~F_STRIKE;
         else if (g.Name == "big") st.Flags &= ~F_BIG;
+        else if (g.Name == "b" || g.Name == "strong") st.Flags &= ~F_BOLD;
+        else if (g.Name == "i" || g.Name == "em") st.Flags &= ~F_ITALIC;
+        else if (g.Name == "h1" || g.Name == "h2" || g.Name == "h3") st.Flags &= ~F_HEAD;
         else if (g.Name == "left" || g.Name == "center" || g.Name == "right") st.Align = d.Align;
         return;
     }
@@ -129,6 +149,9 @@ inline void Apply(const Tag& g, Style& st, const Options& o) {                 /
     if (g.Name == "u") st.Flags |= F_UNDER;
     else if (g.Name == "s" || g.Name == "strike" || g.Name == "del") st.Flags |= F_STRIKE;
     else if (g.Name == "big") st.Flags |= F_BIG;
+    else if (g.Name == "b" || g.Name == "strong") st.Flags |= F_BOLD;
+    else if (g.Name == "i" || g.Name == "em") st.Flags |= F_ITALIC;
+    else if (g.Name == "h1" || g.Name == "h2" || g.Name == "h3") st.Flags |= F_HEAD;
     else if (g.Name == "left") st.Align = A_LEFT;
     else if (g.Name == "center") st.Align = A_CENTER;
     else if (g.Name == "right") st.Align = A_RIGHT;
@@ -139,16 +162,26 @@ inline void Apply(const Tag& g, Style& st, const Options& o) {                 /
 // Used both to lay the text out (Layout) and to draw a single line later (DrawLine), so the two always agree. Returns the new position.
 inline size_t ScanLine(lgfx::LGFXBase& g, const char* t, size_t n, size_t pos, Style& st, bool cont, const Options& o, int width, LineOut& out) {
     using namespace detail;
-    out = LineOut(); int pen = 0, maxScale = 1; bool first = true;
+    out = LineOut(); int pen = 0; bool first = true;
     const int ww = o.Wrap ? width : 0x3FFFFFFF;                       // the width words wrap at
     auto scaleOf = [](const Style& s) { return (s.Flags & F_BIG) ? 2 : 1; };
-    auto measure = [&](const std::string& s, const Style& sty) { g.setTextSize((float)scaleOf(sty)); return (int)g.textWidth(s.c_str()); };
+    const lgfx::IFont* curFont = nullptr;                              // the font g has now: set it only when it changes
+    auto useFont = [&](const Style& sty) { if (!o.Base) return; const lgfx::IFont* f = FontFor(o, sty); if (f != curFont) { g.setFont(f); curFont = f; } };
+    auto measure = [&](const std::string& s, const Style& sty) { useFont(sty); g.setTextSize((float)scaleOf(sty)); return (int)g.textWidth(s.c_str()); };
+    struct Dim { const lgfx::IFont* F = nullptr; int Sc = 0, H = 0, B = 0; } dimCache;                  // height and baseline of a font at a scale (looked up once per change)
+    auto dimOf = [&](const Style& sty) -> Dim {
+        const lgfx::IFont* f = o.Base ? FontFor(o, sty) : nullptr; int sc = scaleOf(sty);
+        if (dimCache.Sc == sc && dimCache.F == f && f) return dimCache;
+        useFont(sty); g.setTextSize(1.0f); int h = (int)g.fontHeight(), b = h;
+        if (f) { lgfx::FontMetrics m; f->getDefaultMetric(&m); if (m.baseline > 0 && m.baseline <= h) b = m.baseline; }
+        dimCache.F = f; dimCache.Sc = sc; dimCache.H = h * sc; dimCache.B = b * sc; return dimCache;
+    };
     auto setAlign = [&]() { if (first) { out.Align = st.Align; first = false; } };
     auto addAtom = [&](const std::string& txt, bool space, int w) {
         setAlign();
         if (space && !out.Atoms.empty() && out.Atoms.back().Space && out.Atoms.back().St.Fg == st.Fg && out.Atoms.back().St.Flags == st.Flags && out.Atoms.back().St.Bg == st.Bg) { out.Atoms.back().T += txt; out.Atoms.back().W += w; }
-        else { Atom a; a.T = txt; a.St = st; a.X = pen; a.W = w; a.Space = space; out.Atoms.push_back(a); }
-        pen += w; maxScale = std::max(maxScale, scaleOf(st)); if (!space) out.Content = true;
+        else { Atom a; a.T = txt; a.St = st; a.X = pen; a.W = w; Dim d = dimOf(st); a.H = d.H; a.B = d.B; a.Space = space; out.Atoms.push_back(a); }
+        pen += w; if (!space) out.Content = true;
     };
     while (pos < n) {
         char c = t[pos];
@@ -202,11 +235,14 @@ done:
     while (!out.Atoms.empty() && out.Atoms.back().Space) { out.Atoms.pop_back(); }      // trailing spaces are invisible: drop them (and do not count them)
     out.Width = 0; for (const Atom& a : out.Atoms) out.Width = std::max(out.Width, a.X + a.W);
     if (first) out.Align = st.Align;
+    if (o.Base) { g.setFont(o.Base); curFont = o.Base; }
     g.setTextSize(1.0f);
     int fh = (int)g.fontHeight();
-    int sc = out.Atoms.empty() ? scaleOf(st) : 1;
-    for (const Atom& a : out.Atoms) sc = std::max(sc, scaleOf(a.St));
-    out.H = out.Rule ? std::max(4, fh / 2) : fh * sc;
+    int above = 0, below = 0;                                                    // the line: tallest part above the baseline + deepest part below it (fonts of different sizes share a baseline)
+    if (out.Atoms.empty()) { Dim d = dimOf(st); above = d.B; below = d.H - d.B; }  // an empty line is as tall as the text style it ends in
+    for (const Atom& a : out.Atoms) { above = std::max(above, a.B); below = std::max(below, a.H - a.B); }
+    if (o.Base) { g.setFont(o.Base); curFont = o.Base; }
+    out.B = above; out.H = out.Rule ? std::max(4, fh / 2) : above + below;
     return pos;
 }
 
@@ -230,14 +266,14 @@ inline void DrawLine(lgfx::LGFXBase& g, const char* t, size_t n, const Line& L, 
     if (lo.Rule) { g.drawFastHLine(x, y + L.H / 2, width, st.Fg); return; }
     int ox = lo.Align == A_CENTER ? (width - lo.Width) / 2 : lo.Align == A_RIGHT ? width - lo.Width : 0;
     if (ox < 0) ox = 0;
-    int fh1 = (int)g.fontHeight();
     for (const Atom& a : lo.Atoms) {
-        int sc = (a.St.Flags & F_BIG) ? 2 : 1, ah = fh1 * sc, ay = y + lo.H - ah, ax = x + ox + a.X;
+        int sc = (a.St.Flags & F_BIG) ? 2 : 1, ay = y + lo.B - a.B, ax = x + ox + a.X;                 // atoms of different fonts line up on the baseline
         if (a.St.Flags & F_HASBG) g.fillRect(ax, y, a.W, lo.H, a.St.Bg);
-        if (!a.Space) { g.setTextSize((float)sc); g.setTextColor(a.St.Fg); g.drawString(a.T.c_str(), ax, ay); g.setTextSize(1.0f); }
-        if (a.St.Flags & F_UNDER) g.drawFastHLine(ax, ay + ah - 1, a.W, a.St.Fg);
-        if (a.St.Flags & F_STRIKE) g.drawFastHLine(ax, ay + ah / 2, a.W, a.St.Fg);
+        if (!a.Space) { if (o.Base) g.setFont(FontFor(o, a.St)); g.setTextSize((float)sc); g.setTextColor(a.St.Fg); g.drawString(a.T.c_str(), ax, ay); g.setTextSize(1.0f); }
+        if (a.St.Flags & F_UNDER) g.drawFastHLine(ax, y + lo.H - 1, a.W, a.St.Fg);                 // the lines are at the same height for every atom of the line
+        if (a.St.Flags & F_STRIKE) g.drawFastHLine(ax, y + lo.H / 2, a.W, a.St.Fg);
     }
+    if (o.Base) g.setFont(o.Base);
 }
 
 inline int ContentHeight(const std::vector<Line>& lines, int gap = 0) { int h = 0; for (const Line& l : lines) h += l.H + gap; return h; }

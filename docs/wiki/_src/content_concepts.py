@@ -167,7 +167,9 @@ back.SetZOrder(1); front.SetZOrder(0);                    // 'front' is drawn ov
 <div class="box warn"><b class="h">Overlap and redraws</b>Order is applied when the form draws everything (<code>Draw()</code>, <code>Redraw()</code>). A single focus change or animation tick redraws just that control, so on overlapping controls call <code>form.Draw()</code> after such changes if the stacking must stay exact.</div>
 <h2>Popups</h2>
 <p>When a popup (combo list, message box) closes, call <code>form.Redraw(x, y, w, h, bg)</code> to repaint the covered rectangle.</p>
-''' + box('warn', 'Set the backdrop colour', '<p>Hidden controls and focus boxes are erased with <code>ColHighlightClear</code> or a theme <code>Backdrop</code>. If your screen is not black, set it or you will leave black holes.</p>'))
+''' + box('warn', 'Set the backdrop colour', '<p>Hidden controls and focus boxes are erased with <code>ColHighlightClear</code> or a theme <code>Backdrop</code>. If your screen is not black, set it or you will leave black holes.</p>') + '''
+<h2>Control groups and hidden controls</h2>
+<p><code>ctl.SetGroup(n)</code> puts a control in group <i>n</i> (0 = none). <code>form.SetGroupVisible(n, bool)</code>, <code>form.SetGroupEnabled(n, bool)</code> and <code>form.ShowPage(pages, count, show)</code> (tab pages) act on whole groups. A group show shows <b>every</b> control in the group, even one you hid on purpose. To keep a control hidden, mark it with <code>ctl.SetKeepHidden(true)</code>: group shows and pages then skip it until you call its own <code>ctl.SetVisible(true)</code> (which also clears the mark). The Form Designer sets this for every Visible = No control when its form option <i>Keep hidden</i> is Yes.</p>''')
 
 add('theming', 'Themes and styles', 'Colours, borders, Sleek, label defaults', '''
 <h2>Theme</h2>

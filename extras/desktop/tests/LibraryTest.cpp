@@ -1,11 +1,13 @@
-// Desktop test of SuperRichCore / SuperRichText (and the rich modes of SuperLabel and SuperMessageBox). Not part of the library build.
+// Desktop tests of the newer library pieces: SuperRichCore / SuperRichText (and the rich modes + style fonts of SuperLabel and SuperMessageBox), and the
+// KeepHidden flag of SuperControl / SuperForm groups. Not part of the library build.
 // Build it like examples/SDLDesktopDemo (same CMake: LovyanGFX + SDL2, include paths src, extras/desktop, extras/desktop/compat) with this file as the only .cpp
-// next to sdl_main.cpp. Run with  E2E_OUT=/tmp/rich.raw ./RichTextTest  : prints "RICHTEXT PASSED" and writes two RGB565 snapshots (rendered / source).
+// next to sdl_main.cpp. Run with  E2E_OUT=/tmp/rich.raw ./LibraryTest  : prints "LIBRARY TESTS PASSED" and writes two RGB565 snapshots (rendered / source).
 #include <LovyanGFX.hpp>
 #include <LGFX_AUTODETECT.hpp>
 #include "SuperRichText.h"
 #include "SuperLabel.h"
 #include "SuperMessageBox.h"
+#include "SuperForm.h"
 static LGFX* lcd; static int fails = 0, checks = 0;
 #define CHECK(c, msg) do { ++checks; if (!(c)) { ++fails; printf("FAIL  %s\n", msg); } } while (0)
 using namespace SuperRich;
@@ -80,6 +82,48 @@ void setup() {
         lgfx::LGFX_Sprite scr2(lcd); scr2.setColorDepth(16); scr2.createSprite(240, 180); scr2.fillSprite(0x2104);
         SuperRichText rs(&scr2, 10, 10, 200, 150, &lgfx::fonts::Font2, &enc, &a, &b); rs.SetBorder(1, 0x7BEF); rs.SetShowSource(true); rs.SetText(rd.GetText()); rs.Push(); snap(scr2, (std::string(getenv("E2E_OUT")) + "2").c_str());
     }
+    // KeepHidden: a group show leaves a marked control hidden
+    {
+        lgfx::LGFX_Sprite s(lcd); s.setColorDepth(16); s.createSprite(200, 100);
+        SuperEncoder enc(2, 3); SuperButton ba(4, true);
+        SuperLabel a(&s, 0, 0, 80, &lgfx::fonts::Font2, "a"), b(&s, 0, 20, 80, &lgfx::fonts::Font2, "b"), c(&s, 0, 40, 80, &lgfx::fonts::Font2, "c");
+        a.SetGroup(1); b.SetGroup(1); c.SetGroup(2); SuperForm form(&enc, &ba); form.Add(&a, false); form.Add(&b, false); form.Add(&c, false);
+        b.SetVisible(false, false); b.SetKeepHidden(true);
+        form.SetGroupVisible(1, false, false); form.SetGroupVisible(1, true, false);
+        CHECK(a.IsVisible() && !b.IsVisible() && b.GetKeepHidden(), "keep hidden: showing the group shows its controls except the marked one");
+        const uint16_t pages[2] = { 1, 2 }; form.ShowPage(pages, 2, 2, false); form.ShowPage(pages, 2, 1, false);
+        CHECK(a.IsVisible() && !b.IsVisible() && !c.IsVisible(), "keep hidden: ShowPage leaves the marked control hidden too");
+        b.SetVisible(true, false); CHECK(b.IsVisible() && !b.GetKeepHidden(), "keep hidden: a direct SetVisible(true) shows the control and clears the flag");
+        form.SetGroupVisible(1, false, false); form.SetGroupVisible(1, true, false); CHECK(b.IsVisible(), "keep hidden: afterwards the control is an ordinary group member again");
+        SuperLabel d(&s, 0, 60, 80, &lgfx::fonts::Font2, "d"); d.SetGroup(3); d.SetVisible(false, false); form.Add(&d, false); form.SetGroupVisible(3, true, false);
+        CHECK(d.IsVisible(), "keep hidden: off by default - a hidden control without the flag is shown by its group (as before)");
+    }
+    // style fonts: <b> <i> <h1> use registered fonts, are ignored otherwise
+    {
+        Options o; o.Base = &lgfx::fonts::Font2; Fonts fs; o.StyleFonts = &fs;
+        auto firstLine = [&](const std::string& t, LineOut& lo) { g.setFont(&lgfx::fonts::Font2); Style st = o.Def; ScanLine(g, t.c_str(), t.size(), 0, st, false, o, 300, lo); };
+        LineOut plain, none; firstLine("ab", plain); firstLine("<b>ab</b>", none);
+        CHECK(none.Width == plain.Width && none.H == plain.H, "style fonts: <b> without a registered font changes nothing");
+        fs.Slot[FS_BOLD] = &lgfx::fonts::FreeSansBold12pt7b; LineOut bold; firstLine("<b>ab</b>", bold);
+        CHECK(bold.Width != plain.Width && bold.H > plain.H && bold.Atoms.size() == 1 && bold.Atoms[0].H == bold.H, "style fonts: <b> uses the bold slot (wider, taller line)");
+        LineOut mixed; firstLine("a<b>b</b>c", mixed); CHECK(mixed.Atoms.size() == 3 && mixed.H == bold.H && mixed.Atoms[0].H == plain.H && mixed.Atoms[1].H == bold.H, "style fonts: the line is as tall as its tallest font, each text keeps its own");
+        LineOut ital; firstLine("<i>ab</i>", ital); CHECK(ital.Width == plain.Width, "style fonts: <i> with an empty italic slot is ignored");
+        LineOut bi; firstLine("<b><i>ab</i></b>", bi); CHECK(bi.Width == bold.Width, "style fonts: bold + italic falls back to the bold slot when there is no bold-italic font");
+        fs.Slot[FS_BOLDITALIC] = &lgfx::fonts::FreeSansBoldOblique18pt7b; LineOut bi2; firstLine("<b><i>ab</i></b>", bi2); CHECK(bi2.Width != bold.Width && bi2.H > bold.H, "style fonts: bold + italic uses the bold-italic slot when registered");
+        LineOut after; firstLine("<b>ab</b>cd", after); CHECK(after.Atoms.size() == 2 && after.Atoms[1].H == plain.H, "style fonts: </b> returns to the control's font");
+        fs.Slot[FS_HEADING] = &lgfx::fonts::FreeSansBold24pt7b; LineOut head; firstLine("<h1>ab</h1>", head); CHECK(head.H > bold.H, "style fonts: <h1> uses the heading slot");
+        LineOut big; firstLine("<big><b>a</b></big>", big); CHECK(big.H == 2 * bold.Atoms[0].H, "style fonts: <big> scales whatever font is in use");
+        lgfx::LGFX_Sprite s(lcd); s.setColorDepth(16); s.createSprite(200, 60); s.setFont(&lgfx::fonts::Font2);
+        std::string t = "x<b>BOLD</b>"; std::vector<Line> L; Layout(s, t.c_str(), t.size(), 200, o, L); CHECK(L.size() == 1 && L[0].H == bold.H, "style fonts: layout and the line height agree");
+        s.fillSprite(0); s.setFont(&lgfx::fonts::Font2); DrawLine(s, t.c_str(), t.size(), L[0], o, 0, 0, 200); int lastx = 0; for (int x = 0; x < 200; ++x) for (int y = 0; y < 60; ++y) if (s.readPixel(x, y)) lastx = x; CHECK(lastx > 20, "style fonts: drawing with style fonts puts text on the sprite");
+        { Options ob = o; ob.Base = &lgfx::fonts::FreeSans9pt7b; Fonts fb; fb.Slot[FS_BOLD] = &lgfx::fonts::FreeSansBold24pt7b; ob.StyleFonts = &fb; s.setFont(ob.Base); s.fillSprite(0);
+          std::string t2 = "x<b>x</b>"; std::vector<Line> L2; Layout(s, t2.c_str(), t2.size(), 200, ob, L2); DrawLine(s, t2.c_str(), t2.size(), L2[0], ob, 0, 0, 200);
+          auto bottom = [&](int x0, int x1) { int b = -1; for (int y = 0; y < 60; ++y) for (int x = x0; x < x1; ++x) if (s.readPixel(x, y)) b = std::max(b, y); return b; };
+          s.setFont(ob.Base); int w1 = (int)s.textWidth("x"); int b1 = bottom(0, w1), b2 = bottom(w1 + 2, 200); CHECK(b1 > 0 && b2 > 0 && std::abs(b1 - b2) <= 1, "style fonts: glyphs of different fonts on one line sit on the same baseline"); }
+        SuperRichText rt(&s, 0, 0, 200, 40, &lgfx::fonts::Font2, nullptr, nullptr, nullptr); rt.SetText("<b>Bold</b> text"); int h0 = rt.GetContentHeight(); rt.SetStyleFont(SuperRichText::FONT_BOLD, &lgfx::fonts::FreeSansBold18pt7b); CHECK(rt.GetContentHeight() > h0, "style fonts: SuperRichText::SetStyleFont changes the layout");
+        SuperLabel lb(&s, 0, 0, 200, &lgfx::fonts::Font2, "<b>x</b>"); lb.SetPadding(0); lb.SetBorder(0, 0); lb.SetRich(true); int lh = lb.GetHeight(); lb.SetStyleFont(SuperLabel::FONT_BOLD, &lgfx::fonts::FreeSansBold18pt7b); CHECK(lb.GetHeight() > lh, "style fonts: SuperLabel::SetStyleFont");
+        SuperMessageBox mb(&s, 160, &lgfx::fonts::Font2, nullptr, nullptr, nullptr); mb.SetMessage("<h1>T</h1>"); mb.AddButton("OK"); mb.SetRich(true); int mh = mb.GetHeight(); mb.SetStyleFont(SuperMessageBox::FONT_HEADING, &lgfx::fonts::FreeSansBold24pt7b); CHECK(mb.GetHeight() > mh, "style fonts: SuperMessageBox::SetStyleFont");
+    }
     // rich mode of the label and the message box: opt-in, plain by default
     {
         lgfx::LGFX_Sprite s(lcd); s.setColorDepth(16); s.createSprite(200, 60);
@@ -98,6 +142,6 @@ void setup() {
         s.fillSprite(0); mr.StartEdit(); CHECK(cnt(0xF800) > 10, "message box: SetRich(true) draws the colour");
         CHECK(mr.GetHeight() == h0 || mr.GetHeight() < h0, "message box: the rich message is at most as tall as the plain one that shows the tags");
     }
-    printf("%s: %d checks, %d failed\n", fails ? "RICHTEXT FAILED" : "RICHTEXT PASSED", checks, fails); fflush(stdout); exit(fails ? 1 : 0);
+    printf("%s: %d checks, %d failed\n", fails ? "LIBRARY TESTS FAILED" : "LIBRARY TESTS PASSED", checks, fails); fflush(stdout); exit(fails ? 1 : 0);
 }
 void loop() {}

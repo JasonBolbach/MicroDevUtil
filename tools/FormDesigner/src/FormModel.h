@@ -50,6 +50,8 @@ struct DMessageBox {
     int defaultBtn = 0;                                         // the highlighted button
     bool centered = true; int x = 0, y = 0;                     // centred on the screen, or placed at x, y
     uint16_t fg = 0xFFFF, bg = 0x0000, border = 0xFFFF;         // text / back / border colour (the control defaults)
+    bool rich = false;                                          // the message may use the rich text tags (SetRich)
+    std::string styleFont[4];                                   // optional fonts of <b> <i> <b><i> <h1> ("" = none): bold, italic, bold italic, heading
 };
 constexpr int MAX_MSG_BOXES = 20, MAX_MSG_LINES = 12, MAX_MSG_LINE = 60, MAX_MSG_BTN_TEXT = 24, MIN_MSG_W = 60, MAX_MSG_W = 1000;
 
@@ -205,13 +207,28 @@ static const ExtraDef USERDRAW_EXTRAS[] = {
     { "touch",      "Touch input",       PK_BOOL, "false", 0, 1, "No|Yes" },               // the control then takes focus and raises Pointer / Accept events
 };
 
+// Style fonts (optional, "" = none): the fonts <b> <i> <b><i> and <h1> use in rich text. Shared by Label, Rich text (and, as fields, message boxes).
+#define FD_STYLE_FONT_EXTRAS \
+    { "boldFont",       "Bold font <b>",         PK_FONT, "", 0, 0, "" }, \
+    { "italicFont",     "Italic font <i>",       PK_FONT, "", 0, 0, "" }, \
+    { "boldItalicFont", "Bold italic font",      PK_FONT, "", 0, 0, "" }, \
+    { "headingFont",    "Heading font <h1>",     PK_FONT, "", 0, 0, "" }
+constexpr const char* STYLE_FONT_KEYS[4] = { "boldFont", "italicFont", "boldItalicFont", "headingFont" };
+constexpr const char* STYLE_FONT_SLOTS[4] = { "FONT_BOLD", "FONT_ITALIC", "FONT_BOLDITALIC", "FONT_HEADING" };
+// SuperLabel: only the rich text option (off by default: a plain label shows every character as it is).
+static const ExtraDef LABELCTL_EXTRAS[] = {
+    { "rich", "Rich text", PK_BOOL, "false", 0, 1, "No|Yes" },                          // the text may use <color=..> <bg=..> <u> <s> <big> <center> <br> <tab> ... (see SuperRichCore.h)
+    FD_STYLE_FONT_EXTRAS,
+};
 // SuperRichText: scrollable text with a few HTML-like tags. The text itself is DControl::list (one entry per line, edited in the rich text editor).
 static const ExtraDef RICHTEXT_EXTRAS[] = {
     { "bodyHeight", "Body height",  PK_INT,  "120", 8, 600, "" },
     { "tabChars",   "Tab stops",    PK_INT,  "8",   1, 40,  "" },                      // a <tab> jumps to the next multiple of this many spaces
     { "lineGap",    "Line gap",     PK_INT,  "0",   0, 20,  "" },
     { "showSource", "Show source",  PK_BOOL, "false", 0, 1, "No|Yes" },                // draw the markup itself (debugging); generated as SetShowSource(true)
+    FD_STYLE_FONT_EXTRAS,
 };
+constexpr int MAX_TAB_ORDER = 9999;
 constexpr int MAX_RICH_LINES = 400, MAX_RICH_CHARS = 4000;
 
 // SuperColorPicker: the three HSV bars with a swatch; "value" is the initial colour (RGB565).
@@ -238,7 +255,7 @@ struct TypeInfo {
 inline const TypeInfo& Info(int t) {
     static const TypeInfo T[C_COUNT] = {
         //  key                 title          prefix      w   text      hasText align  label  edit   extras          n                ctorText fit
-        { "SuperLabel",       "Label",       "label",    100, "Label",  true,  true,  false, false, nullptr,       0,               true,  false },
+        { "SuperLabel",       "Label",       "label",    100, "Label",  true,  true,  false, false, LABELCTL_EXTRAS, FD_N(LABELCTL_EXTRAS), true,  false },
         { "SuperPushButton",  "Push button", "button",   100, "Button", true,  true,  false, false, nullptr,       0,               true,  false },   // (no label group: its caption is the label)
         { "SuperCheckBox",    "Check box",   "check",    120, "Check",  true,  false, false, false, CHECK_EXTRAS,  FD_N(CHECK_EXTRAS),  true,  false },   // (no label group: it has its own caption)
         { "SuperRadioButton", "Radio button","radio",    120, "Option", true,  false, false, false, RADIO_EXTRAS,  FD_N(RADIO_EXTRAS),  true,  false },
@@ -292,6 +309,7 @@ struct DControl {
     std::vector<GaugeZone> zones;                               // gauge: the colour bands on the dial
     std::string ctlGroup;                                       // control group: a name (generated as a uint16_t constant); "" = none (group 0, the default)
     bool visible = true, enabled = true;                        // the initial state (SetVisible / SetEnabled)
+    int tabOrder = 0;                                           // focus order of the encoder (SetTabOrder): 0 = not set yet (the position in the list); once set it never changes by itself
     std::vector<std::string> pages;                             // tab bar: the control group each tab shows ("" = none), parallel to `list` (may be shorter)
     std::vector<std::string> list;                              // the items of a list box / combo box / tab bar (printable ASCII, non-empty)
     std::map<std::string, std::string> extra;                   // type-specific properties (ExtraDef): only values that differ from the default are stored
@@ -443,12 +461,13 @@ struct DForm {
     std::string name = "Form1";
     int w = DEFAULT_FORM_W, h = DEFAULT_FORM_H;
     uint16_t bg = DEF_FORM_BG;       // the form's back colour
+    bool keepHidden = false;         // "Keep hidden controls hidden": a control with Visible = No stays hidden when its group is shown (SetKeepHidden); default off
     std::vector<DMessageBox> boxes;                            // message boxes (not on the surface)
     mutable std::vector<std::pair<std::string, int>> groupIds;   // control group name -> number (1, 2, 3 by first use), kept stable in the JSON
     std::string outDir;              // where the generated code goes ("" until the designer fills in a folder that exists)
     std::vector<DControl> items;
 
-    void Clear() { name = "Form1"; w = DEFAULT_FORM_W; h = DEFAULT_FORM_H; bg = DEF_FORM_BG; items.clear(); boxes.clear(); }   // outDir is kept: it belongs to the project folder
+    void Clear() { name = "Form1"; w = DEFAULT_FORM_W; h = DEFAULT_FORM_H; bg = DEF_FORM_BG; keepHidden = false; items.clear(); boxes.clear(); }   // outDir is kept: it belongs to the project folder
     // A name is taken when a control (other than `except`) or a radio group already has it: both become C++ members of the generated class.
     // The form's own class names count too: the generated classes are <name>Base and <name>, and no member may be called like its class.
     // Menu item ids (itemId) are constants of the generated class too; `exceptMenu` = a menu whose own items are not counted (the one being edited).
@@ -626,6 +645,16 @@ struct DForm {
         return false;
     }
     bool ControlNamed(const std::string& n) const { for (const DControl& c : items) if (c.name == n) return true; return false; }
+    // ---- tab (focus) order: a number per control, independent of the list order (= draw order). New controls get the next free number; moving a control in the list
+    // does not change it; the user edits it. 0 = not assigned (a file without it): the position in the list counts. Equal numbers keep the list order (as the library does). ----
+    int EffTab(size_t i) const { return items[i].tabOrder > 0 ? items[i].tabOrder : (int)i + 1; }
+    int NextTabOrder() const { int m = 0; for (size_t i = 0; i < items.size(); ++i) m = std::max(m, EffTab(i)); return m + 1; }
+    std::vector<int> TabSequence() const {                        // control indices in focus order (stable: equal numbers keep the list order)
+        std::vector<int> v; for (size_t i = 0; i < items.size(); ++i) v.push_back((int)i);
+        std::stable_sort(v.begin(), v.end(), [&](int a, int b) { return EffTab((size_t)a) < EffTab((size_t)b); }); return v;
+    }
+    void FreezeTabOrder() { for (size_t i = 0; i < items.size(); ++i) if (items[i].tabOrder <= 0) items[i].tabOrder = EffTab(i); }      // make every control's number explicit (a file without numbers: the list positions)
+    bool TabOrderCustom() const { for (size_t i = 0; i < items.size(); ++i) if (EffTab(i) != (int)i + 1) return true; return false; }      // some control's number is not its list position
     std::string UniqueGroupName() const {
         for (int n = 1;; ++n) { std::string s = "group" + std::to_string(n); if (!NameTaken(s)) return s; }
     }
@@ -682,6 +711,8 @@ struct DForm {
         std::string s = "{ \"name\": \"" + JsonEsc(b.name) + "\"";
         if (b.w != 220) s += ", \"width\": " + std::to_string(b.w);
         if (b.font != DEFAULT_FONT) s += ", \"font\": \"" + JsonEsc(b.font) + "\"";
+        if (b.rich) s += ", \"rich\": true";
+        for (int k = 0; k < 4; ++k) if (!b.styleFont[k].empty()) s += std::string(", \"") + STYLE_FONT_KEYS[k] + "\": \"" + JsonEsc(b.styleFont[k]) + "\"";
         if (!b.title.empty()) s += ", \"title\": \"" + JsonEsc(b.title) + "\"";
         if (!b.centered) s += ", \"centered\": false, \"x\": " + std::to_string(b.x) + ", \"y\": " + std::to_string(b.y);
         if (b.fg != 0xFFFF) s += ", \"textColor\": \"" + Hex(b.fg) + "\"";
@@ -720,13 +751,14 @@ struct DForm {
     }
     std::string ToJson() const {
         auto esc = [](const std::string& s) { std::string r; for (char c : s) { if (c == '"' || c == '\\') r += '\\'; r += c; } return r; };
-        std::string j = "{\n  \"form\": { \"name\": \"" + esc(name) + "\", \"width\": " + std::to_string(w) + ", \"height\": " + std::to_string(h) + ", \"backColor\": \"" + Hex(bg) + "\", \"outputPath\": \"" + esc(outDir) + "\"" + GroupIdsJson() + " },\n  \"controls\": [";
+        std::string j = "{\n  \"form\": { \"name\": \"" + esc(name) + "\", \"width\": " + std::to_string(w) + ", \"height\": " + std::to_string(h) + ", \"backColor\": \"" + Hex(bg) + "\", \"outputPath\": \"" + esc(outDir) + "\"" + (keepHidden ? ", \"keepHidden\": true" : "") + GroupIdsJson() + " },\n  \"controls\": [";
+        const bool custom = TabOrderCustom();                         // the focus numbers are saved only when some differ from the list positions
         for (size_t i = 0; i < items.size(); ++i) {
             const DControl& c = items[i];
             j += i ? ",\n    " : "\n    ";
             j += "{ \"type\": \"" + std::string(Info(c.type).key) + "\", \"name\": \"" + esc(c.name) + "\", \"text\": \"" + esc(c.text) +
                  "\", \"font\": \"" + esc(c.font) + "\", \"textColor\": \"" + Hex(c.fg) + "\", \"backColor\": \"" + Hex(c.bg) + "\", \"borderColor\": \"" + Hex(c.border) +
-                 "\"" + Layout(c) + ", \"x\": " + std::to_string(c.x) + ", \"y\": " + std::to_string(c.y) + ", \"width\": " + std::to_string(c.w) +
+                 "\"" + Layout(c) + (custom ? ", \"tabOrder\": " + std::to_string(EffTab(i)) : std::string()) + ", \"x\": " + std::to_string(c.x) + ", \"y\": " + std::to_string(c.y) + ", \"width\": " + std::to_string(c.w) +
                  (c.type == C_MENU ? ",\n      \"items\": " + MenuJson(c.menu, 6) + "\n    }" : " }");
         }
         j += items.empty() ? "]" : "\n  ]";
@@ -756,6 +788,7 @@ struct DForm {
         n.h = num(f->Get("height"), DEFAULT_FORM_H, MIN_FORM_H, MAX_FORM_H);
         n.bg = col(f->Get("backColor"), DEF_FORM_BG);
         if (const JV* v = f->Get("outputPath")) if (v->t == JV::STR) n.outDir = v->s;
+        if (const JV* v = f->Get("keepHidden")) if (v->t == JV::NUM) n.keepHidden = v->n != 0;
         for (const JV& c : cs->a) {
             const JV* ty = c.Get("type");
             int t = -1;
@@ -831,6 +864,7 @@ struct DForm {
                 };
                 rd(*mv, d.menu, 0);
             }
+            if (const JV* v = c.Get("tabOrder")) if (v->t == JV::NUM) d.tabOrder = (int)std::max(0L, std::min(v->n, (long)MAX_TAB_ORDER));
             d.x = num(c.Get("x"), 0, 0, MAX_FORM_W); d.y = num(c.Get("y"), 0, 0, MAX_FORM_H);
             d.w = num(c.Get("width"), Info(t).defW, MIN_CONTROL_W, MAX_FORM_W);
             n.items.push_back(d);
@@ -846,6 +880,8 @@ struct DForm {
                 if (const JV* v = bj.Get("name")) if (v->t == JV::STR) b.name = v->s;
                 if (const JV* v = bj.Get("width")) if (v->t == JV::NUM) b.w = (int)std::max(-1L, std::min(v->n, 100000L));
                 if (const JV* v = bj.Get("font")) if (v->t == JV::STR) b.font = v->s;
+                if (const JV* v = bj.Get("rich")) if (v->t == JV::NUM) b.rich = v->n != 0;
+                for (int k = 0; k < 4; ++k) if (const JV* v = bj.Get(STYLE_FONT_KEYS[k])) if (v->t == JV::STR && FontIndex(v->s) >= 0) b.styleFont[k] = v->s;
                 if (const JV* v = bj.Get("title")) if (v->t == JV::STR) b.title = v->s;
                 if (const JV* v = bj.Get("centered")) if (v->t == JV::NUM) b.centered = v->n != 0;
                 if (const JV* v = bj.Get("x")) if (v->t == JV::NUM) b.x = (int)std::max(-1L, std::min(v->n, 100000L));
@@ -876,6 +912,7 @@ struct DForm {
         for (DControl& c : n.items) if (HasList(c.type)) ClampSelected(c);                 // the initial selection must be an item
         { std::set<std::string> seen;                                 // only one radio button per group can be selected: the first one wins
           for (DControl& c : n.items) if (c.type == C_RADIO && XBool(c, "checked") && !seen.insert(c.group).second) c.extra.erase("checked"); }
+        n.FreezeTabOrder();                                            // numbers missing in the file become the list positions, and stay with the controls from now on
         *this = n; err.clear(); return true;
     }
 };

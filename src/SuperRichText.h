@@ -33,6 +33,11 @@ public:
     void SetText(const std::string& s) { Own = s; Txt = Own.c_str(); Len = Own.size(); Changed(); }
     void SetTextStatic(const char* s) { Own.clear(); Txt = s ? s : ""; Len = strlen(Txt); Changed(); }       // no copy: s must stay valid
     std::string GetText() const { return std::string(Txt, Len); }
+    // Style fonts (optional): <b> <i> <b><i> and <h1> use the fonts you register here, e.g. SetStyleFont(FONT_BOLD, &lgfx::fonts::FreeSansBold9pt7b).
+    // A slot with no font leaves its tag ignored. The line height follows the tallest font on the line.
+    static constexpr int FONT_BOLD = SuperRich::FS_BOLD, FONT_ITALIC = SuperRich::FS_ITALIC, FONT_BOLDITALIC = SuperRich::FS_BOLDITALIC, FONT_HEADING = SuperRich::FS_HEADING;
+    void SetStyleFont(int slot, const lgfx::IFont* f) { if (slot >= 0 && slot < SuperRich::FS_COUNT) { StyleFonts.Slot[slot] = f; LayoutOk = false; Dirty = true; } }
+
     void SetShowSource(bool on) { if (on != Source) { Source = on; Changed(); } }
     bool GetShowSource() const { return Source; }
     void SetTabChars(int n) { TabChars = n < 1 ? 1 : n; LayoutOk = false; Dirty = true; }
@@ -98,12 +103,12 @@ private:
     const char* Txt = ""; size_t Len = 0; std::string Own;
     int BodyH, Gap = 0, TabChars = 8, First = 0, MaxFirst = 0, LayoutW = -1;
     bool Source = false, LayoutOk = false, Scrolls = false;
-    SuperEditIO IO; SuperEditState State = EDIT_IDLE;
+    SuperEditIO IO; SuperEditState State = EDIT_IDLE; SuperRich::Fonts StyleFonts;
     std::vector<SuperRich::Line> Lines;
 
     void Changed() { LayoutOk = false; First = 0; Dirty = true; }
     SuperRich::Options Opts() {
-        SuperRich::Options o; o.Def.Fg = ColFg; o.Def.Bg = ColBg; o.Def.Align = (uint8_t)Alignment; o.Interpret = !Source;
+        SuperRich::Options o; o.Base = Font; o.StyleFonts = &StyleFonts; o.Def.Fg = ColFg; o.Def.Bg = ColBg; o.Def.Align = (uint8_t)Alignment; o.Interpret = !Source;
         Spr.setFont(Font); o.TabPx = std::max(1, TabChars * (int)Spr.textWidth(" ")); return o;
     }
     void Layout() { Layout(InnerW(), BodyH); }

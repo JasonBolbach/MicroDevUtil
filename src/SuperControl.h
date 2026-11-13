@@ -234,7 +234,12 @@ public:
     void SetEnabled(bool e) { if (e == EnabledFlag) return; EnabledFlag = e; Dirty = true; Refresh(); }
     // draw = false changes only the flag: nothing is drawn or erased now. Use it when you will redraw the whole page yourself
     // (SuperForm::Draw()), so controls do not flash at full brightness first and the old page is cleared in one go.
+    // SetKeepHidden(true): a group operation (SuperForm::SetGroupVisible / ShowPage showing the control's group) leaves this control hidden. Off by default, so showing
+    // a group shows every control in it. A direct SetVisible(true) on the control itself always shows it (and clears the flag).
+    void SetKeepHidden(bool k) { KeepHiddenFlag = k; }
+    bool GetKeepHidden() const { return KeepHiddenFlag; }
     void SetVisible(bool v, bool draw = true) {
+        if (v) KeepHiddenFlag = false;
         if (v == VisibleFlag) return;
         VisibleFlag = v;
         if (v) { Dirty = true; if (draw) Refresh(); return; }
@@ -383,7 +388,7 @@ protected:
     int                PosX, PosY, W;
     const lgfx::IFont* Font;
     bool               Dirty = true;
-    bool               EnabledFlag = true, VisibleFlag = true;
+    bool               EnabledFlag = true, VisibleFlag = true, KeepHiddenFlag = false;
     Align              Alignment = ALIGN_LEFT;
 
 private:

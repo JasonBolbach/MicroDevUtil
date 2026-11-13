@@ -84,7 +84,8 @@
 <li><b>Rendered</b> mode shows the real control with your text (read-only; the wheel scrolls). Switch with the buttons or <code>Ctrl/Cmd + R</code>.</li>
 <li><code>Ctrl/Cmd + Enter</code> = OK, Esc = Cancel. Nothing is checked: what you type is what the control gets.</li>
 <li>In the JSON the text is a readable array of lines: <code>"richText": ["&lt;center&gt;Title&lt;/center&gt;", "Some text"]</code>. The generated code uses <code>SetTextStatic(...)</code>: a string literal that stays in flash.</li>
-<li>Other rows: Body height, Tab stops, Line gap, <i>Show source</i> (draws the markup itself, for debugging).</li>
+<li>Other rows: Body height, Tab stops, Line gap, <i>Show source</i> (draws the markup itself, for debugging), and four optional <b>style fonts</b> (Bold, Italic, Bold italic, Heading): pick a font and <code>&lt;b&gt; &lt;i&gt; &lt;b&gt;&lt;i&gt; &lt;h1&gt;</code> use it; leave a slot empty and that tag is ignored.</li>
+<li>A <b>Label</b> has a <b>Rich text</b> row (off by default) and the same four style fonts: type the tags in its Text (use <code>&lt;br&gt;</code> for a second line).</li>
 </ul>
 <h2>Control groups</h2>
 <p>Every control has a <b>Control group</b> row: a name (empty = no group). Controls with the same name are a group, and each group becomes a constant <code>GRP_X</code>. Do not confuse it with the radio button's <i>Group</i>, which only says which radio buttons exclude each other.</p>
@@ -94,7 +95,7 @@ Form.SetGroupEnabled(GRP_ADVANCED, true);    // enable / disable a set</code></p
 <p>In the tab bar's items dialog every tab has a <b>Page group</b>: the control group shown while that tab is chosen. The generated code does the switching (<code>tabs1_ShowPage(i)</code>), then calls your <code>tabs1_Accept()</code>. The first tab's page is shown at start; the other pages start hidden.</p>
 <p>Use the <b>View</b> button above the surface to look at one page at a time (All, then each group): only that group's controls, and the ones without a group, are shown and clickable, so pages that overlap on the form can be edited separately.</p>
 <div class="box tip"><b class="h">Tip</b>Put controls that appear on every page (a title, a footer) in <b>no group</b>: they are always shown.</div>
-<div class="box warn"><b class="h">Watch out</b>A group operation overrides a control&rsquo;s own Visible / Enabled: <code>SetGroupVisible(g, true)</code> shows every control in the group, including ones you set to Visible = No. A control that must stay hidden should not share a group with controls that get shown.</div>
+<div class="box warn"><b class="h">Watch out</b>A group operation overrides a control&rsquo;s own Visible / Enabled: <code>SetGroupVisible(g, true)</code> shows every control in the group, including ones you set to Visible = No. To keep those hidden, set the form&rsquo;s <b>Keep hidden</b> row to Yes (off by default): the generated code then calls <code>SetKeepHidden(true)</code> on every Visible = No control, and group shows (and tab pages) leave it hidden until you call its own <code>SetVisible(true)</code>.</div>
 
 <div class="pn"><span>&larr; <a href="../designer/designer-code.html">Generated code and your file</a></span><span><a href="../designer/designer-boxes.html">Message boxes</a> &rarr;</span></div>
 </main><script src="../assets/wiki.js"></script></body></html>
