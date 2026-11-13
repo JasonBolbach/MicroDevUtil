@@ -380,6 +380,20 @@ load.SetValue(cpuLoad);                          // the needle glides to it
 A half dial by default (`SetSweep(-135, 135)` for 270 degrees), with ticks and numbers, colour zones, and a needle that takes the colour of its zone. `load.SetMinMax(5000, 4, 3)` adds lines for the lowest and highest value of the last 5 seconds, 3 pixels thick, in the inverted colour of the dial under them, shown when they are 4+ degrees from the needle. Smoothing is on by default
 and is driven by `form.Service()` (without a form call `load.Update()` from `loop()`). See `examples/GaugeExample`.
 
+### 3.18 Label (plain text)
+
+```cpp
+#include <SuperLabel.h>
+SuperLabel title(&lcd, 0, 6, 240, &lgfx::fonts::Font4, "Settings", SuperControl::ALIGN_CENTER);
+SuperLabel help (&lcd, 10, 40, 220, &lgfx::fonts::Font2, "Long text that wraps onto several lines.");
+// setup
+title.SetTextColor(TFT_CYAN);   help.SetWrap(true);
+form.Add(&title, false);  form.Add(&help, false);          // display only
+// later
+help.SetTextf("%d samples", n);                            // live value; redraws only when the text changed
+```
+No frame, no title: only text, with `SetAlign` (left / centre / right), `SetVAlign` + `SetBodyHeight` for a fixed height, word wrap, `SetMaxLines`, underline. Set `ColBg` to the colour behind it. See `examples/LabelExample`.
+
 ---
 
 ## 4. Run them together with SuperForm
@@ -387,7 +401,7 @@ and is driven by `form.Service()` (without a form call `load.Update()` from `loo
 `SuperForm` owns focus: the encoder moves a highlight box between controls, A short starts the focused control's edit, and
 it calls the control's `Service()` until it ends. `loop()` stays free.
 
-**Step 4.1 - Create and add** (order = focus order):
+**Step 4.1 - Create and add** (default focus order = the order you add them; `SetTabOrder(n)` changes it, `SetZOrder(n)` changes which overlapping control is in front, lowest number in front):
 
 ```cpp
 #include <SuperForm.h>

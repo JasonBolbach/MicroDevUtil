@@ -44,7 +44,7 @@ add('architecture', 'Architecture and class map', 'How the controls are built', 
  ├─ SuperSlider   SuperColorPicker   SuperMessageBox
  ├─ SuperCheckBox ── SuperRadioButton (+ SuperRadioGroup)
  ├─ SuperPushButton
- ├─ SuperGauge   SuperProgressBar   SuperGraph      display only
+ ├─ SuperLabel   SuperGauge   SuperProgressBar   SuperGraph      display only
  └─ SuperUserDraw       your code draws it
 SuperEditIO  encoder + A + B plumbing       SuperForm  focus manager       SuperTheme  colour sets</code></pre>
 <h2>The frame every control shares</h2>
@@ -52,7 +52,7 @@ SuperEditIO  encoder + A + B plumbing       SuperForm  focus manager       Super
 <h2>Instant, editable, display only</h2>
 <ul><li><b>Editable</b> controls enter an edit session that ends in accept or cancel (<a href="edit-contract.html">edit contract</a>).</li>
 <li><b>Instant</b> controls (check box, radio button, push button) act in <code>StartEdit()</code> and report <code>EDIT_ACCEPTED</code> on the next <code>Service()</code>.</li>
-<li><b>Display only</b> controls (progress bar, graph, gauge) return false from <code>StartEdit()</code>; add them with <code>form.Add(&amp;c, false)</code>.</li></ul>
+<li><b>Display only</b> controls (label, progress bar, graph, gauge) return false from <code>StartEdit()</code>; add them with <code>form.Add(&amp;c, false)</code>.</li></ul>
 <h2>The sprite model</h2>
 <p>A control renders its whole picture (frame, label, body) into a sprite, optionally dims it, then pushes it in one go. That is why there is no flicker and why labels can be transparent (key colour <code>0x0001</code>). The price is RAM: <code>width x height x 2</code> bytes per control. See <a href="memory-performance.html">Memory and performance</a>.</p>
 ''')
@@ -157,6 +157,14 @@ void loop() { form.Service(); }</code></pre>
 <li>Calls <code>Tick()</code> on controls (animation), and batches DMA pushes during <code>Draw()</code>.</li></ul>
 <h2>Pages</h2>
 <p>For tabbed screens: put each page's controls in a list, hide the old page with <code>SetVisible(false, false)</code>, show the new one the same way, then call <code>form.Draw()</code> once. Hidden controls are erased with <code>ColHighlightClear</code> (your screen background) and free their sprite.</p>
+<h2>Drawing order and focus order</h2>
+<table><tr><th>Setting</th><th>Effect</th></tr>
+<tr><td><code>ctl.SetZOrder(n)</code></td><td>Drawing order for overlapping controls. The <b>lowest number is in front</b> (drawn last). Equal numbers are drawn in the order they were added. Touch hits the front-most control first.</td></tr>
+<tr><td><code>ctl.SetTabOrder(n)</code></td><td>Focus order. The encoder visits the lowest number first and wraps round. Equal numbers are visited in the order they were added. Until you call <code>form.SetFocus()</code> (or touch a control) the first control in this order holds the focus.</td></tr></table>
+<p>Both default to 0, which is simply the order of <code>form.Add()</code>. They are plain numbers on the control, so gaps are fine (10, 20, 30 lets you slot one in later).</p>
+<pre><code>c.SetTabOrder(0); a.SetTabOrder(1); b.SetTabOrder(2);   // wheel goes C, A, B
+back.SetZOrder(1); front.SetZOrder(0);                    // 'front' is drawn over 'back'</code></pre>
+<div class="box warn"><b class="h">Overlap and redraws</b>Order is applied when the form draws everything (<code>Draw()</code>, <code>Redraw()</code>). A single focus change or animation tick redraws just that control, so on overlapping controls call <code>form.Draw()</code> after such changes if the stacking must stay exact.</div>
 <h2>Popups</h2>
 <p>When a popup (combo list, message box) closes, call <code>form.Redraw(x, y, w, h, bg)</code> to repaint the covered rectangle.</p>
 ''' + box('warn', 'Set the backdrop colour', '<p>Hidden controls and focus boxes are erased with <code>ColHighlightClear</code> or a theme <code>Backdrop</code>. If your screen is not black, set it or you will leave black holes.</p>'))

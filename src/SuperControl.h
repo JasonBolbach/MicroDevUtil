@@ -216,6 +216,15 @@ public:
     // Hidden: erased with ColHighlightClear and not drawn until shown again.
     bool IsEnabled() const { return EnabledFlag; }
     bool IsVisible() const { return VisibleFlag; }
+    // Order inside a SuperForm. ZOrder = drawing order: the LOWEST number is in FRONT (drawn last), so controls that overlap stack by it;
+    // equal numbers are drawn in the order they were added to the form. TabOrder = focus order: the encoder visits controls from the
+    // lowest number up (and wraps); equal numbers are visited in the order they were added. Both default to 0, i.e. plain list order.
+    void SetZOrder(int z)   { ZOrder = z; }
+    int  GetZOrder() const  { return ZOrder; }
+    void SetTabOrder(int t) { TabOrder = t; }
+    int  GetTabOrder() const { return TabOrder; }
+    int ZOrder = 0, TabOrder = 0;
+
     void SetEnabled(bool e) { if (e == EnabledFlag) return; EnabledFlag = e; Dirty = true; Refresh(); }
     // draw = false changes only the flag: nothing is drawn or erased now. Use it when you will redraw the whole page yourself
     // (SuperForm::Draw()), so controls do not flash at full brightness first and the old page is cleared in one go.

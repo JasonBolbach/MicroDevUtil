@@ -17,6 +17,7 @@
 <a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
 <a class="item" href="../concepts/new-control.html">Writing your own control</a>
 <h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
 <a class="item cur" href="../controls/textbox.html">SuperTextBox</a>
 <a class="item" href="../controls/inputbox.html">SuperInputBox</a>
 <a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
@@ -50,11 +51,11 @@
 t.SetText("Hello");
 t.SetLabel("Status");
 t.DrawPreview(false);</code></pre>
-<h2>Unique features</h2><ul><li>Per-cell styles (colour, fill) so a subclass can highlight one character or field.</li><li>Text wider than the box scrolls; the first visible cell is <code>GetFirstVisible()</code>.</li><li><code>CharAt(sx)</code> maps an x position to a text cell, which the touch code of the subclasses relies on.</li><li>You normally use a subclass; use SuperTextBox directly for a read-only text line.</li></ul>
+<h2>Unique features</h2><ul><li>Per-cell styles (colour, fill) so a subclass can highlight one character or field.</li><li>Text wider than the box scrolls; the first visible cell is <code>GetFirstVisible()</code>.</li><li><code>CharAt(sx)</code> maps an x position to a text cell, which the touch code of the subclasses relies on.</li><li><b>Alignment</b>: <code>SetAlign(ALIGN_LEFT / ALIGN_CENTER / ALIGN_RIGHT)</code> positions the text while it fits (the spin, input and combo boxes inherit it); text wider than the box scrolls with the &lt; &gt; arrows instead.</li><li>You normally use a subclass; use SuperTextBox directly for a read-only text line.</li></ul>
 <h2>GUI workflow</h2><p>Nothing to operate by itself: it shows text. As a base it supplies the look the editable boxes share: fixed-height line, cursor cell, <code>&lt;</code> / <code>&gt;</code> scroll chevrons when the text does not fit.</p>
 <h2>Event workflow</h2><p>No events of its own. Subclasses add the edit contract.</p>
 <h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetText(s, keepScroll)</code></td><td>Replace the text</td></tr><tr><td><code>GetText()</code></td><td>Current text</td></tr><tr><td><code>SetAlign(ALIGN_LEFT/CENTER/RIGHT)</code></td><td>Alignment inside the box</td></tr></table>
 <h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Subclass it for any single-line control; override <code>CellStyleAt</code> to colour cells and <code>CellWidth</code> for fixed-width digits.</div>
 <h2>See also</h2><p><a href="inputbox.html">SuperInputBox</a> &middot; <a href="spinbox.html">SuperSpinBox</a></p>
-<div class="pn"><span>&larr; <a href="../concepts/new-control.html">Writing your own control</a></span><span><a href="../controls/inputbox.html">SuperInputBox</a> &rarr;</span></div>
+<div class="pn"><span>&larr; <a href="../controls/label.html">SuperLabel</a></span><span><a href="../controls/inputbox.html">SuperInputBox</a> &rarr;</span></div>
 </main><script src="../assets/wiki.js"></script></body></html>

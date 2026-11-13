@@ -17,6 +17,7 @@
 <a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
 <a class="item" href="../concepts/new-control.html">Writing your own control</a>
 <h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
 <a class="item" href="../controls/textbox.html">SuperTextBox</a>
 <a class="item" href="../controls/inputbox.html">SuperInputBox</a>
 <a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
@@ -56,7 +57,7 @@
  ├─ SuperSlider   SuperColorPicker   SuperMessageBox
  ├─ SuperCheckBox ── SuperRadioButton (+ SuperRadioGroup)
  ├─ SuperPushButton
- ├─ SuperGauge   SuperProgressBar   SuperGraph      display only
+ ├─ SuperLabel   SuperGauge   SuperProgressBar   SuperGraph      display only
  └─ SuperUserDraw       your code draws it
 SuperEditIO  encoder + A + B plumbing       SuperForm  focus manager       SuperTheme  colour sets</code></pre>
 <h2>The frame every control shares</h2>
@@ -64,7 +65,7 @@ SuperEditIO  encoder + A + B plumbing       SuperForm  focus manager       Super
 <h2>Instant, editable, display only</h2>
 <ul><li><b>Editable</b> controls enter an edit session that ends in accept or cancel (<a href="edit-contract.html">edit contract</a>).</li>
 <li><b>Instant</b> controls (check box, radio button, push button) act in <code>StartEdit()</code> and report <code>EDIT_ACCEPTED</code> on the next <code>Service()</code>.</li>
-<li><b>Display only</b> controls (progress bar, graph, gauge) return false from <code>StartEdit()</code>; add them with <code>form.Add(&amp;c, false)</code>.</li></ul>
+<li><b>Display only</b> controls (label, progress bar, graph, gauge) return false from <code>StartEdit()</code>; add them with <code>form.Add(&amp;c, false)</code>.</li></ul>
 <h2>The sprite model</h2>
 <p>A control renders its whole picture (frame, label, body) into a sprite, optionally dims it, then pushes it in one go. That is why there is no flicker and why labels can be transparent (key colour <code>0x0001</code>). The price is RAM: <code>width x height x 2</code> bytes per control. See <a href="memory-performance.html">Memory and performance</a>.</p>
 

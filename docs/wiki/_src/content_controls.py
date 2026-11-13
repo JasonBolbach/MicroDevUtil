@@ -1,5 +1,5 @@
 CONTROL_GROUPS = [
- ('Text and numbers', ['textbox','inputbox','spinbox','timebox','datebox','slider']),
+ ('Text and numbers', ['label','textbox','inputbox','spinbox','timebox','datebox','slider']),
  ('Choosing', ['listbox','combobox','menu','tabbar','colorpicker']),
  ('Buttons', ['checkbox','radiobutton','pushbutton']),
  ('Dialogs', ['messagebox']),
@@ -12,6 +12,26 @@ def add(**k): CONTROLS.append(k)
 KEYS = 'Encoder, A short/long, B short/long and touch as in <a href="../concepts/input.html">Input</a>.'
 EV = '<a href="../concepts/edit-contract.html">edit contract</a>'
 
+add(slug='label', cls='SuperLabel', header='SuperLabel.h', kind='display', short='Plain text: no frame, no title',
+ tag='Just text. No border, no title and no padding by default, with left / centre / right alignment, vertical alignment, word wrap and live values.',
+ code='''SuperLabel title(&lcd, 0, 6, 240, &lgfx::fonts::Font4, "Settings", SuperControl::ALIGN_CENTER);
+title.SetTextColor(TFT_CYAN);
+SuperLabel help(&lcd, 10, 40, 220, &lgfx::fonts::Font2, "A long text that wraps onto several lines.");
+help.SetWrap(true);
+form.Add(&title, false); form.Add(&help, false);   // display only
+value.SetTextf("%d.%d C", t / 10, t % 10);           // live value''',
+ features=['Alignment: <code>SetAlign(ALIGN_LEFT / ALIGN_CENTER / ALIGN_RIGHT)</code> for every line; <code>SetVAlign(VALIGN_TOP / MIDDLE / BOTTOM)</code> together with a fixed height from <code>SetBodyHeight(h)</code> (0 = as tall as the lines).',
+  '<code>\\n</code> starts a new line; <code>SetWrap(true)</code> also breaks at spaces (a word wider than the control is broken inside). The height follows the number of lines.',
+  'Without wrapping a line that is too wide is cut and ends in "..." (<code>SetEllipsis(false)</code> just clips). <code>SetMaxLines(n)</code> limits the lines and puts "..." on the last one.',
+  '<code>SetTextf(fmt, ...)</code> is printf style and redraws only when the text really changed, so it is cheap to call every loop pass.',
+  '<code>SetLineGap</code>, <code>SetUnderline</code>, <code>SetTextColor</code>. It is still a <code>SuperControl</code>, so a border or label is available if you want one.'],
+ gui='<p>Display only: nothing to operate, it never takes focus. Add it with <code>form.Add(&amp;label, false)</code>.</p>',
+ events='<p>None. Change the text with <code>SetText</code> / <code>SetTextf</code>; the label redraws itself when the text changed.</p>',
+ api=[('SetText(s) / SetTextf(fmt,...)','Text; redraws on change'),('SetAlign(a)','Horizontal alignment'),('SetVAlign(v) + SetBodyHeight(h)','Fixed height, vertical alignment'),('SetWrap(b)','Word wrap'),('SetMaxLines(n)','Limit lines'),('SetTextColor(c)','Text colour (ColBg = background)'),('GetLineCount()','Lines after wrapping')],
+ tips=['Put the title of a page in a large font centred label and a hint line under it in a small grey wrapped label.'],
+ pitfalls=['The control fills its whole area with <code>ColBg</code>. Set it to the colour of what is behind (or use <code>ApplyTheme</code>); there is no transparent mode, so a label over a picture shows a coloured rectangle.','Every label is a sprite: many tiny labels cost RAM, see <a href="../concepts/memory-performance.html">memory</a>. One multi-line label is cheaper than several single-line ones.'],
+ see=['<a href="textbox.html">SuperTextBox</a>','<a href="progressbar.html">SuperProgressBar</a>'])
+
 add(slug='textbox', cls='SuperTextBox', header='SuperTextBox.h', kind='display', short='Single-line text with scrolling',
  tag='Single-line text with border, padding, alignment and scrolling. The base class of the input, spin, field and combo boxes.',
  code='''SuperTextBox t(&lcd, 10, 10, 200, &lgfx::fonts::Font2);
@@ -21,7 +41,7 @@ t.DrawPreview(false);''',
  features=['Per-cell styles (colour, fill) so a subclass can highlight one character or field.',
   'Text wider than the box scrolls; the first visible cell is <code>GetFirstVisible()</code>.',
   '<code>CharAt(sx)</code> maps an x position to a text cell, which the touch code of the subclasses relies on.',
-  'You normally use a subclass; use SuperTextBox directly for a read-only text line.'],
+  '<b>Alignment</b>: <code>SetAlign(ALIGN_LEFT / ALIGN_CENTER / ALIGN_RIGHT)</code> positions the text while it fits (the spin, input and combo boxes inherit it); text wider than the box scrolls with the &lt; &gt; arrows instead.','You normally use a subclass; use SuperTextBox directly for a read-only text line.'],
  gui='<p>Nothing to operate by itself: it shows text. As a base it supplies the look the editable boxes share: fixed-height line, cursor cell, <code>&lt;</code> / <code>&gt;</code> scroll chevrons when the text does not fit.</p>',
  events='<p>No events of its own. Subclasses add the edit contract.</p>',
  api=[('SetText(s, keepScroll)','Replace the text'),('GetText()','Current text'),('SetAlign(ALIGN_LEFT/CENTER/RIGHT)','Alignment inside the box')],

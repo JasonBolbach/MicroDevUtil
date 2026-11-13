@@ -22,9 +22,12 @@ Each control renders into its **own `LGFX_Sprite`** and pushes itself to a desti
 | `SuperMessageBox` | modal message + 1-3 buttons, restores what it covered |
 | `SuperProgressBar` | display-only progress bar with optional percent text |
 | `SuperGraph` | display-only scrolling line graph |
+| `SuperLabel` | plain text, no frame or title: left / centre / right alignment, vertical alignment, word wrap, max lines, "..." cut, underline, `SetTextf()` for live values |
 | `SuperGauge` | display-only dial: range, colour zones (the needle takes the zone's colour), tick marks and numbers, value as text, any sweep (half dial by default), smooth needle glide |
 | `SuperUserDraw` | a control YOUR code draws: a draw event gets a sprite and the body rectangle; optional persistent canvas, auto-redraw timer and touch (pointer) events |
 | `SuperForm` | not a control: focus handling for a set of controls (wheel moves the highlight, A edits) |
+
+Text boxes (and the spin / input / combo boxes built on them) honour `SetAlign(ALIGN_LEFT / ALIGN_CENTER / ALIGN_RIGHT)` while the text fits.
 
 Common to all (`SuperControl.h`): border (standard, ThreeD bevel or Sleek, see below), padding, optional label above / below with its own
 font / color / alignment, public colour variables, `SetDisplayPos`, `DrawPreview(highlight)`,
@@ -238,6 +241,27 @@ Normal mode (default): the sprite is the control's own render sprite, valid only
 everything each time; do not keep the pointer or block. The sprite is 16-bit byte-swapped RGB565: use LovyanGFX's drawing calls. Avoid the colour `0x0001`
 (the transparent key) when labels are not opaque. Without a pointer callback the control is display only (`form.Add(&ctl, false)`).
 `SuperControl::Tick()` is the hook `SuperForm::Service()` calls so animated controls redraw in their proper focused / dimmed look.
+
+## SuperLabel
+Just text (`form.Add(&label, false)`): no border, no title, no padding by default. Description at the top of `src/SuperLabel.h`; `examples/LabelExample`.
+
+```cpp
+SuperLabel title(&lcd, 0, 6, 240, &lgfx::fonts::Font4, "Settings", SuperControl::ALIGN_CENTER);
+SuperLabel help (&lcd, 10, 40, 220, &lgfx::fonts::Font2, "A long text that wraps.");  help.SetWrap(true);
+value.SetTextf("%d.%d C", t / 10, t % 10);        // redraws only when the text changed
+```
+| Call | Meaning |
+|---|---|
+| `SetText(s)`, `SetTextf(fmt, ...)`, `GetText()` | the text; `\n` starts a new line |
+| `SetAlign(ALIGN_LEFT / CENTER / RIGHT)` | horizontal alignment of every line |
+| `SetBodyHeight(h)` + `SetVAlign(VALIGN_TOP / MIDDLE / BOTTOM)` | fixed height with vertical alignment (0 = as tall as the lines) |
+| `SetWrap(on)`, `SetMaxLines(n)`, `SetEllipsis(on)` | word wrap; line limit (last line ends in "..."); a line that is too wide ends in "..." or is clipped |
+| `SetTextColor(c)`, `ColBg`, `SetLineGap(px)`, `SetUnderline(on)` | look. The control fills its area with `ColBg`: set it to the colour behind it (no transparent mode) |
+
+## Drawing order and focus order
+Two per-control numbers used by `SuperForm` (both default to 0 = the order the controls were added):
+* `SetZOrder(n)` - drawing order for controls that overlap. The **lowest number is in front** (drawn last); equal numbers are drawn in list order. Touch hits the front-most control first.
+* `SetTabOrder(n)` - focus order. The encoder visits the lowest number first and wraps; equal numbers are visited in list order. Until you call `form.SetFocus()` (or touch a control) the first control in this order has the focus.
 
 ## SuperGauge
 A display-only dial (`form.Add(&gauge, false)`), like the progress bar. Full description at the top of `src/SuperGauge.h`; `examples/GaugeExample` and the Draw page of the demos show it.

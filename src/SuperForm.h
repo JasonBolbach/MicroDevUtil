@@ -20,10 +20,15 @@
 //    encoder / buttons can be used together, even in the same edit. Blocking BeginEdit() calls (a message box
 //    you open yourself) keep receiving touch too. Hit areas grow by SuperControl::TouchPad (default 4) pixels.
 //    Set touch.ClickD_MAX = 0 so taps arrive without the double-click delay.
+//  * Drawing order: SuperControl::SetZOrder(n). The lowest number is in front (drawn last); equal numbers keep the order they were added.
+//    Touch hits the front-most control first. Focus order: SuperControl::SetTabOrder(n). The encoder visits the lowest number first;
+//    equal numbers keep the order they were added. Until you call SetFocus() (or touch a control) the first control in focus order has the focus.
 //  * Modal controls (SuperMessageBox) can be run with BeginEdit() from your own code; call form.Draw() afterwards.
 #include "SuperControl.h"
 #include "SuperEditIO.h"
 #include <SuperTouch.h>
+#include <algorithm>
+#include <vector>
 
 class SuperForm {
 public:
@@ -49,6 +54,7 @@ public:
     bool IsEditing() const { return Active != nullptr; }
 
     void SetFocus(int i) {
+        FocusAuto = false;
         if (i < 0 || i >= Count() || !Can(i) || i == Focus) return;
         int old = Focus; Focus = i;
         if (old >= 0) Items[old].C->DrawPreview(false);
@@ -118,7 +124,8 @@ private:
     }
     void TapIdle(int x, int y) {
         for (int pass = 0; pass < 2; ++pass)                      // exact hit first, then with touch padding
-            for (int i = Count() - 1; i >= 0; --i)
+            for (int k = Count() - 1; k >= 0; --k) {
+                int i = Order(true)[k];                                // front-most first
                 if (Can(i) && Items[i].C->HitTest(x, y, pass ? SuperControl::TouchPad : 0)) {
                     SetFocus(i);
                     if (Items[i].C->StartEdit()) {
@@ -130,11 +137,13 @@ private:
                     }
                     return;
                 }
+            }
     }
     // Finger just landed on an idle control that wants to react at once (input boxes): focus it, start the edit, tell it.
     void PressIdle(const SuperPointerEvent& pe) {
         for (int pass = 0; pass < 2; ++pass)
-            for (int i = Count() - 1; i >= 0; --i)
+            for (int k = Count() - 1; k >= 0; --k) {
+                int i = Order(true)[k];
                 if (Can(i) && Items[i].C->HitTest(pe.X, pe.Y, pass ? SuperControl::TouchPad : 0) && Items[i].C->StartOnPress(pe.X, pe.Y)) {
                     SetFocus(i);
                     SuperControl::PressStartedEdit = true;                        // StartEdit() need not draw: the PRESS redraws at once
@@ -146,12 +155,31 @@ private:
                     SuperControl::PressStartedEdit = false;
                     return;
                 }
+            }
     }
 
     struct Entry { SuperControl* C; bool Focusable; };
     SuperEditIO IO;
     std::vector<Entry> Items;
     int Focus = -1;
+    bool FocusAuto = true;                                            // no explicit SetFocus yet: the first control in focus order is focused
+    std::vector<int> Ord;
+    // Item indices sorted by ZOrder (z = true: draw order, highest number first / front last) or by TabOrder (z = false). Stable, so equal
+    // numbers keep list order.
+    const std::vector<int>& Order(bool z) {
+        Ord.resize(Items.size());
+        for (size_t i = 0; i < Ord.size(); ++i) Ord[i] = (int)i;
+        if (z) std::stable_sort(Ord.begin(), Ord.end(), [&](int a, int b) { return Items[a].C->GetZOrder() > Items[b].C->GetZOrder(); });
+        else   std::stable_sort(Ord.begin(), Ord.end(), [&](int a, int b) { return Items[a].C->GetTabOrder() < Items[b].C->GetTabOrder(); });
+        return Ord;
+    }
+    void ResolveAutoFocus() {
+        if (!FocusAuto) return;
+        int want = -1;
+        for (int i : Order(false)) if (Can(i)) { want = i; break; }
+        if (want == Focus) return;
+        Focus = want;
+    }
     SuperControl* Active = nullptr;
     void (*OnEdit)(SuperControl*, SuperEditState, void*) = nullptr;
     void* OnEditUser = nullptr;
@@ -177,7 +205,9 @@ private:
             for (auto& it : Items) if (it.C->IsVisible()) { batch = it.C->GetDestination(); break; }
         if (batch) batch->startWrite();
         SuperControl::DeferBoxes = (batch != nullptr);              // focus boxes after the last transfer is queued
-        for (int i = 0; i < Count(); ++i) {
+        ResolveAutoFocus();
+        std::vector<int> drawOrder = Order(true);                    // back to front (lowest ZOrder last)
+        for (int i : drawOrder) {
             SuperControl* c = Items[i].C;
             if (!c->IsVisible()) continue;
             if (clip) {                                               // only controls (with their focus box) that touch the rectangle
@@ -193,9 +223,12 @@ private:
     }
     bool Can(int i) const { return Items[i].Focusable && Items[i].C->IsEnabled() && Items[i].C->IsVisible(); }
     void Move(int dir) {
-        int n = Count();
+        ResolveAutoFocus();
+        std::vector<int> tab = Order(false);                          // focus order
+        int n = (int)tab.size(), pos = 0;
+        for (int k = 0; k < n; ++k) if (tab[k] == Focus) { pos = k; break; }
         for (int k = 1; k <= n; ++k) {
-            int i = ((Focus + dir * k) % n + n) % n;
+            int i = tab[((pos + dir * k) % n + n) % n];
             if (Can(i)) { SetFocus(i); return; }
         }
     }
