@@ -57,6 +57,28 @@ The pair was built and run as a real SDL app (LovyanGFX) to check that it draws 
 Keys: `+` `-` `0` (1:1) `F` (fit); Ctrl/Cmd + wheel zooms around the mouse. The form is drawn once at 1:1 by the real controls and scaled pixel-exactly, so what you see
 is what the device draws, only bigger. Everything (placing, selecting, dragging, resizing) maps through the zoom; the selection handles stay 8 screen pixels.
 
+**More control types, in chunks.** Chunk 1 adds **Spin box** and **Slider**. Each control type declares its own extra properties in a table (`ExtraDef` in `src/FormModel.h`: key, label,
+kind number / text / Yes-No / choice / colour / font, default, limits); the property panel, the JSON, the real-control preview and the code generator are all driven from it, so a new control
+type is mostly a table entry plus its generator lines. Only values that differ from the default are saved and generated. Every control except those that have a caption of their own (Label, Push button, Check box, Radio button) also gets the **label group** (Label text,
+position Above / Below, alignment, font, colour; with the Sleek border style the label sits on the frame line). The property panel scrolls (wheel) when a control has many rows.
+Spin box: Value, Minimum, Maximum, Step, Decimals (a decimal point is only added when drawing: the numbers stay integers), Wrap around, Prefix, Suffix. Slider: Value, Minimum, Maximum, Step,
+Show value. Both raise **`<name>_Change()`** (live, while being edited: `GetLiveValue()`) and **`<name>_Accept()`** (`GetValue()`). Because editable controls need both buttons, the generated
+constructor is now `Form1(dst, enc, btnA, btnB)` (it was `(dst, enc, btnA)` before chunk 1: re-export and pass `&BtnB`). **Check box and radio button** have no label group (their own caption is enough, and so does the push button) and an initial state: **Checked** / **Selected** (Yes / No), set silently in the generated
+code with `SetChecked(true)` (no event). Only one radio button per group can be selected: choosing Yes deselects the others of the group, a selected button that joins a group that already has a
+selection does not take it over, and a file with two selected buttons in one group keeps the first.
+
+**Chunk 2: text and time.** **Text box** (display only: Text, Align, label), **Input box**, **Time box**, **Date box** (`SuperFieldBox` is only their base class, it is not placed on its own).
+Input box: *Template* (`#` digit, `A` upper, `a` lower, `B` any letter, `*` any character, everything else a literal; so `###-###-####` is a phone number), *Value* (the value without the literals),
+Trim right, Literal color. The template row has a legend and two buttons: **Presets** (a list of phone, ZIP, date, time, IPv4, MAC, SSN, card, plate ... with a preview in the control's own font and
+colours) and **Build** (a cell-by-cell builder: click a cell, pick a slot type or a literal, or just type: `# A a B *` make slots, any other character a literal; Insert / Delete / Move; live preview;
+at most 40 cells; OK needs at least one slot). Time box: Seconds, Value `HH:MM[:SS]`, Wrap. Date box: Style (Y-M-D / M-D-Y), Separator, Year from / to, Value `YYYY-MM-DD`, Wrap.
+**Strict values:** a value or setting the real control would not accept (a character a slot cannot hold, too long a value, 24:00, 2026-02-30, a date outside the year range, a separator that is a digit,
+a template without a slot) is refused: the model keeps the old value, the field turns red, and the reason is shown under the rows and in the status line. Valid values are stored the way the box prints them
+(`7:5` becomes `07:05:00`). A new template that the old value no longer fits clears the value (and says so). **Fit** (on the Width row of text-like controls) sets the exact width that shows the whole text;
+new input / time / date boxes are placed that wide. They raise `<name>_Change()` / `<name>_Accept()` like the spin box (`GetLiveValue()` / `GetValue()`). Library additions: `GetLiveValue()` on the input,
+time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: chunk 3 lists (ListBox, ComboBox, TabBar, Menu), chunk 4 display (Gauge, Graph, UserDraw),
+chunk 5 MessageBox and ColorPicker.
+
 **Names** (`src/ReservedNames.h`, `FD::ValidName`): a control, radio group or form name must be a plain identifier that is safe in the generated C++ for Arduino, ESP32, Pico and the desktop.
 Refused: every C++ keyword (C++23, incl. `wchar_t`, `static_assert`, `bitand`, `co_await`, contextual `final` / `override`), the generated class's own names (`Form`, `Show`, `Service`, ...),
 reserved identifier shapes (leading underscore, double underscore), handler names (`x_Click`, `x_Change`, `..Thunk`), `Super*` / `lgfx*` / `LGFX*`, board families (`TFT_*`, `ESP*`, `GPIO*`, `PICO*`, pins

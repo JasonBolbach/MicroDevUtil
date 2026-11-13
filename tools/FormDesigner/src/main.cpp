@@ -23,6 +23,8 @@
 #include "FontDialog.h"
 #include "CodeGen.h"
 #include "FileDialog.h"
+#include "PresetDialog.h"
+#include "TemplateBuilder.h"
 #include "AppSettings.h"
 #include <SuperSpinBox.h>
 #include <vector>
@@ -54,13 +56,27 @@ enum DragMode { D_NONE, D_MOVE, D_RESIZE_L, D_RESIZE_R, D_TEXT };
 static DragMode drag = D_NONE; static int dragDX = 0, dragDY = 0, dragRight = 0;
 
 // ---- property fields ----
-enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN };
-static const char* PropLabel(int p) { static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align" }; return L[p]; }
-static const int MAX_FIELDS = 16;
-static bool IsColorProp(int p) { return p >= P_FG && p <= P_FBG; }   // colour rows show a swatch and open the colour dialog ...
-static bool IsPickRow(int p) { return p >= P_FG; }                    // ... the font row opens the font dialog: neither has a text field
+enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN,
+            P_HINT = 99,                           // a row that only shows a hint (the template legend)
+            P_EXTRA = 100 };                       // P_EXTRA + i = the selected control's i-th extra property (FD::ExtraAt), see FormModel.h
+static const int MAX_FIELDS = 40;
 static FD::TextField fields[MAX_FIELDS];
 static int fieldProp[MAX_FIELDS], nFields = 0;
+static int propScroll = 0;                           // the property panel scrolls when a control has more rows than fit
+static const int PANEL_TOP = 90, PANEL_BOT = 806;    // the visible band of the property rows
+static int FieldY(int i) { return FIELD_Y0 + i * FIELD_GAP - propScroll; }
+static int FieldAt(int x, int y) {
+    for (int i = 0; i < nFields; ++i) if (x >= FIELD_X && x < FIELD_X + FIELD_W && y >= FieldY(i) && y < FieldY(i) + FIELD_H && y >= PANEL_TOP && y < PANEL_BOT) return i;
+    return -1;
+}
+static int MaxPropScroll() { return std::max(0, FIELD_Y0 + nFields * FIELD_GAP + 64 - PANEL_BOT); }       // (64: the info lines under the rows)
+static void ClampPropScroll() { propScroll = std::min(std::max(propScroll, 0), MaxPropScroll()); }
+static void EnsureRowVisible(int i) {
+    if (i < 0 || i >= nFields) return;
+    if (FieldY(i) < PANEL_TOP) propScroll -= PANEL_TOP - FieldY(i) + 4;
+    else if (FieldY(i) + FIELD_H > PANEL_BOT) propScroll += FieldY(i) + FIELD_H - PANEL_BOT + 4;
+    ClampPropScroll();
+}
 static int focus = -1;                               // focused field, -1 = none
 
 static void Status(const char* fmt, ...) {
@@ -100,6 +116,47 @@ static void ClampPos(DControl& c) {
 }
 static DControl* Sel() { return sel >= 0 && sel < (int)form.items.size() ? &form.items[sel] : nullptr; }
 
+// ---- property rows: what each row is and how it is edited ----
+static bool IsExtra(int p) { return p >= P_EXTRA; }
+static const FD::ExtraDef* ExtraOf(int p) {           // the schema entry behind an extra property of the selected control
+    DControl* c = Sel(); if (!c || !IsExtra(p)) return nullptr;
+    int i = p - P_EXTRA; return i < FD::ExtraCount(c->type) ? &FD::ExtraAt(c->type, i) : nullptr;
+}
+enum RowKind { RK_TEXT, RK_COLOR, RK_FONT, RK_SEG, RK_HINT };   // text field / swatch (colour dialog) / font dialog / segments to click
+static int RowKindOf(int p) {
+    if (IsExtra(p)) {
+        const FD::ExtraDef* d = ExtraOf(p); if (!d) return RK_TEXT;
+        switch (d->kind) { case FD::PK_COLOR: return RK_COLOR; case FD::PK_FONT: return RK_FONT; case FD::PK_BOOL: case FD::PK_ENUM: return RK_SEG; default: return RK_TEXT; }
+    }
+    if (p == P_HINT) return RK_HINT;
+    if (p == P_FONT) return RK_FONT;
+    if (p == P_BSTYLE || p == P_ALIGN) return RK_SEG;
+    if (p >= P_FG && p <= P_FBG) return RK_COLOR;
+    return RK_TEXT;
+}
+static bool IsColorProp(int p) { return RowKindOf(p) == RK_COLOR; }
+static bool IsPickRow(int p) { return RowKindOf(p) != RK_TEXT; }                  // no text field: swatch, font or segments
+static std::string PropLabel(int p) {
+    if (const FD::ExtraDef* d = ExtraOf(p)) return d->label;
+    static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align" };
+    return p >= 0 && p <= P_ALIGN ? L[p] : "";
+}
+// segments of a RK_SEG row
+static int SegCount(int p) {
+    if (const FD::ExtraDef* d = ExtraOf(p)) return FD::ChoiceCount(*d);
+    return 3;
+}
+static std::string SegLabel(int p, int k) {
+    static const char* S[] = { "Standard", "3D", "Sleek" }; static const char* A[] = { "Left", "Center", "Right" };
+    if (const FD::ExtraDef* d = ExtraOf(p)) return FD::ChoiceName(*d, k);
+    return p == P_BSTYLE ? S[k] : A[k];
+}
+static int SegCurrent(int p) {
+    const DControl* c = Sel(); if (!c) return 0;
+    if (const FD::ExtraDef* d = ExtraOf(p)) { std::string v = FD::ExtraGet(*c, *d); return d->kind == FD::PK_BOOL ? (v == "true" ? 1 : 0) : atoi(v.c_str()); }
+    return p == P_BSTYLE ? (c->borderStyle >= 0 ? c->borderStyle : c->defStyle) : (c->align >= 0 ? c->align : c->defAlign);
+}
+
 // ---- the last successful save folder of the generated code (kept in the form's JSON as outputPath, not shown in the designer) ----
 static bool DirExists(const std::string& p) { std::error_code ec; return !p.empty() && std::filesystem::is_directory(p, ec); }
 static std::string WorkDir() { std::error_code ec; return std::filesystem::current_path(ec).string(); }     // the executable's working folder
@@ -110,15 +167,46 @@ static bool FixOutDir() {
     form.outDir = WorkDir(); return true;
 }
 
-static uint16_t* ColorRef(int p) {                    // the model colour a colour property edits
+static bool GetColorProp(int p, uint16_t& out) {      // the model colour a colour row edits
     DControl* c = Sel();
-    switch (p) { case P_FG: return c ? &c->fg : nullptr; case P_BG: return c ? &c->bg : nullptr; case P_BORDER: return c ? &c->border : nullptr; case P_FBG: return &form.bg; }
-    return nullptr;
+    if (const FD::ExtraDef* d = ExtraOf(p)) { if (d->kind != FD::PK_COLOR) return false; out = (uint16_t)strtol(FD::ExtraGet(*c, *d).c_str(), nullptr, 0); return true; }
+    switch (p) { case P_FG: if (!c) return false; out = c->fg; return true; case P_BG: if (!c) return false; out = c->bg; return true;
+                 case P_BORDER: if (!c) return false; out = c->border; return true; case P_FBG: out = form.bg; return true; }
+    return false;
 }
-static uint16_t PartnerColor(int p) { DControl* c = Sel(); return p == P_FG && c ? c->bg : p == P_BG && c ? c->fg : p == P_BORDER && c ? c->bg : form.bg; }
+static void SetColorProp(int p, uint16_t v) {
+    DControl* c = Sel();
+    if (const FD::ExtraDef* d = ExtraOf(p)) { char b[8]; snprintf(b, sizeof b, "0x%04X", v); FD::ExtraSet(*c, *d, b); return; }
+    switch (p) { case P_FG: if (c) c->fg = v; break; case P_BG: if (c) c->bg = v; break; case P_BORDER: if (c) c->border = v; break; case P_FBG: form.bg = v; break; }
+}
+static bool IsTextColor(int p) { const FD::ExtraDef* d = ExtraOf(p); return p == P_FG || (d && std::string(d->key) == "labelColor"); }   // drawn as text on a partner colour
+static uint16_t PartnerColor(int p) { DControl* c = Sel(); return p == P_FG && c ? c->bg : p == P_BG && c ? c->fg : p == P_BORDER && c ? c->bg : IsExtra(p) && c ? form.bg : form.bg; }
+// fonts: the control's own font, or an extra font (the label font: "" = the same as the control)
+static std::string GetFontProp(int p) {
+    DControl* c = Sel(); if (!c) return "";
+    if (const FD::ExtraDef* d = ExtraOf(p)) return FD::ExtraGet(*c, *d);
+    return c->font;
+}
+static void SetFontProp(int p, const std::string& id) {
+    DControl* c = Sel(); if (!c) return;
+    if (const FD::ExtraDef* d = ExtraOf(p)) { FD::ExtraSet(*c, *d, id); return; }
+    c->font = id;
+}
+
+// ---- buttons at the right end of some rows: Fit (width of text-box controls), Presets / Build (the input box template) ----
+struct RowBtn { const char* label; int x, w; };
+static int RowButtons(int p, RowBtn* out) {
+    DControl* c = Sel(); int n = 0; if (!c) return 0;
+    if (p == P_W && FD::Info(c->type).fitWidth) out[n++] = { "Fit", FIELD_X + FIELD_W - 46, 46 };
+    if (const FD::ExtraDef* d = ExtraOf(p)) if (std::string(d->key) == "template") { out[n++] = { "Presets", FIELD_X + FIELD_W - 150, 74 }; out[n++] = { "Build", FIELD_X + FIELD_W - 70, 70 }; }
+    return n;
+}
+static int RowFieldW(int p) { RowBtn b[2]; int n = RowButtons(p, b); return n ? b[0].x - 4 - FIELD_X : FIELD_W; }
+static std::string rejectMsg;                         // why the last typed value was refused (shown under the rows, red)
 
 static std::string PropValue(int p) {
     DControl* c = Sel();
+    if (const FD::ExtraDef* d = ExtraOf(p)) return FD::ExtraGet(*c, *d);       // (text and number extras)
     switch (p) {
     case P_NAME: return c ? c->name : ""; case P_TEXT: return c ? c->text : "";
     case P_BSIZE: return c ? std::to_string(c->borderSize >= 0 ? c->borderSize : c->defSize) : "";
@@ -129,9 +217,28 @@ static std::string PropValue(int p) {
     }
     return "";
 }
+// A change to one of the control's extra properties, tried on a copy: the real control judges whether it makes sense (refused values keep the old one).
+static bool ApplyExtra(int p, const std::string& v) {
+    DControl* c = Sel(); const FD::ExtraDef* d = ExtraOf(p); if (!c || !d) return false;
+    DControl cand = *c;
+    if (!FD::ExtraSet(cand, *d, v.empty() && d->kind == FD::PK_INT ? std::string(d->def) : v)) return false;      // (an empty number = the default)
+    std::string key = d->key, msg = FD::Validate(&scr, cand);
+    if (!msg.empty() && key == "template" && XSet(cand, "value")) {          // a new template that the old value no longer fits: the value is cleared
+        DControl t2 = cand; t2.extra.erase("value");
+        if (FD::Validate(&scr, t2).empty()) { cand = t2; msg.clear(); Status("the value no longer fits the new template and was cleared"); }
+    }
+    if (!msg.empty()) { rejectMsg = msg; Status("%s", msg.c_str()); dirty = true; return false; }       // strict: refused, the model keeps the old value, the row turns red
+    rejectMsg.clear();
+    FD::Normalize(&scr, cand);                                                // stored the way the control prints it
+    *c = cand;
+    if (c->type == FD::C_RADIO && key == "checked" && XBool(*c, "checked"))             // selecting a radio button deselects the others of its group
+        for (DControl& o : form.items) if (&o != c && o.type == FD::C_RADIO && o.group == c->group) o.extra.erase("checked");
+    return true;
+}
 // Applies a typed value to the model (live, on every change). Returns false when the value is not (yet) valid; the model is then unchanged.
 static bool ApplyProp(int p, const std::string& v) {
     DControl* c = Sel();
+    if (ExtraOf(p)) return ApplyExtra(p, v);
     if ((p <= P_GROUP) != (c != nullptr)) return false;
     if (p == P_BSIZE || p == P_PAD) {                    // empty = back to the control's own default; a value equal to the default is not an override
         bool size = p == P_BSIZE; int n = v.empty() ? -1 : std::min(atoi(v.c_str()), size ? FD::MAX_BORDER : FD::MAX_PADDING);
@@ -143,7 +250,9 @@ static bool ApplyProp(int p, const std::string& v) {
     switch (p) {
     case P_NAME:  if (!FD::ValidName(v) || form.NameTaken(v, sel)) return false; c->name = v; return true;
     case P_TEXT:  c->text = v; return true;
-    case P_GROUP: if (!FD::ValidName(v) || form.ControlNamed(v) || v == form.name || v == form.name + "Base") return false; c->group = v; return true;     // an identifier that is not a control's name
+    case P_GROUP: if (!FD::ValidName(v) || form.ControlNamed(v) || v == form.name || v == form.name + "Base") return false; c->group = v;
+                  if (XBool(*c, "checked")) for (const DControl& o : form.items) if (&o != c && o.type == FD::C_RADIO && o.group == v && XBool(o, "checked")) { c->extra.erase("checked"); break; }     // joining a group that already has a selection: it does not take it over
+                  return true;     // an identifier that is not a control's name
     case P_X:     c->x = n; ClampPos(*c); return true;
     case P_Y:     c->y = n; ClampPos(*c); return true;
     case P_W:     c->w = n; ClampPos(*c); return true;
@@ -159,10 +268,17 @@ static void BuildFields() {
     auto add = [](int p) { FD::TextField& f = fields[nFields]; fieldProp[nFields++] = p; f.filter = FD::TextField::ANY; f.maxLen = 64;
                            if (p == P_NAME || p == P_FNAME || p == P_GROUP) f.filter = FD::TextField::IDENT;
                            if (p == P_X || p == P_Y || p == P_W || p == P_FW || p == P_FH) { f.filter = FD::TextField::DIGITS; f.maxLen = 4; }
-                           if (p == P_BSIZE || p == P_PAD) { f.filter = FD::TextField::DIGITS; f.maxLen = 2; } };
-    if (Sel()) { add(P_NAME); if (FD::Info(Sel()->type).hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W); add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (FD::Info(Sel()->type).hasAlign) add(P_ALIGN); }
+                           if (p == P_BSIZE || p == P_PAD) { f.filter = FD::TextField::DIGITS; f.maxLen = 2; }
+                           if (const FD::ExtraDef* d = ExtraOf(p)) { if (d->kind == FD::PK_INT) { f.filter = d->lo < 0 ? FD::TextField::SIGNED : FD::TextField::DIGITS; f.maxLen = 11; } else f.maxLen = 40; } };
+    if (Sel()) {
+        const FD::TypeInfo& ti = FD::Info(Sel()->type);
+        add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W);
+        for (int i = 0; i < ti.nExtras; ++i) { add(P_EXTRA + i); if (std::string(ti.extras[i].key) == "template") add(P_HINT); }   // the type's own properties (+ the template legend)
+        add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (ti.hasAlign) add(P_ALIGN);
+        if (ti.hasLabel) for (int i = 0; i < FD::N_LABEL_EXTRAS; ++i) add(P_EXTRA + ti.nExtras + i);   // the label group
+    }
     else       { add(P_FNAME); add(P_FW); add(P_FH); add(P_FBG); }
-    focus = -1; drag = drag == D_TEXT ? D_NONE : drag;
+    focus = -1; drag = drag == D_TEXT ? D_NONE : drag; propScroll = 0;
     for (int i = 0; i < nFields; ++i) if (!IsPickRow(fieldProp[i])) fields[i].SetText(PropValue(fieldProp[i]));
     dirty = true;
 }
@@ -172,7 +288,7 @@ static void SyncFields() {                           // model -> fields (the fie
 }
 static void Select(int i) { if (i != sel) { sel = i; BuildFields(); } dirty = true; }
 static void SetFocus(int i) {
-    int old = focus; focus = i;
+    int old = focus; focus = i; EnsureRowVisible(i); if (old != i) rejectMsg.clear();
     if (old >= 0 && old != i) SyncFields();          // leaving a field: show what the model really holds (clamped, or the old valid name)
     dirty = true;
 }
@@ -181,39 +297,65 @@ static void FieldEdited(int i) { if (IsPickRow(fieldProp[i])) return; ApplyProp(
 // ---- the colour dialog (modal) ----
 static FD::ColorDialog* colorDlg = nullptr; static int colorDlgProp = -1;
 static void OpenColorDialog(int prop) {
-    uint16_t* ref = ColorRef(prop); if (!ref || colorDlg) return;
-    std::string what = std::string(PropLabel(prop)) + (Sel() ? " of " + Sel()->name : " of the form");
-    colorDlg = new FD::ColorDialog(&scr, what, *ref, PartnerColor(prop), prop == P_FG);
+    uint16_t cur = 0; if (!GetColorProp(prop, cur) || colorDlg) return;
+    std::string what = PropLabel(prop) + (Sel() ? " of " + Sel()->name : " of the form");
+    colorDlg = new FD::ColorDialog(&scr, what, cur, PartnerColor(prop), IsTextColor(prop));
     colorDlgProp = prop; focus = -1; drag = D_NONE; dirty = true;
 }
 static void CloseColorDialog() {
     if (!colorDlg) return;
-    if (colorDlg->state == FD::ColorDialog::OK) if (uint16_t* ref = ColorRef(colorDlgProp)) { *ref = colorDlg->color; Status("%s = 0x%04X", PropLabel(colorDlgProp), colorDlg->color); }
+    if (colorDlg->state == FD::ColorDialog::OK) { SetColorProp(colorDlgProp, colorDlg->color); RefreshGeometry(); SyncFields(); Status("%s = 0x%04X", PropLabel(colorDlgProp).c_str(), colorDlg->color); }
     delete colorDlg; colorDlg = nullptr; drag = D_NONE; dirty = true;
 }
 
 // ---- the font dialog (modal) ----
-static FD::FontDialog* fontDlg = nullptr;
-static void OpenFontDialog() {
+static FD::FontDialog* fontDlg = nullptr; static int fontDlgProp = P_FONT;
+static void OpenFontDialog(int prop) {
     DControl* c = Sel(); if (!c || fontDlg || colorDlg) return;
-    fontDlg = new FD::FontDialog(&scr, "Font of " + c->name, *c, form.bg);
+    DControl proto = *c; std::string cur = GetFontProp(prop); if (!cur.empty()) proto.font = cur;          // (the label font "" = the control's own font)
+    fontDlgProp = prop;
+    fontDlg = new FD::FontDialog(&scr, PropLabel(prop) + " of " + c->name, proto, form.bg);
     focus = -1; drag = D_NONE; dirty = true;
 }
 static void CloseFontDialog() {
     if (!fontDlg) return;
     if (fontDlg->state == FD::FontDialog::OK) if (DControl* c = Sel()) {
-        c->font = fontDlg->font; RefreshGeometry(); ClampPos(*c); SyncFields(); Status("%s font = %s", c->name.c_str(), c->font.c_str());
+        SetFontProp(fontDlgProp, fontDlg->font); RefreshGeometry(); ClampPos(*c); SyncFields(); Status("%s %s = %s", c->name.c_str(), PropLabel(fontDlgProp).c_str(), fontDlg->font.c_str());
     }
     delete fontDlg; fontDlg = nullptr; drag = D_NONE; dirty = true;
+}
+
+// ---- the input box template: the presets list and the builder (both modal), and Fit width ----
+static FD::PresetDialog* presetDlg = nullptr; static FD::TemplateBuilder* builderDlg = nullptr; static int templateProp = -1;
+static int TemplateRowProp() { for (int i = 0; i < nFields; ++i) if (const FD::ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == "template") return fieldProp[i]; return -1; }
+static bool AnyModal();
+static void OpenPresetDialog() {
+    DControl* c = Sel(); templateProp = TemplateRowProp(); if (!c || templateProp < 0 || AnyModal()) return;
+    presetDlg = new FD::PresetDialog(&scr, "Template presets for " + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true;
+}
+static void OpenBuilderDialog() {
+    DControl* c = Sel(); templateProp = TemplateRowProp(); if (!c || templateProp < 0 || AnyModal()) return;
+    builderDlg = new FD::TemplateBuilder(&scr, "Template builder for " + c->name, *c, form.bg, XStr(*c, "template")); focus = -1; drag = D_NONE; dirty = true;
+}
+static void FinishTemplateDialog(bool ok, const std::string& result) {
+    if (ok && Sel() && templateProp >= 0 && ApplyProp(templateProp, result)) { RefreshGeometry(); SyncFields(); Status("template = %s", result.c_str()); }
+    dirty = true;
+}
+static void ClosePresetDialog() { std::string r = presetDlg->tmpl; bool ok = presetDlg->state == FD::PresetDialog::OK; delete presetDlg; presetDlg = nullptr; drag = D_NONE; FinishTemplateDialog(ok, r); }
+static void CloseBuilderDialog() { std::string r = builderDlg->tmpl; bool ok = builderDlg->state == FD::TemplateBuilder::OK; delete builderDlg; builderDlg = nullptr; drag = D_NONE; FinishTemplateDialog(ok, r); }
+static void FitSel() {                                // Fit: the control is exactly as wide as its content
+    DControl* c = Sel(); if (!c || !FD::Info(c->type).fitWidth) return;
+    c->w = FD::FitWidth(&scr, *c); ClampPos(*c); RefreshGeometry(); SyncFields(); Status("%s: width %d fits its content", c->name.c_str(), c->w);
 }
 
 // ---- the file dialog (modal): Open, Save As, and the folder the code is generated into ----
 static bool SaveForm(); static bool OpenForm(); static void ExportForm(const std::string& dir);
 enum FilePurpose { FP_OPEN, FP_SAVE, FP_EXPORT };
 static FD::FileDialog* fileDlg = nullptr; static int filePurpose = FP_OPEN;
+static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg; }
 static bool DirOk(const std::string& d) { std::error_code ec; return !d.empty() && std::filesystem::is_directory(d, ec); }
 static void OpenFileDialog(int purpose) {
-    if (fileDlg || colorDlg || fontDlg) return;
+    if (AnyModal()) return;
     std::error_code ec; namespace fs = std::filesystem;
     std::string known = FileKnown() ? fs::absolute(FormPath(), ec).string() : "";
     std::string start;
@@ -245,8 +387,9 @@ static void CloseFileDialog() {
 // a segmented row (border style / alignment): a value equal to the control's own default is stored as "no override"
 static void SetEnumProp(int p, int v) {
     DControl* c = Sel(); if (!c) return;
-    if (p == P_BSTYLE) c->borderStyle = v == c->defStyle ? -1 : v;
-    if (p == P_ALIGN)  c->align = v == c->defAlign ? -1 : v;
+    if (const FD::ExtraDef* d = ExtraOf(p)) ApplyExtra(p, d->kind == FD::PK_BOOL ? (v ? "true" : "false") : std::to_string(v));
+    else if (p == P_BSTYLE) c->borderStyle = v == c->defStyle ? -1 : v;
+    else if (p == P_ALIGN)  c->align = v == c->defAlign ? -1 : v;
     RefreshGeometry(); ClampPos(*c); SyncFields();
 }
 
@@ -255,6 +398,8 @@ static void Place(int type, int fx, int fy) {        // fx, fy in form coordinat
     DControl c; c.type = type; c.name = form.UniqueName(FD::Info(type).prefix); c.text = FD::Info(type).defText;
     c.w = FD::Info(type).defW; c.x = Snap(fx); c.y = Snap(fy);
     if (type == FD::C_RADIO) { c.group = form.UniqueGroupName(); for (const DControl& o : form.items) if (o.type == FD::C_RADIO) { c.group = o.group; break; } }   // joins the form's first group
+    FD::Measure(&scr, c);
+    if (type == FD::C_INPUTBOX || type == FD::C_TIMEBOX || type == FD::C_DATEBOX) c.w = std::max(FD::MIN_CONTROL_W, FD::FitWidth(&scr, c));      // exactly as wide as its text
     FD::Measure(&scr, c); ClampPos(c);
     form.items.push_back(c); sel = (int)form.items.size() - 1; BuildFields();
     Status("added %s", c.name.c_str());
@@ -319,12 +464,7 @@ static void Frame(int x, int y, int w, int h, const char* title) {
     scr.drawString(title, x + 8, y + 6);
 }
 static int MeasureText(const std::string& s) { scr.setFont(&lgfx::fonts::Font2); return scr.textWidth(s.c_str()); }
-static void Reveal(int i) { fields[i].EnsureVisible(MeasureText, FIELD_W - 2 * FIELD_PAD); dirty = true; }
-static int FieldY(int i) { return FIELD_Y0 + i * FIELD_GAP; }
-static int FieldAt(int x, int y) {
-    for (int i = 0; i < nFields; ++i) if (x >= FIELD_X && x < FIELD_X + FIELD_W && y >= FieldY(i) && y < FieldY(i) + FIELD_H) return i;
-    return -1;
-}
+static void Reveal(int i) { fields[i].EnsureVisible(MeasureText, RowFieldW(fieldProp[i]) - 2 * FIELD_PAD); dirty = true; }
 
 // ---- zoom controls: a real SuperSpinBox (drag, click the left / right third, wheel) with Fit and 1:1 buttons ----
 static const int ZSPIN_X = 770, ZSPIN_W = 96, ZFIT_X = 874, ZFIT_W = 50, ZONE_X = 930, ZONE_W = 50, ZROW_Y = 59;
@@ -444,51 +584,73 @@ static void Render() {
     Frame(1000, 56, 390, 754, Sel() ? ("Properties: " + Sel()->name).c_str() : ("Properties: form " + form.name).c_str());
     for (int i = 0; i < nFields; ++i) {
         int fy = FieldY(i);
+        if (fy + FIELD_H <= PANEL_TOP || fy >= PANEL_BOT) continue;                          // scrolled out
+        scr.setClipRect(1002, PANEL_TOP, 386, PANEL_BOT - PANEL_TOP);                        // (DrawField clears the clip, so set it per row)
         scr.setFont(&lgfx::fonts::Font2); scr.setTextDatum(lgfx::textdatum_t::top_left);
-        scr.setTextColor(0xFFFF); scr.drawString(PropLabel(fieldProp[i]), 1010, fy + 6);
-        if (fieldProp[i] == P_BSTYLE || fieldProp[i] == P_ALIGN) {                           // three segments: click one
-            static const char* S[] = { "Standard", "3D", "Sleek" }; static const char* A[] = { "Left", "Center", "Right" };
-            bool st = fieldProp[i] == P_BSTYLE; const DControl* c = Sel();
-            int cur = st ? (c->borderStyle >= 0 ? c->borderStyle : c->defStyle) : (c->align >= 0 ? c->align : c->defAlign), segw = FIELD_W / 3;
+        scr.setTextColor(0xFFFF); scr.drawString(PropLabel(fieldProp[i]).c_str(), 1010, fy + 6);
+        int kind = RowKindOf(fieldProp[i]);
+        if (kind == RK_SEG) {                                                                // segments: click one
+            int n = SegCount(fieldProp[i]), cur = SegCurrent(fieldProp[i]), segw = FIELD_W / n;
             scr.setTextDatum(lgfx::textdatum_t::middle_center);
-            for (int k = 0; k < 3; ++k) {
+            for (int k = 0; k < n; ++k) {
                 int sx = FIELD_X + k * segw;
                 scr.fillRect(sx, fy, segw, FIELD_H, k == cur ? C_SEL : 0x0000); scr.drawRect(sx, fy, segw, FIELD_H, k == cur ? C_ACCENT : 0x7BEF);
-                scr.setTextColor(k == cur ? 0xFFFF : 0x8410); scr.drawString(st ? S[k] : A[k], sx + segw / 2, fy + FIELD_H / 2);
+                scr.setTextColor(k == cur ? 0xFFFF : 0x8410); scr.drawString(SegLabel(fieldProp[i], k).c_str(), sx + segw / 2, fy + FIELD_H / 2);
             }
             scr.setTextDatum(lgfx::textdatum_t::top_left);
-            continue;
-        }
-        if (fieldProp[i] == P_FONT) {                                                       // the font name in its own font: click opens the font dialog
-            const FD::FontInfo& fi = FD::FindFont(Sel()->font);
+        } else if (kind == RK_FONT) {                                                        // the font name: click opens the font dialog
+            std::string id = GetFontProp(fieldProp[i]); const FD::ExtraDef* xd = ExtraOf(fieldProp[i]);
+            bool optional = xd != nullptr;                                                   // an extra font ("" = same as the control) can be cleared with the x
             scr.fillRect(FIELD_X, fy, FIELD_W, FIELD_H, 0x0000); scr.drawRect(FIELD_X, fy, FIELD_W, FIELD_H, 0x7BEF);
-            scr.setTextColor(0xFFFF); scr.setFont(&lgfx::fonts::Font2); scr.drawString(fi.label, FIELD_X + 6, fy + 6);
-            scr.setTextColor(0x8410); scr.drawString("click to change", FIELD_X + FIELD_W - 100, fy + 6);
-            continue;
-        }
-        if (IsColorProp(fieldProp[i])) {                                                    // a swatch: click opens the colour dialog
-            uint16_t col = *ColorRef(fieldProp[i]);
+            scr.setTextColor(id.empty() ? 0x8410 : 0xFFFF); scr.setFont(&lgfx::fonts::Font2);
+            scr.drawString(id.empty() ? "(same as the control)" : FD::FindFont(id).label, FIELD_X + 6, fy + 6);
+            if (optional && !id.empty()) { scr.setTextColor(0xF800); scr.drawString("x", FIELD_X + FIELD_W - 16, fy + 6); }
+            else if (!optional) { scr.setTextColor(0x8410); scr.drawString("click to change", FIELD_X + FIELD_W - 100, fy + 6); }
+        } else if (kind == RK_HINT) {                                                        // the template legend
+            scr.setTextColor(0x8410); scr.drawString("# digit  A upper  a lower  B letter", 1010, fy - 2); scr.drawString("* any   other characters are literals", 1010, fy + 14);
+        } else if (kind == RK_COLOR) {                                                       // a swatch: click opens the colour dialog
+            uint16_t col = 0; GetColorProp(fieldProp[i], col);
             scr.fillRect(FIELD_X, fy, 70, FIELD_H, col); scr.drawRect(FIELD_X, fy, 70, FIELD_H, 0xFFFF);
             snprintf(b, sizeof b, "0x%04X   (click to change)", col);
             scr.setTextColor(0xC618); scr.drawString(b, FIELD_X + 80, fy + 6);
-            continue;
+        } else {
+            const FD::ExtraDef* xd = ExtraOf(fieldProp[i]);
+            bool bad = focus == i && (fieldProp[i] == P_NAME || fieldProp[i] == P_FNAME || fieldProp[i] == P_GROUP || (xd && xd->kind == FD::PK_TEXT)) && fields[i].text != PropValue(fieldProp[i]);
+            FD::DrawField(scr, fields[i], FIELD_X, fy, RowFieldW(fieldProp[i]), FIELD_H, focus == i, bad, SDL_GetTicks());
         }
-        bool bad = focus == i && (fieldProp[i] == P_NAME || fieldProp[i] == P_FNAME || fieldProp[i] == P_GROUP) && fields[i].text != PropValue(fieldProp[i]);
-        FD::DrawField(scr, fields[i], FIELD_X, fy, FIELD_W, FIELD_H, focus == i, bad, SDL_GetTicks());
+        scr.setClipRect(1002, PANEL_TOP, 386, PANEL_BOT - PANEL_TOP);
+        { RowBtn rb[2]; int nb = RowButtons(fieldProp[i], rb); for (int k = 0; k < nb; ++k) { SuperPushButton btn(&scr, rb[k].x, fy, rb[k].w, &lgfx::fonts::Font2, rb[k].label); btn.Push(); } }
+        scr.clearClipRect();
     }
-    scr.setTextColor(0x8410);
-    if (Sel()) { snprintf(b, sizeof b, "Height %d (follows the font)", Sel()->h); scr.drawString(b, 1010, FieldY(nFields) + 6); }
-    else scr.drawString("Select a control to edit it.", 1010, FieldY(nFields) + 6);
-    if (focus >= 0) scr.drawString("Enter / Esc: done    Tab: next field", 1010, FieldY(nFields) + 30);
+    scr.setClipRect(1002, PANEL_TOP, 386, PANEL_BOT - PANEL_TOP);
+    scr.setTextDatum(lgfx::textdatum_t::top_left); scr.setFont(&lgfx::fonts::Font2); scr.setTextColor(0x8410);
+    { int iy = FieldY(nFields) + 6;
+      if (Sel()) { snprintf(b, sizeof b, "Height %d (follows the font)", Sel()->h); scr.drawString(b, 1010, iy); }
+      else scr.drawString("Select a control to edit it.", 1010, iy);
+      if (focus >= 0) scr.drawString("Enter / Esc: done    Tab: next field", 1010, iy + 24);
+      if (!rejectMsg.empty()) {                                                          // why the last value was refused (red, wrapped)
+          scr.setTextColor(0xF800); std::string m = rejectMsg; int yy = iy + 48;
+          while (!m.empty() && yy < PANEL_BOT) { size_t cut = m.size() > 48 ? m.rfind(' ', 48) : std::string::npos; if (m.size() <= 48) cut = m.size(); else if (cut == std::string::npos) cut = 48;
+              scr.drawString(m.substr(0, cut).c_str(), 1010, yy); m = m.size() > cut ? m.substr(cut + (m[cut] == ' ' ? 1 : 0)) : ""; yy += 18; }
+      } }
+    scr.clearClipRect();
+    if (MaxPropScroll() > 0) {                                                               // a thin scroll bar
+        int th = PANEL_BOT - PANEL_TOP, kh = std::max(24, th * th / (th + MaxPropScroll())), ky = PANEL_TOP + (th - kh) * propScroll / MaxPropScroll();
+        scr.fillRect(1384, PANEL_TOP, 3, th, 0x2124); scr.fillRect(1384, ky, 3, kh, C_ACCENT);
+    }
     if (colorDlg) colorDlg->Draw(SDL_GetTicks());
     if (fontDlg) fontDlg->Draw();
     if (fileDlg) fileDlg->Draw(SDL_GetTicks());
+    if (presetDlg) presetDlg->Draw();
+    if (builderDlg) builderDlg->Draw();
     scr.pushSprite(lcd, 0, 0);
     dirty = false;
 }
 
 // ---- input ----
 static void Handle(const InputEvent& e) {
+    if (presetDlg) { presetDlg->Event(e); dirty = true; if (presetDlg->state != FD::PresetDialog::OPEN) ClosePresetDialog(); return; }
+    if (builderDlg) { builderDlg->Event(e); dirty = true; if (builderDlg->state != FD::TemplateBuilder::OPEN) CloseBuilderDialog(); return; }
     if (fileDlg) {
         fileDlg->Event(e); dirty = true;
         if (fileDlg->state != FD::FileDialog::OPEN) CloseFileDialog();
@@ -527,8 +689,20 @@ static void Handle(const InputEvent& e) {
         if (InRect(e.x, e.y, ZFIT_X, ZROW_Y, ZFIT_W, ZRowH())) { SetFocus(-1); ZoomFit(); break; }
         if (InRect(e.x, e.y, ZONE_X, ZROW_Y, ZONE_W, ZRowH())) { SetFocus(-1); ZoomCentre(100); break; }
         int fi = FieldAt(e.x, e.y);
-        if (fi >= 0 && (fieldProp[fi] == P_BSTYLE || fieldProp[fi] == P_ALIGN)) { SetFocus(-1); SetEnumProp(fieldProp[fi], std::min(2, (e.x - FIELD_X) * 3 / FIELD_W)); break; }
-        if (fi >= 0 && fieldProp[fi] == P_FONT) { SetFocus(-1); OpenFontDialog(); break; }
+        if (fi >= 0) {                                                       // a button at the end of a row (Fit, Presets, Build)
+            RowBtn rb[2]; int nb = RowButtons(fieldProp[fi], rb); bool hit = false;
+            for (int k = 0; k < nb && !hit; ++k) if (e.x >= rb[k].x && e.x < rb[k].x + rb[k].w) {
+                std::string l = rb[k].label; SetFocus(-1); hit = true;
+                if (l == "Fit") FitSel(); else if (l == "Presets") OpenPresetDialog(); else OpenBuilderDialog();
+            }
+            if (hit) break;
+        }
+        if (fi >= 0 && RowKindOf(fieldProp[fi]) == RK_SEG) { int n = SegCount(fieldProp[fi]); SetFocus(-1); SetEnumProp(fieldProp[fi], std::min(n - 1, (e.x - FIELD_X) * n / FIELD_W)); break; }
+        if (fi >= 0 && RowKindOf(fieldProp[fi]) == RK_FONT) {
+            SetFocus(-1);
+            if (IsExtra(fieldProp[fi]) && !GetFontProp(fieldProp[fi]).empty() && e.x >= FIELD_X + FIELD_W - 26) { SetFontProp(fieldProp[fi], ""); RefreshGeometry(); SyncFields(); break; }    // the x: back to "same as the control"
+            OpenFontDialog(fieldProp[fi]); break;
+        }
         if (fi >= 0 && IsColorProp(fieldProp[fi])) { SetFocus(-1); OpenColorDialog(fieldProp[fi]); break; }
         if (fi >= 0) {                                                       // a property field: caret / selection
             SetFocus(fi); drag = D_TEXT;
@@ -558,6 +732,7 @@ static void Handle(const InputEvent& e) {
         if (spinDrag) { SpinPointer(spinStarted ? SuperPointerEvent::DRAG_END : SuperPointerEvent::TAP, e.x, e.y); SpinPump(); spinDrag = false; }
         drag = D_NONE; break;
     case InputEvent::WHEEL:
+        if (e.x >= 1000 && e.x < 1390 && e.y >= 56 && e.y < 810) { propScroll -= e.wheel * FIELD_GAP * 2; ClampPropScroll(); dirty = true; break; }      // the property panel scrolls
         if (InRect(e.x, e.y, ZSPIN_X, ZROW_Y, ZSPIN_W, ZRowH())) { ZoomCentre(zoom + (e.wheel > 0 ? ZOOM_STEP : -ZOOM_STEP)); break; }
         if (e.x >= VX && e.x < VX + VW && e.y >= VY && e.y < VY + VH) {
             if (SDL_GetModState() & (KMOD_CTRL | KMOD_GUI)) SetZoom(zoom + (e.wheel > 0 ? ZOOM_STEP : -ZOOM_STEP) * std::abs(e.wheel), e.x, e.y);   // Ctrl / Cmd + wheel: zoom around the mouse
@@ -1038,7 +1213,7 @@ static void SelfTest() {
         { DControl c; c.type = C_LABEL; c.name = "title"; form.items.push_back(c); }
         std::string uf = GenerateUserFile(form);
         auto uhas = [&](const char* x) { return uf.find(x) != std::string::npos; };
-        Check(uhas("#include \"Demo.designer.h\"") && uhas("class Demo : public DemoBase {") && uhas("Demo(lgfx::LovyanGFX* dst, SuperEncoder* enc, SuperButton* btnA) : DemoBase(dst, enc, btnA)"), "user file: includes the designer header and derives from the Base with the same constructor");
+        Check(uhas("#include \"Demo.designer.h\"") && uhas("class Demo : public DemoBase {") && uhas("Demo(lgfx::LovyanGFX* dst, SuperEncoder* enc, SuperButton* btnA, SuperButton* btnB) : DemoBase(dst, enc, btnA, btnB)"), "user file: includes the designer header and derives from the Base with the same constructor");
         Check(uhas("void okBtn_Click() override {") && uhas("void wifi_Change() override {") && !uhas("title_") && uhas("wifi.GetChecked()"), "user file: one override stub per handler (none for labels)");
         Check(uhas("never changes it again") && uhas("ui.Show();") && uhas("ui.Service();") && uhas("#pragma once"), "user file: says it is yours and how to use it in a sketch");
         Check(GenerateUserFile(form) == uf, "user file: deterministic");
@@ -1176,6 +1351,222 @@ static void SelfTest() {
             Check(form.items[1].group == "modes", "names: a new radio button joins the form's first radio group");
             form.Clear(); FixOutDir(); sel = -1; BuildFields();
         }
+        // ---- chunk 1: spin box and slider, the property schema, the label, the scrolling panel ----
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ctl";
+        Check(C_COUNT == 11 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
+        Check(ExtraCount(C_SPINBOX) == 8 + N_LABEL_EXTRAS && ExtraCount(C_SLIDER) == 5 + N_LABEL_EXTRAS && ExtraCount(C_LABEL) == 0 && ExtraCount(C_PROGRESS) == N_LABEL_EXTRAS, "chunk 1: a control has its own extras plus the label group (SuperLabel has none)");
+        { DControl d; d.type = C_SPINBOX; const ExtraDef& mn = *FindExtra(C_SPINBOX, "min");
+          Check(ExtraSet(d, mn, "-5") && XInt(d, "min") == -5 && d.extra.count("min") && ExtraSet(d, mn, "0") && !d.extra.count("min"), "extras: a value equal to the default is not stored");
+          Check(ExtraSet(d, *FindExtra(C_SPINBOX, "step"), "0") && XInt(d, "step") == 1 && !XSet(d, "step"), "extras: numbers are clamped to their limits (step >= 1)");
+          Check(!ExtraSet(d, mn, "") && !ExtraSet(d, mn, "-") && !ExtraSet(d, *FindExtra(C_SPINBOX, "wrap"), "maybe") && !ExtraSet(d, *FindExtra(C_SPINBOX, "labelAlign"), "7"), "extras: an invalid value is refused and nothing changes");
+          Check(ExtraSet(d, *FindExtra(C_SPINBOX, "labelColor"), "63488") && XInt(d, "labelColor") == 0xF800 && XStr(d, "labelColor") == "0xF800", "extras: colours are kept as 0xRRRR"); }
+        Place(C_SPINBOX, 8, 8); Place(C_SLIDER, 8, 80);
+        Check(form.items[0].name == "spin1" && form.items[1].name == "slider1" && form.items[0].extra.empty() && form.items[0].h > 8, "chunk 1: placing a spin box / slider (default names, no overrides, the real control's height)");
+        Select(0);
+        auto XR = [&](const char* key) { for (int i = 0; i < nFields; ++i) if (const ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == key) return i; return -1; };
+        auto XClick = [&](const char* key, int dx = 20) { int r = XR(key); EnsureRowVisible(r); Click(FIELD_X + dx, FieldY(r) + 5); };
+        Check(XR("value") >= 0 && XR("min") >= 0 && XR("max") >= 0 && XR("step") >= 0 && XR("decimals") >= 0 && XR("wrap") >= 0 && XR("prefix") >= 0 && XR("suffix") >= 0 && XR("label") >= 0 && XR("labelFont") >= 0, "chunk 1: the property panel has a row per extra");
+        Check(MaxPropScroll() > 0 && FieldAt(FIELD_X + 5, FieldY(XR("labelColor")) + 5) == -1, "panel: a spin box has more rows than fit (it scrolls) and a row below the panel cannot be clicked");
+        { InputEvent w; w.type = InputEvent::WHEEL; w.x = 1200; w.y = 400; w.wheel = -3; Handle(w); Check(propScroll > 0 && propScroll <= MaxPropScroll(), "panel: the wheel over the property panel scrolls it, within its limits");
+          w.wheel = 100; Handle(w); Check(propScroll == 0, "panel: scrolling stops at the top"); }
+        XClick("min"); Key(SDLK_a, KMOD_LCTRL); Type("-20x"); Key(SDLK_RETURN);
+        Check(XInt(form.items[0], "min") == -20 && fields[XR("min")].text == "-20", "chunk 1: a signed number field takes digits and a minus sign");
+        XClick("max"); Key(SDLK_a, KMOD_LCTRL); Type("50"); Key(SDLK_RETURN); XClick("step"); Key(SDLK_a, KMOD_LCTRL); Type("5"); Key(SDLK_RETURN);
+        XClick("value"); Key(SDLK_a, KMOD_LCTRL); Type("20"); Key(SDLK_RETURN);
+        Check(XInt(form.items[0], "max") == 50 && XInt(form.items[0], "step") == 5 && XInt(form.items[0], "value") == 20, "chunk 1: max / step / value are applied");
+        XClick("step"); Key(SDLK_a, KMOD_LCTRL); Key(SDLK_BACKSPACE); Key(SDLK_RETURN);
+        Check(!XSet(form.items[0], "step") && fields[XR("step")].text == "1", "chunk 1: an empty number goes back to the default");
+        XClick("suffix"); Type(" %"); Key(SDLK_RETURN); XClick("decimals"); Key(SDLK_a, KMOD_LCTRL); Type("1"); Key(SDLK_RETURN);
+        { auto sp = MakeControl(&scr, form.items[0], 0, 0); Check(static_cast<SuperSpinBox*>(sp.get())->GetText() == "2.0 %", "chunk 1: the real spin box shows the value with its decimal point and suffix (20 -> \"2.0 %\")"); }
+        XClick("wrap", FIELD_W - 20); Check(XBool(form.items[0], "wrap") && ToJsonHas(form, "\"wrap\": true"), "chunk 1: clicking Yes on a Boolean row sets it (saved as true)");
+        XClick("wrap", 20); Check(!XBool(form.items[0], "wrap") && !ToJsonHas(form, "wrap"), "chunk 1: No is the default and is not saved");
+        XClick("label"); Type("Level"); Key(SDLK_RETURN);
+        { int h0 = form.items[0].h; XClick("labelPos", FIELD_W - 20); Check(XInt(form.items[0], "labelPos") == 1 && form.items[0].h == h0, "chunk 1: the label position is an enum row (Below)"); }
+        XClick("labelAlign", FIELD_W / 2); Check(XInt(form.items[0], "labelAlign") == 1 && ToJsonHas(form, "\"labelAlign\": \"center\""), "chunk 1: the label alignment is saved by name");
+        { int hl = form.items[0].h; DControl nolabel = form.items[0]; nolabel.extra.erase("label"); Check(hl > ControlHeight(&scr, nolabel), "chunk 1: a label makes the control taller (the height comes from the real control)"); }
+        // label colour and label font go through the colour / font dialogs
+        XClick("labelColor"); Check(colorDlg != nullptr && colorDlg->color == 0xFFFF, "chunk 1: the label colour row opens the colour dialog");
+        { InputEvent v; v.type = InputEvent::DOWN; v.button = SDL_BUTTON_LEFT; v.clicks = 1; v.x = colorDlg->PalX() + 4; v.y = colorDlg->PalY() + 1 * (ColorDialog::CELL + ColorDialog::GAP) + 4; Handle(v); v.type = InputEvent::UP; Handle(v); }
+        Key(SDLK_RETURN); Check(colorDlg == nullptr && XInt(form.items[0], "labelColor") == 0xF800, "chunk 1: OK stores the label colour");
+        XClick("labelFont"); Check(fontDlg != nullptr, "chunk 1: the label font row opens the font dialog (on the control's font while unset)");
+        Key(SDLK_DOWN); Key(SDLK_DOWN); Key(SDLK_RETURN); Check(fontDlg == nullptr && XSet(form.items[0], "labelFont") && XStr(form.items[0], "labelFont") == Fonts()[FontIndex("Font2") + 2].id, "chunk 1: the chosen label font is stored");
+        XClick("labelFont", FIELD_W - 8); Check(!XSet(form.items[0], "labelFont"), "chunk 1: the x clears the label font (back to the control's own)");
+        // JSON
+        form.items[0].extra["prefix"] = "a\"b\\c"; Select(1);
+        { Select(1); XClick("showValue", 20); Check(!XBool(form.items[1], "showValue"), "chunk 1: the slider's Show value switches off"); }
+        std::string xj = form.ToJson(), xe; DForm xf;
+        Check(xf.FromJson(xj, xe) && xf.items[0].extra == form.items[0].extra && xf.items[1].extra == form.items[1].extra && xf.ToJson() == xj, "model: all extras survive the JSON round trip (numbers, booleans, enums, colours, fonts, text with quotes)");
+        Check(xj.find("\"min\": -20") != std::string::npos && xj.find("\"labelPos\": \"below\"") != std::string::npos && xj.find("\"showValue\": false") != std::string::npos && xj.find("\"decimals\": 1") != std::string::npos, "model: extras are written readably (numbers, names, true / false)");
+        Check(xf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperSpinBox\",\"min\":\"x\",\"max\":99999999999,\"step\":-4,\"wrap\":7,\"labelPos\":\"sideways\",\"labelAlign\":\"RIGHT\",\"labelFont\":\"NoFont\",\"labelColor\":\"zzz\",\"decimals\":9}]}", xe)
+              && XInt(xf.items[0], "min") == 0 && XInt(xf.items[0], "max") == 999999999 && XInt(xf.items[0], "step") == 1 && XBool(xf.items[0], "wrap") && XInt(xf.items[0], "labelPos") == 0
+              && XInt(xf.items[0], "labelAlign") == 2 && !XSet(xf.items[0], "labelFont") && XInt(xf.items[0], "decimals") == 6, "model: bad extras in a file are repaired (clamped / ignored), enum names are matched ignoring case");
+        // the real controls
+        { auto sl = MakeControl(&scr, form.items[1], 0, 0); Check(!static_cast<SuperSlider*>(sl.get())->ShowValue, "chunk 1: the real slider gets Show value = off"); }
+        // generated code
+        { std::string g = GenerateDesigner(form);
+          auto has2 = [&](const char* x) { return g.find(x) != std::string::npos; };
+          Check(has2("#include <SuperSpinBox.h>") && has2("#include <SuperSlider.h>") && has2("CtlBase(lgfx::LovyanGFX* dst, SuperEncoder* enc, SuperButton* btnA, SuperButton* btnB)"), "codegen: editable controls bring their headers and the constructor takes both buttons");
+          Check(has2("spin1(dst, 8, 8, 100, &lgfx::fonts::Font2, enc, btnA, btnB)") && has2("slider1(dst, 8, 80, 160, &lgfx::fonts::Font2, enc, btnA, btnB)"), "codegen: spin box and slider are built with the encoder and the buttons (and no text argument)");
+          Check(has2("spin1.SetRange(-20, 50);") && has2("spin1.SetDecimals(1);") && has2("spin1.SetPrefix(\"a\\\"b\\\\c\");") && has2("spin1.SetSuffix(\" %\");") && has2("spin1.SetValue(20);") && !has2("spin1.SetStep") && !has2("spin1.SetWrap"), "codegen: only the spin box extras that differ from the defaults, escaped for C++");
+          Check(g.find("spin1.SetRange") < g.find("spin1.SetValue"), "codegen: the range comes before the value (SetValue clamps)");
+          Check(has2("spin1.SetLabel(\"Level\", SuperControl::LABEL_BELOW);") && has2("spin1.SetLabelAlign(SuperControl::ALIGN_CENTER);") && has2("spin1.ColLabel = 0xF800;") && !has2("SetLabelFont"), "codegen: the label (text, position, alignment, colour) and not the unset label font");
+          Check(has2("slider1.ShowValue = false;") && !has2("slider1.SetRange") && !has2("slider1.SetValue"), "codegen: a slider with default range / value writes only Show value");
+          Check(has2("virtual void spin1_Change() {}") && has2("virtual void spin1_Accept() {}") && has2("virtual void slider1_Change() {}") && has2("virtual void slider1_Accept() {}"), "codegen: spin box and slider have a live Change and an Accept handler");
+          Check(has2("spin1.SetOnChange(spin1_ChangeThunk, this);") && has2("spin1.SetOnAccept(spin1_AcceptThunk, this);") && has2("static void spin1_AcceptThunk(void* u)"), "codegen: both events are wired through thunks");
+          Check(has2("Form.Add(&spin1);") && has2("Form.Add(&slider1);"), "codegen: spin box and slider take focus");
+          std::string u = GenerateUserFile(form);
+          Check(u.find("void spin1_Change() override") != std::string::npos && u.find("spin1.GetLiveValue()") != std::string::npos && u.find("spin1.GetValue()") != std::string::npos && u.find("&BtnB") != std::string::npos, "user file: stubs for both events with hints, and the sketch lines pass both buttons"); }
+        Check(!ValidName("spin1_Accept") && !ValidName("x_AcceptThunk") && ValidName("accepted"), "names: _Accept handler names are reserved too");
+        form.Clear(); FixOutDir(); sel = -1; BuildFields();
+        // ---- chunk 2: text box, input box (templates), time box, date box; Fit; refuse bad values ----
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ch2";
+        Check(std::string(Info(C_TEXTBOX).key) == "SuperTextBox" && std::string(Info(C_INPUTBOX).key) == "SuperInputBox" && std::string(Info(C_TIMEBOX).key) == "SuperTimeBox" && std::string(Info(C_DATEBOX).key) == "SuperDateBox", "chunk 2: the four types exist");
+        Check(Info(C_INPUTBOX).fitWidth && Info(C_TEXTBOX).fitWidth && !Info(C_SLIDER).fitWidth && !Info(C_TEXTBOX).ctorText && Info(C_LABEL).ctorText && !Info(C_TEXTBOX).editable, "chunk 2: capability flags (fit width, text in the constructor, editable)");
+        Place(C_INPUTBOX, 8, 8); Place(C_TIMEBOX, 8, 60); Place(C_DATEBOX, 8, 110); Place(C_TEXTBOX, 8, 160);
+        auto X2 = [&](const char* key) { for (int i = 0; i < nFields; ++i) if (const ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == key) return i; return -1; };
+        auto R2 = [&](int prop) { for (int i = 0; i < nFields; ++i) if (fieldProp[i] == prop) return i; return -1; };
+        auto XT = [&](const char* key, const char* text) { int r = X2(key); EnsureRowVisible(r); Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); Type(text); Key(SDLK_RETURN); };
+        auto XS = [&](const char* key, int seg, int n) { int r = X2(key); EnsureRowVisible(r); Click(FIELD_X + seg * (FIELD_W / n) + 6, FieldY(r) + 5); };
+        Check(form.items[0].name == "input1" && form.items[1].name == "time1" && form.items[2].name == "date1" && form.items[3].name == "text1" && form.items[0].extra.empty(), "chunk 2: default names, nothing overridden");
+        { DControl& ib = form.items[0]; Check(FitWidth(&scr, ib) == ib.w, "fit: a new input box is placed exactly as wide as its text");
+          auto ctl = MakeControl(&scr, ib, 0, 0); Check(static_cast<SuperTextBox*>(ctl.get())->GetContentWidth() == ib.w, "fit: the real control agrees (no scroll arrows)"); }
+        // ---- input box: template, value ----
+        Select(0);
+        { int r = R2(P_W); Check(r >= 0 && RowButtons(P_W, (RowBtn[2]){}) == 1, "fit: the Width row of a text-like control has a Fit button"); }
+        XT("value", "5551234567"); Check(XStr(form.items[0], "value") == "5551234567", "input: a value that fits the template is accepted");
+        XT("value", "55512345678"); Check(XStr(form.items[0], "value") == "5551234567" && !rejectMsg.empty() && fields[X2("value")].text != "5551234567" || focus == -1, "input: a value that is too long is refused (the model keeps the old one)");
+        { int r = X2("value"); EnsureRowVisible(r); Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); Type("55x");
+          Check(XStr(form.items[0], "value") == "5551234567" && fields[r].text == "55x" && !rejectMsg.empty(), "input: a character a slot cannot hold is refused while typing, the field shows the text red and says why");
+          Key(SDLK_RETURN); Check(fields[r].text == "5551234567" && focus == -1, "input: leaving the field puts the model's value back"); }
+        XT("value", "42"); Check(XStr(form.items[0], "value") == "0000000042" || XStr(form.items[0], "value") == "42" || XStr(form.items[0], "value").size() <= 10, "input: a short numeric value is accepted");
+        XT("value", "5551234567");
+        { std::string t0 = XStr(form.items[0], "template"); XT("template", "---"); Check(XStr(form.items[0], "template") == t0 && status.find("slot") != std::string::npos, "input: a template without a slot is refused"); }
+        XT("template", "#####"); Check(XStr(form.items[0], "template") == "#####" && !XSet(form.items[0], "value") && status.find("cleared") != std::string::npos, "input: a new template that the value no longer fits clears the value (and says so)");
+        XT("value", "12345"); XT("template", "##-###"); Check(XStr(form.items[0], "value") == "12345", "input: a new template that still fits keeps the value");
+        XT("template", "AAA-###"); XT("value", "ABC123"); XS("trimRight", 0, 2); Check(!XBool(form.items[0], "trimRight") && XStr(form.items[0], "value") == "ABC123", "input: Trim right can be switched off");
+        // Fit
+        { int w0 = form.items[0].w; form.items[0].w = 40; Click(FIELD_X + FIELD_W - 20, FieldY(R2(P_W)) + 5); Check(form.items[0].w == w0 || form.items[0].w == FitWidth(&scr, form.items[0]), "fit: the Fit button sets the width that shows the whole text");
+          form.items[0].w = 40; SyncFields(); Click(FIELD_X + FIELD_W - 20, FieldY(R2(P_W)) + 5); Check(form.items[0].w == FitWidth(&scr, form.items[0]) && form.items[0].w > 40, "fit: after narrowing it, Fit restores the exact width"); }
+        // ---- the presets list ----
+        XT("template", "###-###-####"); XT("value", "5551234567");
+        { RowBtn rb[2]; RowButtons(X2("template") + P_EXTRA * 0 + 0, rb); int tp = TemplateRowProp(); Check(tp >= P_EXTRA && RowButtons(tp, rb) == 2, "presets: the template row has the Presets and Build buttons"); }
+        { int r = X2("template"); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 150 + 10, FieldY(r) + 5); }
+        Check(presetDlg != nullptr && presetDlg->tmpl == "###-###-####", "presets: the Presets button opens the list on the current template");
+        Key(SDLK_DOWN); Check(presetDlg->tmpl == "(###) ###-####", "presets: Down moves to the next preset");
+        Key(SDLK_ESCAPE); Check(presetDlg == nullptr && XStr(form.items[0], "template") == "###-###-####", "presets: Esc cancels");
+        { int r = X2("template"); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 150 + 10, FieldY(r) + 5); }
+        Key(SDLK_DOWN); Key(SDLK_RETURN); Check(presetDlg == nullptr && XStr(form.items[0], "template") == "(###) ###-####" && XStr(form.items[0], "value") == "5551234567", "presets: Enter applies the preset (a value that still fits stays)");
+        { int r = X2("template"); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 150 + 10, FieldY(r) + 5); }
+        { SuperListBox* lb = presetDlg->Lb(); Key(SDLK_HOME); int rx = lb->GetX() + lb->GetBorder() + lb->GetPadding() + 8, ry = lb->GetBoxTop() + lb->GetBorder() + lb->GetPadding() + 2 + 2 * 18;
+          InputEvent v; v.type = InputEvent::DOWN; v.button = SDL_BUTTON_LEFT; v.clicks = 2; v.x = rx; v.y = ry; Handle(v); v.type = InputEvent::UP; Handle(v); }
+        Check(presetDlg == nullptr && XStr(form.items[0], "template") == "#####" && !XSet(form.items[0], "value"), "presets: a double click picks that preset (ZIP code); the value that no longer fits is cleared");
+        // ---- the builder ----
+        XT("template", "###-###"); XT("value", "123456");
+        { int r = X2("template"); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 70 + 10, FieldY(r) + 5); }
+        Check(builderDlg != nullptr && builderDlg->tmpl == "###-###" && builderDlg->Selected() == 0 && builderDlg->Slots() == 6, "builder: the Build button opens the builder on the current template");
+        { auto BK = [&](SDL_Keycode k, Uint16 m = 0) { InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = k; v.mod = m; Handle(v); };
+          auto BT = [&](const char* tx) { InputEvent v; v.type = InputEvent::TEXT; strncpy(v.text, tx, sizeof v.text - 1); Handle(v); };
+          auto BC = [&](int x, int y) { Handle(ev(InputEvent::DOWN, x + 4, y + 3)); Handle(ev(InputEvent::UP, x + 4, y + 3)); };
+          BT("A"); Check(builderDlg->tmpl == "A##-###" && builderDlg->Selected() == 1, "builder: typing a slot character sets the cell and moves on");
+          BT("a"); BT("B"); BT("*"); Check(builderDlg->tmpl == "AaB*###" || builderDlg->tmpl == "AaB*-###", "builder: a / B / * are slots too");
+          BK(SDLK_HOME); BT("("); BT(")"); Check(builderDlg->tmpl.substr(0, 2) == "()" && builderDlg->Slots() == (int)builderDlg->tmpl.size() - 2, "builder: any other character becomes a literal");
+          BK(SDLK_END); BT("#"); Check(builderDlg->tmpl.back() == '#', "builder: typing on the + cell appends");
+          Check(builderDlg->tmpl.size() == 8 || builderDlg->tmpl.size() == 7 + 1, "builder: the template grows by the appended cell");
+          BC(builderDlg->ChipX(0), builderDlg->ChipY(0)); Check(builderDlg->Selected() == 0, "builder: clicking a cell selects it");
+          BC(builderDlg->TypeBtnX(1), builderDlg->TypeBtnY()); Check(builderDlg->tmpl[0] == 'A', "builder: the A button makes the cell an upper-case slot");
+          BC(builderDlg->TypeBtnX(0), builderDlg->TypeBtnY()); Check(builderDlg->tmpl[0] == '#', "builder: the # button makes it a digit");
+          BC(builderDlg->LitX(0), builderDlg->LitY()); Check(builderDlg->tmpl[0] == '-', "builder: a literal button makes it a literal");
+          size_t n0 = builderDlg->tmpl.size(); BC(builderDlg->OpX(0), builderDlg->OpY()); Check(builderDlg->tmpl.size() == n0 + 1 && builderDlg->tmpl[0] == '#', "builder: Insert adds a digit cell before the selection");
+          BC(builderDlg->OpX(1), builderDlg->OpY()); Check(builderDlg->tmpl.size() == n0, "builder: Delete removes the selected cell");
+          std::string before = builderDlg->tmpl; BC(builderDlg->OpX(3), builderDlg->OpY()); Check(builderDlg->tmpl != before && builderDlg->Selected() == 1, "builder: Move right swaps the cell with its neighbour");
+          BC(builderDlg->OpX(2), builderDlg->OpY()); Check(builderDlg->tmpl == before && builderDlg->Selected() == 0, "builder: Move left moves it back");
+          for (int i = 0; i < 60; ++i) { BK(SDLK_END); BT("#"); } Check((int)builderDlg->tmpl.size() == TemplateBuilder::MAX_CELLS && !builderDlg->state, "builder: a template has at most 40 cells");
+          // only literals: OK is refused
+          BK(SDLK_HOME); for (int i = 0; i < 45 && builderDlg->Slots() > 0; ++i) { BC(builderDlg->OpX(1), builderDlg->OpY()); } for (int i = 0; i < 3; ++i) BT("-");
+          Check(builderDlg->Slots() == 0, "builder: (a template of literals only)");
+          BK(SDLK_RETURN); Check(builderDlg != nullptr && builderDlg->state == TemplateBuilder::OPEN, "builder: OK is refused while there is no slot");
+          BK(SDLK_HOME); BT("#"); BT("#"); BT("#"); BT("-"); BT("#"); BT("#");
+          BC(builderDlg->OkX(), builderDlg->BtnY()); }
+        Check(builderDlg == nullptr && XStr(form.items[0], "template").size() >= 5 && XStr(form.items[0], "template").substr(0, 6) == "###-##", "builder: OK applies the template");
+        XT("template", "###-###"); { int r = X2("template"); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 70 + 10, FieldY(r) + 5); }
+        Key(SDLK_ESCAPE); Check(builderDlg == nullptr && XStr(form.items[0], "template") == "###-###", "builder: Esc cancels");
+        // ---- time box ----
+        Select(1);
+        XT("value", "7:5"); Check(XStr(form.items[1], "value") == "07:05:00", "time: a value is stored the way the box prints it (7:5 -> 07:05:00)");
+        for (const char* bad : { "24:00", "12:61", "abc", "12", "12:30:99", "1:2:3:4", "12-30" }) { XT("value", bad); if (XStr(form.items[1], "value") != "07:05:00") Check(false, (std::string("time: refused: ") + bad).c_str()); }
+        Check(XStr(form.items[1], "value") == "07:05:00" && status.find("time") != std::string::npos, "time: impossible times (24:00, 12:61, ...) are refused, with a reason");
+        XS("seconds", 0, 2); Check(!XBool(form.items[1], "seconds") && XStr(form.items[1], "value") == "07:05", "time: switching Seconds off stores the value without seconds");
+        XS("seconds", 1, 2); Check(XBool(form.items[1], "seconds") && XStr(form.items[1], "value") == "07:05:00", "time: switching it on again");
+        XS("wrap", 1, 2); Check(XBool(form.items[1], "wrap"), "time: Wrap around");
+        // ---- date box ----
+        Select(2);
+        XT("value", "2026-2-3"); Check(XStr(form.items[2], "value") == "2026-02-03", "date: a value is stored as YYYY-MM-DD (2026-2-3 -> 2026-02-03)");
+        for (const char* bad : { "2026-02-30", "2026-13-01", "1969-01-01", "2100-01-01", "x", "2026/02/03", "2026-02" }) { XT("value", bad); if (XStr(form.items[2], "value") != "2026-02-03") Check(false, (std::string("date: refused: ") + bad).c_str()); }
+        Check(XStr(form.items[2], "value") == "2026-02-03" && status.find("date") != std::string::npos, "date: impossible dates and dates outside the year range are refused, with a reason");
+        XT("value", "2024-02-29"); Check(XStr(form.items[2], "value") == "2024-02-29", "date: a leap day is accepted in a leap year");
+        XT("value", "2025-02-29"); Check(XStr(form.items[2], "value") == "2024-02-29", "date: 29 February is refused in a year that is not a leap year");
+        for (const char* bad : { "", "ab", "5", " " }) { XT("separator", bad); if (XStr(form.items[2], "separator") != "-") Check(false, (std::string("date: separator refused: ") + bad).c_str()); }
+        XT("separator", "/"); Check(XStr(form.items[2], "separator") == "/", "date: a one-character separator is accepted"); XT("separator", "-");
+        XT("yearMax", "2000"); Check(XInt(form.items[2], "yearMax") == 2099, "date: a year range that excludes the value is refused");
+        XT("value", "1999-05-05"); XT("yearMax", "2000"); Check(XInt(form.items[2], "yearMax") == 2000 && XStr(form.items[2], "value") == "1999-05-05", "date: the year range is applied when the value fits");
+        XT("yearMin", "2001"); Check(XInt(form.items[2], "yearMin") == 1970, "date: Year from after Year to is refused");
+        XS("style", 1, 2); Check(XInt(form.items[2], "style") == 1 && ToJsonHas(form, "\"style\": \"m-d-y\""), "date: the style is a choice (saved as m-d-y)");
+        // ---- text box ----
+        Select(3); Check(R2(P_TEXT) >= 0 && R2(P_ALIGN) >= 0 && X2("label") >= 0, "text box: Text, Align and the label group");
+        { int r = R2(P_TEXT); Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); Type("Ready"); Key(SDLK_RETURN); Check(form.items[3].text == "Ready", "text box: the text is applied"); }
+        // ---- JSON and generated code ----
+        { std::string cj = form.ToJson(), ce; DForm cf; Check(cf.FromJson(cj, ce) && cf.ToJson() == cj && cf.items[2].extra == form.items[2].extra && cf.items[0].extra == form.items[0].extra, "model: chunk 2 extras survive the JSON round trip"); }
+        form.items[0].extra.clear(); form.items[1].extra.clear(); form.items[2].extra.clear();
+        { DControl& ib = form.items[0]; ExtraSet(ib, *FindExtra(C_INPUTBOX, "template"), "AAA-###"); ExtraSet(ib, *FindExtra(C_INPUTBOX, "value"), "ABC123"); ExtraSet(ib, *FindExtra(C_INPUTBOX, "trimRight"), "false"); ExtraSet(ib, *FindExtra(C_INPUTBOX, "literalColor"), "0x07E0");
+          ExtraSet(form.items[1], *FindExtra(C_TIMEBOX, "seconds"), "false"); ExtraSet(form.items[1], *FindExtra(C_TIMEBOX, "value"), "07:30"); ExtraSet(form.items[1], *FindExtra(C_TIMEBOX, "wrap"), "true");
+          ExtraSet(form.items[2], *FindExtra(C_DATEBOX, "style"), "1"); ExtraSet(form.items[2], *FindExtra(C_DATEBOX, "separator"), "/"); ExtraSet(form.items[2], *FindExtra(C_DATEBOX, "yearMin"), "2000"); ExtraSet(form.items[2], *FindExtra(C_DATEBOX, "value"), "2026-12-31"); }
+        { std::string g = GenerateDesigner(form); auto h3 = [&](const char* x) { return g.find(x) != std::string::npos; };
+          Check(h3("#include <SuperTextBox.h>") && h3("#include <SuperInputBox.h>") && h3("#include <SuperTimeBox.h>") && g.find("#include <SuperTimeBox.h>") == g.rfind("#include <SuperTimeBox.h>"), "codegen: the headers of the new types (SuperTimeBox.h once for time and date)");
+          Check(h3("input1(dst, 8, 8, ") && h3(", &lgfx::fonts::Font2, \"AAA-###\", enc, btnA, btnB)"), "codegen: the input box template is the argument before the encoder and buttons");
+          Check(h3(("time1(dst, 8, " + std::to_string(form.items[1].y) + ", ").c_str()) && h3("enc, btnA, btnB, false)") && h3(("date1(dst, 8, " + std::to_string(form.items[2].y) + ", ").c_str()) && h3("enc, btnA, btnB, SuperDateBox::DATE_MDY)"), "codegen: seconds = false and the M-D-Y style are constructor arguments");
+          Check(h3(("text1(dst, 8, " + std::to_string(form.items[3].y) + ", 120, &lgfx::fonts::Font2)").c_str()) && h3("text1.SetText(\"Ready\");") && !h3(", &lgfx::fonts::Font2, \"Ready\")"), "codegen: the text box text is set with SetText, not in the constructor");
+          Check(h3("input1.SetValue(\"ABC123\");") && h3("input1.TrimRight = false;") && h3("input1.ColLiteral = 0x07E0;"), "codegen: input box value, Trim right and literal colour");
+          Check(h3("time1.SetWrap(true);") && h3("time1.SetValue(\"07:30\");") && h3("date1.SetSeparator('/');") && h3("date1.SetYearRange(2000, 2099);") && h3("date1.SetValue(\"2026-12-31\");"), "codegen: time / date settings; the date value comes after the year range");
+          Check(g.find("date1.SetYearRange") < g.find("date1.SetValue(") && !h3("date1.SetWrap"), "codegen: order, and no Wrap when it is off");
+          Check(h3("Form.Add(&input1);") && h3("Form.Add(&time1);") && h3("Form.Add(&date1);") && h3("Form.Add(&text1, false);"), "codegen: the text box is display only (not focusable), the others take focus");
+          Check(h3("virtual void input1_Change() {}") && h3("virtual void date1_Accept() {}") && !h3("text1_"), "codegen: input / time / date have Change and Accept handlers; the text box none"); }
+        { auto dc = MakeControl(&scr, form.items[2], 0, 0); Check(static_cast<SuperTextBox*>(dc.get())->GetText() == "12/31/2026", "chunk 2: the real date box shows M-D-Y with the separator (12/31/2026)");
+          auto tc = MakeControl(&scr, form.items[1], 0, 0); Check(static_cast<SuperTextBox*>(tc.get())->GetText() == "07:30", "chunk 2: the real time box without seconds shows 07:30");
+          auto ic = MakeControl(&scr, form.items[0], 0, 0); Check(static_cast<SuperTextBox*>(ic.get())->GetText() == "ABC-123", "chunk 2: the real input box shows the template with the value"); }
+        form.Clear(); FixOutDir(); sel = -1; BuildFields();
+        // ---- check box / radio button: no label group, an initial state ----
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Chk";
+        Check(ExtraCount(C_CHECKBOX) == 1 && ExtraCount(C_RADIO) == 1 && ExtraCount(C_PUSHBUTTON) == 0 && !Info(C_CHECKBOX).hasLabel && !Info(C_RADIO).hasLabel && !Info(C_PUSHBUTTON).hasLabel, "controls with a caption of their own (check box, radio button, push button) have no label group");
+        Place(C_CHECKBOX, 8, 8); Place(C_RADIO, 8, 40); Place(C_RADIO, 8, 72); Place(C_RADIO, 8, 104); Place(C_PUSHBUTTON, 8, 136);
+        auto CX = [&](const char* key) { for (int i = 0; i < nFields; ++i) if (const ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == key) return i; return -1; };
+        auto CS = [&](const char* key, int seg) { int r = CX(key); EnsureRowVisible(r); Click(FIELD_X + seg * (FIELD_W / 2) + 6, FieldY(r) + 5); };
+        Select(0); Check(CX("checked") >= 0 && CX("label") < 0 && CX("labelFont") < 0 && CX("labelColor") < 0 && PropLabel(fieldProp[CX("checked")]) == "Checked", "check box: a Checked row, no label rows");
+        Select(1); Check(CX("checked") >= 0 && PropLabel(fieldProp[CX("checked")]) == "Selected" && CX("label") < 0, "radio button: a Selected row, no label rows");
+        Select(4); Check(CX("label") < 0 && CX("checked") < 0 && R2(P_TEXT) >= 0, "push button: no label rows (its Text is its caption)");
+        Select(0); Check(!XBool(form.items[0], "checked") && form.items[0].extra.empty(), "check box: unchecked by default (nothing stored)");
+        { auto cc = MakeControl(&scr, form.items[0], 0, 0); Check(!static_cast<SuperCheckBox*>(cc.get())->GetChecked(), "check box: the real control starts unchecked"); }
+        CS("checked", 1); Check(XBool(form.items[0], "checked") && ToJsonHas(form, "\"checked\": true"), "check box: Yes sets the initial state (saved as true)");
+        { auto cc = MakeControl(&scr, form.items[0], 0, 0); Check(static_cast<SuperCheckBox*>(cc.get())->GetChecked(), "check box: the real control is drawn checked"); }
+        { std::string g = GenerateDesigner(form); Check(g.find("check1.SetChecked(true);") != std::string::npos && g.find("check1.SetChecked(true);") < g.find("check1.SetOnChange"), "check box: the generated code sets it silently, before the event is wired"); }
+        CS("checked", 0); Check(!XBool(form.items[0], "checked") && !ToJsonHas(form, "checked"), "check box: No is the default again (not saved)");
+        { std::string g = GenerateDesigner(form); Check(g.find("SetChecked") == std::string::npos, "check box: nothing is generated for an unchecked box"); }
+        // radio buttons: one selected per group
+        Select(1); CS("checked", 1); Check(XBool(form.items[1], "checked"), "radio: Selected = Yes");
+        Select(2); CS("checked", 1); Check(XBool(form.items[2], "checked") && !XBool(form.items[1], "checked"), "radio: selecting another button of the group deselects the first");
+        { int n = 0; for (auto& c : form.items) if (c.type == C_RADIO && XBool(c, "checked")) ++n; Check(n == 1, "radio: only one button per group is selected"); }
+        { auto rc = MakeControl(&scr, form.items[2], 0, 0); Check(static_cast<SuperCheckBox*>(rc.get())->GetChecked(), "radio: the real radio button is drawn selected"); }
+        { std::string g = GenerateDesigner(form); Check(g.find("radio2.SetChecked(true);") != std::string::npos && g.find("radio2.SetChecked(true);") < g.find("group1.Add(&radio2);") && g.find("radio1.SetChecked") == std::string::npos, "radio: only the selected button is generated, before it joins the group"); }
+        // another group keeps its own selection; a selected button joining a group with a selection does not take it over
+        Select(3); { int r = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_GROUP) r = i; Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); Type("modes"); Key(SDLK_RETURN); }
+        CS("checked", 1); Check(XBool(form.items[3], "checked") && XBool(form.items[2], "checked"), "radio: a different group has its own selection");
+        Select(3); { int r = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_GROUP) r = i; Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); Type("group1"); Key(SDLK_RETURN); }
+        Check(form.items[3].group == "group1" && !XBool(form.items[3], "checked") && XBool(form.items[2], "checked"), "radio: moving a selected button into a group that already has a selection does not take it over");
+        // files
+        { std::string cj = form.ToJson(), ce; DForm cf; Check(cf.FromJson(cj, ce) && cf.items[2].extra == form.items[2].extra && XBool(cf.items[2], "checked") && cf.ToJson() == cj, "model: the initial state survives the JSON round trip");
+          Check(cf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperRadioButton\",\"name\":\"a\",\"checked\":true},{\"type\":\"SuperRadioButton\",\"name\":\"b\",\"checked\":true},{\"type\":\"SuperRadioButton\",\"name\":\"c\",\"group\":\"other\",\"checked\":true}]}", ce)
+                && XBool(cf.items[0], "checked") && !XBool(cf.items[1], "checked") && XBool(cf.items[2], "checked"), "model: two selected radio buttons in one group in a file: the first wins, other groups are untouched");
+          Check(cf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperCheckBox\",\"name\":\"k\",\"label\":\"old\",\"labelColor\":\"0xF800\",\"checked\":true}]}", ce) && XBool(cf.items[0], "checked") && !cf.items[0].extra.count("label") && !cf.items[0].extra.count("labelColor"), "model: label settings on a check box in an older file are ignored"); }
+        form.Clear(); FixOutDir(); sel = -1; BuildFields();
         // delete
         form.Clear(); Place(C_LABEL, 8, 8); Place(C_CHECKBOX, 8, 40); sel = -1; Key(SDLK_TAB); Key(SDLK_DELETE); Check(form.items.size() == 1 && sel == -1, "designer: Delete removes the selected control");
         form.Clear(); sel = -1; BuildFields(); unsetenv("FD_FORM");
@@ -1207,8 +1598,10 @@ void setup() {
     }
     if (getenv("FD_ZOOM")) { if (getenv("FD_ZOOM")[0] == 'f') ZoomFit(); else ZoomCentre(atoi(getenv("FD_ZOOM"))); }   // FD_ZOOM=fit | percent
     if (getenv("FD_SELECT") && form.items.size() > (size_t)atoi(getenv("FD_SELECT"))) Select(atoi(getenv("FD_SELECT")));   // FD_SELECT=n: select control n at start
-    if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'o') OpenFileDialog(FP_OPEN);          // FD_SHOW=open: the Open dialog
-    else if (getenv("FD_SHOW")) { if (!form.items.empty()) { sel = 0; BuildFields(); } for (int i = 0; i < nFields; ++i) if (fieldProp[i] == (getenv("FD_SHOW")[0] == 'f' ? P_FONT : Sel() ? P_FG : P_FBG)) { if (fieldProp[i] == P_FONT) OpenFontDialog(); else OpenColorDialog(fieldProp[i]); break; } }   // FD_SHOW=color | font: open a dialog at start (for screenshots)
+    if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'p') OpenPresetDialog();            // FD_SHOW=presets | builder: the template dialogs (select an input box with FD_SELECT)
+    else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'b') OpenBuilderDialog();
+    else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'o') OpenFileDialog(FP_OPEN);          // FD_SHOW=open: the Open dialog
+    else if (getenv("FD_SHOW")) { if (!form.items.empty()) { sel = 0; BuildFields(); } for (int i = 0; i < nFields; ++i) if (fieldProp[i] == (getenv("FD_SHOW")[0] == 'f' ? P_FONT : Sel() ? P_FG : P_FBG)) { if (fieldProp[i] == P_FONT) OpenFontDialog(P_FONT); else OpenColorDialog(fieldProp[i]); break; } }   // FD_SHOW=color | font: open a dialog at start (for screenshots)
     if (getenv("FD_SELFTEST")) SelfTest();
 }
 

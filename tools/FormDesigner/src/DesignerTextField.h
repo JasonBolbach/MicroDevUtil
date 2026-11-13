@@ -27,7 +27,7 @@ public:
     int caret = 0, anchor = 0;       // character positions (0..text.size()); selection = [min, max)
     int scrollX = 0;                 // horizontal scroll in pixels
     size_t maxLen = 256;             // characters
-    enum Filter { ANY, DIGITS, IDENT, HEX } filter = ANY;   // what may be typed / pasted: any printable ASCII, digits only, a C++ identifier, hex digits
+    enum Filter { ANY, DIGITS, SIGNED, IDENT, HEX } filter = ANY;   // what may be typed / pasted: any printable ASCII, digits only, a C++ identifier, hex digits
 
     bool HasSel() const { return caret != anchor; }
     int SelBegin() const { return std::min(caret, anchor); }
@@ -155,6 +155,7 @@ private:
         std::string r;
         for (unsigned char c : s) {
             if (flt == DIGITS) { if (isdigit(c)) r += (char)c; }
+            else if (flt == SIGNED) { if (isdigit(c) || c == '-') r += (char)c; }
             else if (flt == HEX) { if (isxdigit(c)) r += (char)toupper(c); }
             else if (flt == IDENT) { if (isalnum(c) || c == '_') r += (char)c; }
             else if (c == '\t' || c == '\n') r += ' ';

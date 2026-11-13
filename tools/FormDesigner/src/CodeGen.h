@@ -41,14 +41,76 @@ inline std::string HexColor(uint16_t c) { char b[8]; snprintf(b, sizeof b, "0x%0
 inline std::string DesignerFileName(const DForm& f) { return f.name + ".designer.h"; }
 
 inline const char* HeaderOf(int type) {
-    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h" };
+    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h" };
     return h[type];
 }
-// the event a control raises (written as <name>_<Event>), nullptr for none
-inline const char* EventOf(int type) {
-    switch (type) { case C_PUSHBUTTON: return "Click"; case C_CHECKBOX: case C_RADIO: return "Change"; default: return nullptr; }
+// The events a control raises: the handler is <control>_<Name>() and it is connected with control.<setter>(thunk, this).
+struct EventDef { const char* name; const char* setter; const char* hint; };      // hint: what the stub's comment tells the user (%s = the control)
+inline std::vector<EventDef> EventsOf(int type) {
+    switch (type) {
+    case C_PUSHBUTTON: return { { "Click",  "SetOnAccept", "%s was pressed." } };
+    case C_CHECKBOX:   return { { "Change", "SetOnChange", "%s changed: %s.GetChecked() is the new state." } };
+    case C_RADIO:      return { { "Change", "SetOnChange", "%s changed: GROUP.GetSelected() is the selected radio button of the group." } };
+    case C_SPINBOX:
+    case C_SLIDER:
+    case C_INPUTBOX:
+    case C_TIMEBOX:
+    case C_DATEBOX:    return { { "Change", "SetOnChange", "%s is being edited: %s.GetLiveValue() is the value so far." },
+                                { "Accept", "SetOnAccept", "%s was accepted: %s.GetValue() is the new value." } };
+    default:           return {};
+    }
 }
-inline bool Focusable(int type) { return type != C_LABEL && type != C_PROGRESS; }
+// every handler the Base declares, as "name_Event"
+inline std::vector<std::string> HandlerNames(const DForm& f) {
+    std::vector<std::string> v;
+    for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) v.push_back(c.name + "_" + ev.name);
+    return v;
+}
+inline bool Focusable(int type) { return type != C_LABEL && type != C_PROGRESS && type != C_TEXTBOX; }
+inline std::string CppChar(char c) { return c == '\'' ? "'\\''" : c == '\\' ? "'\\\\'" : std::string("'") + c + "'"; }
+
+// The label (caption above / below the box) of a control: only what differs from the defaults.
+inline void EmitLabel(std::ostringstream& o, const DControl& c) {
+    if (!Info(c.type).hasLabel) return;
+    const std::string n = c.name, lt = XStr(c, "label");
+    if (!lt.empty()) o << "        " << n << ".SetLabel(" << CppString(lt) << (XInt(c, "labelPos") == 1 ? ", SuperControl::LABEL_BELOW" : "") << ");\n";
+    else if (XInt(c, "labelPos") == 1) o << "        // (label position Below, but the label text is empty)\n";
+    static const char* al[] = { "ALIGN_LEFT", "ALIGN_CENTER", "ALIGN_RIGHT" };
+    if (XSet(c, "labelAlign")) o << "        " << n << ".SetLabelAlign(SuperControl::" << al[XInt(c, "labelAlign")] << ");\n";
+    if (XSet(c, "labelFont")) o << "        " << n << ".SetLabelFont(&lgfx::fonts::" << FindFont(XStr(c, "labelFont")).id << ");\n";
+    if (XSet(c, "labelColor")) o << "        " << n << ".ColLabel = " << HexColor((uint16_t)XInt(c, "labelColor")) << ";\n";
+}
+// The type's own settings (spin box: range, step, ...): only what differs from the control's defaults.
+inline void EmitExtras(std::ostringstream& o, const DControl& c) {
+    const std::string n = c.name;
+    if (c.type == C_SPINBOX || c.type == C_SLIDER) {
+        if (XSet(c, "min") || XSet(c, "max")) o << "        " << n << ".SetRange(" << XInt(c, "min") << ", " << XInt(c, "max") << ");\n";
+        if (XSet(c, "step")) o << "        " << n << ".SetStep(" << XInt(c, "step") << ");\n";
+    }
+    if (c.type == C_SPINBOX) {
+        if (XSet(c, "decimals")) o << "        " << n << ".SetDecimals(" << XInt(c, "decimals") << ");\n";
+        if (XBool(c, "wrap")) o << "        " << n << ".SetWrap(true);\n";
+        if (XSet(c, "prefix")) o << "        " << n << ".SetPrefix(" << CppString(XStr(c, "prefix")) << ");\n";
+        if (XSet(c, "suffix")) o << "        " << n << ".SetSuffix(" << CppString(XStr(c, "suffix")) << ");\n";
+    }
+    if ((c.type == C_CHECKBOX || c.type == C_RADIO) && XBool(c, "checked")) o << "        " << n << ".SetChecked(true);\n";          // silent: no event
+    if (c.type == C_TEXTBOX && !c.text.empty()) o << "        " << n << ".SetText(" << CppString(c.text) << ");\n";
+    if (c.type == C_INPUTBOX) {
+        if (XSet(c, "literalColor")) o << "        " << n << ".ColLiteral = " << HexColor((uint16_t)XInt(c, "literalColor")) << ";\n";
+        if (!XBool(c, "trimRight")) o << "        " << n << ".TrimRight = false;\n";
+        if (XSet(c, "value")) o << "        " << n << ".SetValue(" << CppString(XStr(c, "value")) << ");\n";
+    }
+    if (c.type == C_TIMEBOX || c.type == C_DATEBOX) {
+        if (c.type == C_DATEBOX) {
+            if (XSet(c, "separator")) o << "        " << n << ".SetSeparator(" << CppChar(XStr(c, "separator")[0]) << ");\n";
+            if (XSet(c, "yearMin") || XSet(c, "yearMax")) o << "        " << n << ".SetYearRange(" << XInt(c, "yearMin") << ", " << XInt(c, "yearMax") << ");\n";
+        }
+        if (XBool(c, "wrap")) o << "        " << n << ".SetWrap(true);\n";
+        if (XSet(c, "value")) o << "        " << n << ".SetValue(" << CppString(XStr(c, "value")) << ");\n";                 // after the year range
+    }
+    if (c.type == C_SLIDER && !XBool(c, "showValue")) o << "        " << n << ".ShowValue = false;\n";
+    if ((c.type == C_SPINBOX || c.type == C_SLIDER) && XSet(c, "value")) o << "        " << n << ".SetValue(" << XInt(c, "value") << ");\n";     // after the range: SetValue clamps
+}
 
 inline std::string GenerateDesigner(const DForm& f) {
     const std::string base = f.name + "Base";
@@ -71,13 +133,17 @@ inline std::string GenerateDesigner(const DForm& f) {
     o << "    SuperForm Form;\n\n";
 
     // constructor: every control is built with its position, width and font
-    o << "    " << base << "(lgfx::LovyanGFX* dst, SuperEncoder* enc, SuperButton* btnA)";
+    o << "    " << base << "(lgfx::LovyanGFX* dst, SuperEncoder* enc, SuperButton* btnA, SuperButton* btnB)";
     bool first = true;
     auto sep = [&]() { o << (first ? "\n        : " : ",\n          "); first = false; };
     for (const DControl& c : f.items) {
         sep();
         o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", &lgfx::fonts::" << FindFont(c.font).id;
-        if (c.type != C_PROGRESS) o << ", " << CppString(c.text);
+        if (Info(c.type).ctorText) o << ", " << CppString(c.text);
+        if (c.type == C_INPUTBOX) o << ", " << CppString(XStr(c, "template"));                      // the template comes before the encoder and buttons
+        if (Info(c.type).editable) o << ", enc, btnA, btnB";                  // editable controls take the encoder and the two buttons
+        if (c.type == C_TIMEBOX && !XBool(c, "seconds")) o << ", false";                           // (seconds = true is the default)
+        if (c.type == C_DATEBOX && XInt(c, "style") == 1) o << ", SuperDateBox::DATE_MDY";
         o << ")";
     }
     sep(); o << "Form(enc, btnA)"; sep(); o << "Dst(dst)";
@@ -88,11 +154,9 @@ inline std::string GenerateDesigner(const DForm& f) {
       << "    // Call every loop pass: focus handling and editing (see SuperForm).\n"
       << "    SuperEditState Service() { return Form.Service(); }\n\n";
 
-    bool anyEvent = false;
-    for (const DControl& c : f.items) if (EventOf(c.type)) anyEvent = true;
-    if (anyEvent) {
+    if (!HandlerNames(f).empty()) {
         o << "protected:\n    // Events: override these in your own class.\n";
-        for (const DControl& c : f.items) if (const char* ev = EventOf(c.type)) o << "    virtual void " << c.name << "_" << ev << "() {}\n";
+        for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) o << "    virtual void " << c.name << "_" << ev.name << "() {}\n";
         o << "\n";
     }
 
@@ -114,26 +178,21 @@ inline std::string GenerateDesigner(const DForm& f) {
             static const char* a[] = { "ALIGN_LEFT", "ALIGN_CENTER", "ALIGN_RIGHT" };
             o << "        " << n << ".SetAlign(SuperControl::" << a[c.align] << ");\n";
         }
-        if (const char* ev = EventOf(c.type))
-            o << "        " << n << (c.type == C_PUSHBUTTON ? ".SetOnAccept(" : ".SetOnChange(") << n << "_" << ev << "Thunk, this);\n";
+        EmitLabel(o, c);
+        EmitExtras(o, c);
+        for (const EventDef& ev : EventsOf(c.type)) o << "        " << n << "." << ev.setter << "(" << n << "_" << ev.name << "Thunk, this);\n";
         if (c.type == C_RADIO) o << "        " << c.group << ".Add(&" << n << ");\n";
         o << "        Form.Add(&" << n << (Focusable(c.type) ? "" : ", false") << ");\n";
     }
     o << "    }\n";
-    for (const DControl& c : f.items) if (const char* ev = EventOf(c.type))
-        o << "    static void " << c.name << "_" << ev << "Thunk(void* u) { static_cast<" << base << "*>(u)->" << c.name << "_" << ev << "(); }\n";
+    for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type))
+        o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { static_cast<" << base << "*>(u)->" << c.name << "_" << ev.name << "(); }\n";
     o << "};\n";
     return o.str();
 }
 
 // ---- the user's file ----
 inline std::string UserFileName(const DForm& f) { return f.name + ".h"; }
-// every handler the Base declares, as "name_Event"
-inline std::vector<std::string> HandlerNames(const DForm& f) {
-    std::vector<std::string> v;
-    for (const DControl& c : f.items) if (const char* ev = EventOf(c.type)) v.push_back(c.name + "_" + ev);
-    return v;
-}
 inline std::string GenerateUserFile(const DForm& f) {
     const std::string base = f.name + "Base";
     std::ostringstream o;
@@ -141,23 +200,22 @@ inline std::string GenerateUserFile(const DForm& f) {
       << "// The controls and their layout are in " << DesignerFileName(f) << " (regenerated every time: do not edit that one).\n"
       << "//\n// In your sketch:\n"
       << "//     #include \"" << UserFileName(f) << "\"\n"
-      << "//     " << f.name << " ui(&lcd, &Enc, &BtnA);          // lcd: your display; Enc / BtnA: your encoder and button\n"
+      << "//     " << f.name << " ui(&lcd, &Enc, &BtnA, &BtnB);   // lcd: your display; Enc, BtnA, BtnB: your encoder and two buttons\n"
       << "//     setup():  ui.Show();                          // draws the form\n"
       << "//     loop():   ui.Service();                       // focus, editing and the handlers below\n"
       << "#pragma once\n#include \"" << DesignerFileName(f) << "\"\n\n"
       << "class " << f.name << " : public " << base << " {\npublic:\n"
-      << "    " << f.name << "(lgfx::LovyanGFX* dst, SuperEncoder* enc, SuperButton* btnA) : " << base << "(dst, enc, btnA) {\n"
+      << "    " << f.name << "(lgfx::LovyanGFX* dst, SuperEncoder* enc, SuperButton* btnA, SuperButton* btnB) : " << base << "(dst, enc, btnA, btnB) {\n"
       << "        // Your start-up code: set initial values, e.g. " << (f.items.empty() ? "someControl.ColFg = 0xFFE0" : f.items[0].name + ".ColFg = 0xFFE0") << ".\n    }\n";
     auto h = HandlerNames(f);
     if (!h.empty()) {
         o << "\nprotected:\n";
-        for (const DControl& c : f.items) {
-            const char* ev = EventOf(c.type); if (!ev) continue;
-            o << "    void " << c.name << "_" << ev << "() override {\n        // ";
-            if (c.type == C_PUSHBUTTON) o << c.name << " was pressed.";
-            else if (c.type == C_CHECKBOX) o << c.name << " changed: " << c.name << ".GetChecked() is the new state.";
-            else o << c.name << " changed: " << c.group << ".GetSelected() is the selected radio button of the group.";
-            o << "\n    }\n";
+        for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) {
+            o << "    void " << c.name << "_" << ev.name << "() override {\n        // ";
+            std::string hint = ev.hint;                                       // %s = the control, GROUP = its radio group
+            for (size_t p; (p = hint.find("%s")) != std::string::npos;) hint.replace(p, 2, c.name);
+            for (size_t p; (p = hint.find("GROUP")) != std::string::npos;) hint.replace(p, 5, c.group);
+            o << hint << "\n    }\n";
         }
     }
     o << "};\n";

@@ -4,7 +4,7 @@
 //   1. a C++ keyword (the whole C++23 list: alternative tokens, char8_t, co_await, static_assert, ... and the contextual final / override / import / module),
 //   2. a name the generated class itself defines (Form, Show, Service, Dst, FormWidth, ...),
 //   3. a reserved-identifier shape: a leading underscore, or a double underscore anywhere,
-//   4. a name that would collide inside the generated class: handler names (<control>_Click / _Change and their _Thunk), SuperGUI and
+//   4. a name that would collide inside the generated class: handler names (<control>_Click / _Change / _Accept and their _Thunk), SuperGUI and
 //      LovyanGFX types (Super*, lgfx, LGFX*), the stdint / size types,
 //   5. a name the Arduino / ESP32 / Pico / C library world defines as a macro or global: HIGH, LOW, INPUT, PI, min, max, delay, Serial, NULL, EOF, ...
 //      (curated here), pin names (A0, D13, GPIO5), the TFT_ / ESP / PICO prefixes, and
@@ -64,7 +64,7 @@ inline bool IsReserved(const std::string& s) {
     if (IsKeyword(s) || IsGeneratorName(s) || IsPlatformName(s) || IsMacroName(s)) return true;
     if (s.empty()) return false;
     if (s[0] == '_' || s.find("__") != std::string::npos) return true;                                         // reserved identifier shapes
-    if (EndsWith(s, "_Click") || EndsWith(s, "_Change") || EndsWith(s, "_ClickThunk") || EndsWith(s, "_ChangeThunk")) return true;   // handler names of the generated class
+    if (EndsWith(s, "_Click") || EndsWith(s, "_Change") || EndsWith(s, "_Accept") || EndsWith(s, "_ClickThunk") || EndsWith(s, "_ChangeThunk") || EndsWith(s, "_AcceptThunk")) return true;   // handler names of the generated class
     if (StartsWith(s, "Super") || s == "lgfx" || StartsWith(s, "LGFX") || StartsWith(s, "lgfx")) return true;   // SuperGUI / LovyanGFX types and namespaces
     if (StartsWith(s, "TFT_") || StartsWith(s, "ESP") || StartsWith(s, "esp_") || StartsWith(s, "GPIO") || StartsWith(s, "gpio_") || StartsWith(s, "PICO") ||
         StartsWith(s, "pico_") || StartsWith(s, "ARDUINO")) return true;                                       // board / SDK families
