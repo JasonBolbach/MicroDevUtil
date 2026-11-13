@@ -2,3 +2,8 @@
 .vscode/
 .DS_Store
 build/
+
+# Claude Code memory / session files must stay private (they normally live in ~/.claude, outside the repo; this guards against a copy being added here)
+.claude/memory/
+.claude/projects/
+MEMORY.md

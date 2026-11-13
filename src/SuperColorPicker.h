@@ -5,6 +5,9 @@
 //  * Editing: encoder changes the active component (ColCursor frame + label), ButtonA short = next component
 //    (H -> S -> V -> H), ButtonA long = accept, ButtonB short = cancel, ButtonB long = revert and keep editing.
 //    OnChange = the color being edited changed (live), OnAccept = accepted.
+//  * Live access (for a dialog that wraps the picker): while editing, GetLive565() / GetLiveHSV() return the colour being edited (not yet
+//    accepted) and SetLiveHSV() / SetLiveRGB() / SetLive565() change it, so the picker can follow other inputs (RGB fields, a palette).
+//    IOPort() gives access to the input plumbing (InjectDelta / Inject) for keyboards and mice.
 //  * Get / set as RGB565 (for LovyanGFX drawing) or 8-bit RGB. The stored color is kept as HSV.
 #include "SuperControl.h"
 #include "SuperEditIO.h"
@@ -26,6 +29,18 @@ public:
     void GetRGB(uint8_t& r, uint8_t& g, uint8_t& b) const { ToRGB(Cur, r, g, b); }
     uint16_t GetColor565() const { uint8_t r, g, b; ToRGB(Cur, r, g, b); return To565(r, g, b); }
     uint32_t GetColor888() const { uint8_t r, g, b; ToRGB(Cur, r, g, b); return ((uint32_t)r << 16) | (g << 8) | b; }
+
+    // ---- live access (the colour being edited while an edit is active, else the stored colour) ----
+    void GetLiveHSV(int& h, int& s, int& v) const { const HSV& c = State == EDIT_ACTIVE ? Work : Cur; h = c.h; s = c.s; v = c.v; }
+    uint16_t GetLive565() const { uint8_t r, g, b; ToRGB(State == EDIT_ACTIVE ? Work : Cur, r, g, b); return To565(r, g, b); }
+    void SetLiveHSV(int h, int s, int v) {
+        HSV n = { Wrap360(h), std::clamp(s, 0, 100), std::clamp(v, 0, 100) };
+        (State == EDIT_ACTIVE ? Work : Cur) = n; Dirty = true;                       // redrawn by the next Push() / Refresh()
+    }
+    void SetLiveRGB(uint8_t r, uint8_t g, uint8_t b) { HSV n = FromRGB(r, g, b); SetLiveHSV(n.h, n.s, n.v); }
+    void SetLive565(uint16_t c) { SetLiveRGB((c >> 8) & 0xF8, (c >> 3) & 0xFC, (c << 3) & 0xF8); }
+    SuperEditIO& IOPort() { return IO; }
+    int  GetActiveComponent() const { return Comp; }                                  // 0 = H, 1 = S, 2 = V
 
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
     // Touch works directly on the bands, no activation needed: touching a bar sets that component (H / S / V) at once,

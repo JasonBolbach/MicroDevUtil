@@ -199,6 +199,7 @@ public:
     void SetBezelColors(uint16_t bezel, uint16_t edge) { ColBezel = bezel; ColBezelEdge = edge; Dirty = true; }
     void SetPadding(int pixels)             { PadReq = pixels < 0 ? 0 : pixels; Dirty = true; }
     void SetAlign(Align a)                  { Alignment = a; Dirty = true; }
+    Align GetAlign() const                  { return Alignment; }
     void SetColors(uint16_t fg, uint16_t bg){ ColFg = fg; ColBg = bg; Dirty = true; }
     void SetDestination(lgfx::LovyanGFX* d) { Dst = d; Dirty = true; }
     virtual void ApplyTheme(const SuperTheme& t) {
