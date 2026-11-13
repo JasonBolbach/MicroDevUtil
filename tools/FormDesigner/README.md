@@ -3,9 +3,73 @@
 A desktop-only designer for SuperGUI forms: macOS, Linux and Windows, LovyanGFX + SDL2, one CMake project. Forms are saved as JSON (designer
 only); the output is C++ (`X.designer.h`, regenerated every time, plus a user file written once).
 
-**Status: step 1, the input spike.** It opens the designer window (mock panel layout, a 320x240 form outline), and shows every mouse, keyboard,
-text and resize event in the designer's logical pixels. Arrow keys change the form size (limits: default 320x240, maximum 1024x768,
-`src/DesignerConfig.h`).
+**Status: step 2, the form model and the design surface.** Toolbox (Label, Push button, Check box, Radio button, Progress bar) -> design
+surface (draws the REAL SuperGUI controls) -> property panel. Click a toolbox item, then the form, to place a control; click to select, drag to
+move, drag the handles on the left / right edge to resize (snapped to the grid, `G` changes it), arrows nudge (Shift = a grid step), Delete
+removes, Tab selects the next control, wheel scrolls (Shift = sideways). Properties (Name, Text, X, Y, Width, Font, Text / Back / Border color, Border style (Standard / 3D / Sleek), Border size, Padding, Align; for the form: Name, Width, Height, Back color) change live. Forms are 32x32 .. 1024x768 (limits in `src/DesignerConfig.h`).
+
+**Files:** Ctrl/Cmd+O (Open) and Ctrl/Cmd+S (Save) always show the file dialog. Open starts where it was last looking (an application setting, see below). Save starts on the
+form's own file; saving over it asks nothing, and typing another name saves under that name and remembers it as the form's file (as Save As). Ctrl/Cmd+X exports the code,
+Ctrl/Cmd+Shift+X exports into a folder you choose. `FD_FORM=file.json` names the file without a dialog (default `form.json`). JSON layout: `src/FormModel.h`. `outputPath` in the
+form's JSON is the last folder the code was exported to successfully (not shown in the designer); when a file is opened (and at start) the designer checks that the folder exists and
+otherwise uses its working folder.
+
+**Font dialog** (`src/FontDialog.h`, `src/FontTable.h`): the real `SuperListBox` with the LovyanGFX fonts that suit US-ASCII (Font0..8, Ascii fonts,
+FreeSans / FreeSerif / FreeMono in all styles and 9-24 pt, DejaVu 9-72, Orbitron, Roboto Thin, Satisfy, Yellowtail), and a preview of the control
+itself in that font plus lorem ipsum, in the control's own colours. A font's size is part of the font, so picking a font picks the size. The JSON stores
+the `lgfx::fonts` name (`"font": "FreeSansBold12pt7b"`); an unknown name falls back to Font2. Click: select, double-click: OK, drag, wheel,
+Up/Down/PageUp/PageDown/Home/End, Enter = OK, Esc = Cancel.
+
+**Layout properties** (border style / size, padding, alignment) are overrides: a control keeps its own default (the field shows it) until you change it, an
+empty field or choosing the default again removes the override, and only overrides are saved (`"borderStyle": "sleek"`, `"padding": 4`, `"align": "center"`)
+and will be generated. Alignment exists for labels and push buttons only.
+
+**File dialog** (`src/FileDialog.h`, modal, drawn inside the designer, plain `std::filesystem`, identical on Windows / macOS / Linux): Open, Save (adds `.json`, asks before
+replacing), and a folder chooser. Path line (type a folder or file path + Enter), Up / Home / New folder buttons (and Drives on Windows), the real `SuperListBox` with folders
+first then `*.json` files (case-insensitive, hidden `.` names skipped), file name field, double-click / Enter, Backspace = up, Tab between fields, Esc = cancel.
+The Windows drive list is written but has not been run on Windows yet.
+
+**Code generation, step 1** (`src/CodeGen.h`): Ctrl/Cmd+X (Export) writes `<FormName>.designer.h` into the last successful export folder (the working folder the first
+time) and saves the form's JSON so that folder is remembered (`outputPath`). `FD_EXPORT=1 FD_FORM=x.json FD_OPEN=1 build/FormDesigner` does the same
+from the command line. The header is regenerated every time and must not be edited: it defines `<FormName>Base` with the controls as public members,
+the `SuperForm`, `Show()`, `Service()`, an `InitializeComponent()` that writes only the properties that differ from each control's default, and one empty
+virtual handler per event (`okBtn_Click()` for push buttons, `wifi_Change()` for check / radio buttons). Your own class derives from it:
+
+```cpp
+#include "Form1.designer.h"
+struct Form1 : Form1Base { using Form1Base::Form1Base; protected: void okBtn_Click() override { /* ... */ } };
+Form1 ui(&lcd, &Enc, &BtnA);   // setup(): ui.Show();   loop(): ui.Service();
+```
+Radio buttons have a **Group** property (a name): buttons with the same group name share one `SuperRadioGroup`, a public member named after the group. A group name must be an identifier, not a C++ keyword and not the name of a control. Control and form names cannot be C++ keywords or the generator's own names (`Form`, `Show`, ...).
+The generated header was compile-checked against SuperGUI and LovyanGFX (clang, `-Wall -Wextra`).
+
+**Code generation, step 2: your file.** The first time, Export also writes `<FormName>.h` next to the designer header: a class `<FormName>` that derives from
+`<FormName>Base`, with a constructor for your start-up code and an empty `override` stub per handler (and a comment on how to use it in a sketch). That file is
+yours: the designer never changes it again, even when you add controls later. Instead the status line (and `FD_EXPORT=1`) names the handlers your file does not
+mention yet (`add to it: cancelBtn_Click +1 more`), and you copy the stubs you want from the designer header's `protected:` list. Delete the file to get a fresh one.
+The pair was built and run as a real SDL app (LovyanGFX) to check that it draws what the designer shows.
+
+**Application settings** (`src/AppSettings.h`): the folders the Open and Save dialogs were last looking at are kept per user, not per form, in
+`~/Library/Application Support/SuperGUI FormDesigner/settings.json` (macOS), `$XDG_CONFIG_HOME` or `~/.config/SuperGUI-FormDesigner/settings.json` (Linux),
+`%APPDATA%\SuperGUI FormDesigner\settings.json` (Windows). `FD_SETTINGS=file` overrides the location (the self-test does).
+
+**Zoom:** the surface header has a zoom spin box (a real `SuperSpinBox`, 10-800 %: click its left / right third, drag up / down, or use the wheel over it) with **Fit** and **1:1** buttons.
+Keys: `+` `-` `0` (1:1) `F` (fit); Ctrl/Cmd + wheel zooms around the mouse. The form is drawn once at 1:1 by the real controls and scaled pixel-exactly, so what you see
+is what the device draws, only bigger. Everything (placing, selecting, dragging, resizing) maps through the zoom; the selection handles stay 8 screen pixels.
+
+**Names** (`src/ReservedNames.h`, `FD::ValidName`): a control, radio group or form name must be a plain identifier that is safe in the generated C++ for Arduino, ESP32, Pico and the desktop.
+Refused: every C++ keyword (C++23, incl. `wchar_t`, `static_assert`, `bitand`, `co_await`, contextual `final` / `override`), the generated class's own names (`Form`, `Show`, `Service`, ...),
+reserved identifier shapes (leading underscore, double underscore), handler names (`x_Click`, `x_Change`, `..Thunk`), `Super*` / `lgfx*` / `LGFX*`, board families (`TFT_*`, `ESP*`, `GPIO*`, `PICO*`, pins
+`A0` / `D13`), Arduino and C library names (`HIGH`, `PI`, `min`, `max`, `delay`, `Serial`, `String`, `NULL`, `EOF`, the stdint types, ...) and **every macro the generated code's headers define**
+(`src/ReservedMacros.h`, ~3900 names, produced by `sh scripts/gen_reserved_macros.sh`: rerun it when LovyanGFX or SuperGUI change). Inside one form no name may repeat, and none may equal the form's
+class names (`<Form>`, `<Form>Base`); a form cannot be renamed onto a control or group name. Files that break these rules are repaired on load. The curated Arduino list comes from the Arduino API, not
+from the Arduino core headers (they are not in this repository): extend `IsPlatformName()` if a board package adds more.
+
+Not yet: more control types, Visible / Enabled.
+
+The input layer also hosts the reusable text field (`src/DesignerTextField.h`, used by the property panel): arrows, Home/End, Shift to
+select, Alt/Ctrl+arrows by word, Cmd+Left/Right line start/end, Backspace/Delete (+Alt = word), Ctrl/Cmd+A/C/X/V, undo/redo (Ctrl/Cmd+Z,
+Shift+Z, Ctrl+Y), mouse click / drag / double-click word / triple-click all, scrolling. US-ASCII only (0x20..0x7E): other characters are dropped.
 
 ## Build and run
 ```
@@ -19,7 +83,7 @@ On Windows point `CMakeLists.txt` at your SDL2 development files (`C:/SDL2`).
 
 ## Checks
 `FD_SELFTEST=1 build/FormDesigner` runs an automatic check of the input layer with synthetic events (opens the window briefly, exits 0 / 1).
-`FD_SNAPSHOT=frame.raw build/FormDesigner` writes the first frame (raw big-endian RGB565, 1400x820) and exits.
+`FD_SNAPSHOT=frame.raw build/FormDesigner` (with `FD_OPEN=1` to load the form file first) writes the first frame (raw big-endian RGB565, 1400x820) and exits.
 
 ## Notes
 - LovyanGFX's SDL panel treats plain `1`-`6` as "rescale the window" and `r` / `l` as "rotate the screen". The designer has text fields, so

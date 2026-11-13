@@ -3,14 +3,16 @@
 // of events in the designer's LOGICAL pixel coordinates. LovyanGFX's SDL panel only reports a left-button touch, so the designer listens with
 // its own SDL event watch (which sees every event before the panel does).
 //
-// Coordinates: SDL reports the mouse in window points; the panel stretches its logical frame over the window, so
-//   logical = window point * logicalSize / windowSize          (per axis, using the window's CURRENT size: correct after a resize / hi-dpi)
+// Coordinates: SDL reports the mouse in window points; the panel draws its logical frame centred in the window, so
+//   see Scale(): the panel scales the frame in 0.5 steps and centres it (it does not stretch), so maximizing shows bars; positions in the
+//   bars are outside 0..logical size.
 // Wheel events carry no position in older SDL: the last known mouse position is used.
 #include <SDL.h>
 #include <deque>
 #include <mutex>
 #include <string>
 #include <cstring>
+#include <cmath>
 
 namespace FD {
 struct InputEvent {
@@ -47,16 +49,25 @@ public:
         return SDL_GetMouseFocus();
     }
     static Uint32 WindowId() { SDL_Window* w = Window(); return w ? SDL_GetWindowID(w) : 1; }
-    // window point -> logical pixel, for a window of ww x wh points showing a logical frame of lw x lh (pure, testable)
-    static void Scale(int wx, int wy, int ww, int wh, int lw, int lh, int& lx, int& ly) {
+    // window point -> logical pixel (pure, testable). ww x wh = window size in points, rw x rh = renderer output size in pixels (hi-dpi:
+    // rw > ww), lw x lh = logical frame. LovyanGFX's panel does NOT stretch the frame: it scales it by floor(2*out/frame)/2 (steps of 0.5)
+    // and centres it, so a maximized window shows bars around the image. The same maths is used here, otherwise the mouse drifts.
+    static void Scale(int wx, int wy, int ww, int wh, int rw, int rh, int lw, int lh, int& lx, int& ly) {
         if (ww < 1) ww = 1; if (wh < 1) wh = 1;
-        lx = (int)((long long)wx * lw / ww);
-        ly = (int)((long long)wy * lh / wh);
+        float sx = (rw * 2 / lw) / 2.0f, sy = (rh * 2 / lh) / 2.0f;
+        if (sx <= 0) sx = 0.5f; if (sy <= 0) sy = 0.5f;
+        float px = (float)wx * rw / ww, py = (float)wy * rh / wh;               // point -> output pixel
+        float ox = (rw - lw * sx) / 2.0f, oy = (rh - lh * sy) / 2.0f;          // where the image starts (centred)
+        lx = (int)std::floor((px - ox) / sx);
+        ly = (int)std::floor((py - oy) / sy);                                  // outside the image: negative / >= lw (in the bars)
     }
     static void ToLogical(int wx, int wy, int& lx, int& ly) {
-        int ww = 1, wh = 1;
-        if (SDL_Window* w = Window()) SDL_GetWindowSize(w, &ww, &wh);           // the CURRENT size: correct after a resize / hi-dpi
-        Scale(wx, wy, ww, wh, LW, LH, lx, ly);
+        int ww = 1, wh = 1, rw = 1, rh = 1;
+        if (SDL_Window* w = Window()) {
+            SDL_GetWindowSize(w, &ww, &wh); rw = ww; rh = wh;
+            if (SDL_Renderer* r = SDL_GetRenderer(w)) SDL_GetRendererOutputSize(r, &rw, &rh);
+        }
+        Scale(wx, wy, ww, wh, rw, rh, LW, LH, lx, ly);
     }
 
 private:
