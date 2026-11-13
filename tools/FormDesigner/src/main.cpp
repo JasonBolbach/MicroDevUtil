@@ -2248,7 +2248,9 @@ void setup() {
     zoomSpin->SetRange(ZOOM_MIN, ZOOM_MAX); zoomSpin->SetStep(ZOOM_STEP); zoomSpin->SetSuffix("%"); zoomSpin->SetValue(100);
     Input::Begin(FD::WIN_W, FD::WIN_H);
     if (SDL_Window* w = Input::Window()) SDL_GetWindowSize(w, &winW, &winH);
-    settings.Load(); FixOutDir(); BuildFields();
+    settings.Load(); FixOutDir();
+    if (!getenv("FD_SELFTEST")) form.boxes.push_back(form.MakeYesNoBox());     // a new form starts with the ready-made Yes/No box (a form opened from a file has what the file has)
+    BuildFields();
     if (getenv("FD_OPEN")) OpenForm();                    // FD_OPEN=1: load the form file at start
     if (getenv("FD_EXPORT")) {                            // FD_EXPORT=1: export <Form>.designer.h from the form file, print the result and exit (0 / 1)
         FD::GenResult r = FD::WriteDesigner(form, form.outDir);

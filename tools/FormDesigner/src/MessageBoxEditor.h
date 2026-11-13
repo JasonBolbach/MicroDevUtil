@@ -210,11 +210,7 @@ private:
     void Add(bool yesNo = false) {
         if ((int)F.boxes.size() >= MAX_MSG_BOXES) { Msg = "a form has at most 20 message boxes"; return; }
         DMessageBox b; b.name = F.UniqueBoxName(); b.lines = { "Message" }; b.buttons = { { "OK", "" } };
-        if (yesNo) {
-            std::string n = "msgYesNo"; for (int k = 2; F.NameTaken(n); ++k) n = "msgYesNo" + std::to_string(k);
-            b.name = n; b.lines = { "Confirm?" }; b.buttons = { { "Yes", "" }, { "No", "" } }; b.defaultBtn = 1; b.w = 180;
-            for (MsgButton& m : b.buttons) { std::string id = DForm::AutoButtonName(b.name, m.text, [&](const std::string& x) { return F.NameTaken(x) || x == b.name || !ValidName(x); }); if (ValidName(id) && !F.NameTaken(id) && id != b.name) m.itemId = id; }
-        }
+        if (yesNo) b = F.MakeYesNoBox();
         int at = Sel >= 0 ? Sel + 1 : 0; F.boxes.insert(F.boxes.begin() + at, b); Sel = at; Msg.clear(); Rebuild(); Focus = F_NAME; Fld[F_NAME].SelectAll();
     }
     void Delete() { if (Sel < 0) return; F.boxes.erase(F.boxes.begin() + Sel); if (Sel >= (int)F.boxes.size()) Sel = (int)F.boxes.size() - 1; Msg.clear(); Rebuild(); Focus = -1; }

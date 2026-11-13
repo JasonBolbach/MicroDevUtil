@@ -462,6 +462,13 @@ struct DForm {
     int GroupId(const std::string& g) const { AssignGroupIds(); for (auto& kv : groupIds) if (kv.first == g) return kv.second; return 0; }
     // Would g be a usable control group name? (a safe C++ name that no control, radio group, menu item or form class already has; other CONTROLS may share it: that is the point)
     bool GroupNameTaken(const std::string& g) const { return NameTaken(g, -1, -1, false); }
+    // The ready-made confirmation box: "Confirm?" with Yes / No (named buttons MSG_<BOX>_YES / _NO), No highlighted. Its name (msgYesNo, msgYesNo2 ...) and button names are free ones.
+    DMessageBox MakeYesNoBox() const {
+        DMessageBox b; b.name = "msgYesNo"; for (int k = 2; NameTaken(b.name); ++k) b.name = "msgYesNo" + std::to_string(k);
+        b.lines = { "Confirm?" }; b.buttons = { { "Yes", "" }, { "No", "" } }; b.defaultBtn = 1; b.w = 180;
+        for (MsgButton& m : b.buttons) { std::string id = AutoButtonName(b.name, m.text, [&](const std::string& x) { return NameTaken(x) || x == b.name || !ValidName(x); }); if (ValidName(id) && !NameTaken(id) && id != b.name) m.itemId = id; }
+        return b;
+    }
     std::string UniqueBoxName() const { for (int k = 1;; ++k) { std::string s = "msg" + std::to_string(k); if (!NameTaken(s)) return s; } }
     // Message boxes (their member names and the names of their buttons' result constants) count too; exceptBox = a box whose own names are not counted (the one being edited).
     bool NameTaken(const std::string& n, int except = -1, int exceptMenu = -1, bool ctlGroups = true, int exceptBox = -1) const {

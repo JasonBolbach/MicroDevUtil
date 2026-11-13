@@ -142,7 +142,7 @@ select, Alt/Ctrl+arrows by word, Cmd+Left/Right line start/end, Backspace/Delete
 Shift+Z, Ctrl+Y), mouse click / drag / double-click word / triple-click all, scrolling. US-ASCII only (0x20..0x7E): other characters are dropped.
 
 **Chunk 5: colour picker and message boxes.** `SuperColorPicker` is a normal control (property: Color). Message boxes are not on the design surface: they live in a form-level list, stored as readable JSON
-(hand-editable, or use the **message box editor**: select nothing, then Edit... on the form's Message boxes row; it has the list of boxes, Name / Title / Width / Default / X / Y, Centered, an Edit message... lines dialog, three button text + optional name rows, Auto names, **Add Yes/No** (a ready-made `msgYesNo` box: "Confirm?" with Yes / No, named buttons `MSG_YESNO_YES` / `MSG_YESNO_NO`, No highlighted) and a live preview; fonts and colours stay JSON-only):
+(hand-editable, or use the **message box editor**: select nothing, then Edit... on the form's Message boxes row; it has the list of boxes, Name / Title / Width / Default / X / Y, Centered, an Edit message... lines dialog, three button text + optional name rows, Auto names, **Add Yes/No** (a ready-made `msgYesNo` box, also present in every new form: "Confirm?" with Yes / No, named buttons `MSG_YESNO_YES` / `MSG_YESNO_NO`, No highlighted) and a live preview; fonts and colours stay JSON-only):
 ```json
 "messageBoxes": [ { "name": "msgDelete", "title": "Careful", "message": ["Delete all data?", "Cannot be undone."],
                     "buttons": [ { "text": "Yes", "itemId": "MSG_DELETE_YES" }, "No" ], "default": 1 } ]
