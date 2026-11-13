@@ -79,6 +79,7 @@ public:
     const Item* GetResultItem() const { return Result; }
     const Item* GetCurrentLevel() const { return Level == &Top ? nullptr : Level; }   // nullptr = top level
 
+    SuperEditIO* EditIO() { return &IO; }                          // the input plumbing: InjectDelta / Inject for keyboards, mice and tests
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
     bool IdleTapActs() const override { return true; }          // one tap on a row opens / chooses it
     int RowAt(int sx, int sy) {
