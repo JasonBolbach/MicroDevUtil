@@ -1,0 +1,13 @@
+{
+  "form": { "name": "UserForm", "width": 320, "height": 240, "backColor": "0x0000", "outputPath": "/Users/owner/Documents/lib/SuperGUI/tools/FormTester/src" },
+  "controls": [
+    { "type": "SuperRadioButton", "name": "rb1", "text": "High", "font": "Font2", "textColor": "0xFFFF", "backColor": "0x0000", "borderColor": "0xFFFF", "group": "rGrp1", "x": 56, "y": 48, "width": 120 },
+    { "type": "SuperRadioButton", "name": "rb2", "text": "Medium", "font": "Font2", "textColor": "0xFFFF", "backColor": "0x0000", "borderColor": "0xFFFF", "group": "rGrp1", "x": 56, "y": 72, "width": 120 },
+    { "type": "SuperRadioButton", "name": "rb3", "text": "Low", "font": "Font2", "textColor": "0xFFFF", "backColor": "0x0000", "borderColor": "0xFFFF", "group": "rGrp1", "x": 56, "y": 96, "width": 120 }
+  ],
+  "messageBoxes": [
+    { "name": "msgYesNo", "width": 180,
+      "message": ["Confirm?"],
+      "buttons": [{ "text": "Yes", "itemId": "MSG_YESNO_YES" }, { "text": "No", "itemId": "MSG_YESNO_NO" }], "default": 1 }
+  ]
+}
