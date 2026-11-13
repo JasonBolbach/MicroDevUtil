@@ -51,6 +51,9 @@ public:
     }
     void EnsureVisible(int i) { EnsureVisible(i, i, i); }
 
+    // The control width at which the whole text fits without scrolling arrows (text + frame + padding). For "fit to content" (the Form Designer).
+    int GetContentWidth() { Layout(); return Pre.back() + 2 * Inset() + ReserveRight; }
+
     // Hit test for touch: which character is under screen x? Returns its index, or CHAR_NONE,
     // CHAR_ARROW_LEFT / CHAR_ARROW_RIGHT (the "<" / ">" shown while the text scrolls).
     enum { CHAR_NONE = -1, CHAR_ARROW_LEFT = -2, CHAR_ARROW_RIGHT = -3 };

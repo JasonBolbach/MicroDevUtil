@@ -39,6 +39,12 @@ public:
         if (Secs) snprintf(b, sizeof b, "%02d:%02d:%02d", Vals[0], Vals[1], Vals[2]); else snprintf(b, sizeof b, "%02d:%02d", Vals[0], Vals[1]);
         return b;
     }
+    // The time being edited (use inside OnChange); the stored time when no edit is active.
+    std::string GetLiveValue() const {
+        const std::vector<int>& v = LiveVals(); char b[12];
+        if (Secs) snprintf(b, sizeof b, "%02d:%02d:%02d", v[0], v[1], v[2]); else snprintf(b, sizeof b, "%02d:%02d", v[0], v[1]);
+        return b;
+    }
     bool SetValue(const std::string& v) {
         int h, m, s = 0;
         int n = sscanf(v.c_str(), "%d:%d:%d", &h, &m, &s);
@@ -93,6 +99,12 @@ public:
     // Always "YYYY-MM-DD", whatever the display style.
     std::string GetValue() const {
         char b[16]; snprintf(b, sizeof b, "%04d-%02d-%02d", Vals[0], Vals[1], Vals[2]);
+        return b;
+    }
+    // The date being edited, "YYYY-MM-DD" (use inside OnChange); the stored date when no edit is active.
+    std::string GetLiveValue() const {
+        const std::vector<int>& v = LiveVals(); char b[16];
+        snprintf(b, sizeof b, "%04d-%02d-%02d", v[0], v[1], v[2]);
         return b;
     }
     bool SetValue(const std::string& v) {              // "YYYY-MM-DD"

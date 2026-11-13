@@ -73,8 +73,10 @@ public:
     }
     std::string GetValue() const { return ValueOf(Committed); }
     std::string GetDisplay() const { return Build(Committed); }
+    std::string GetLiveValue() const { return Editing ? ValueOf(Work) : GetValue(); }      // the value being edited (use inside OnChange)
 
     // ---- editing ----
+    SuperEditIO* EditIO() { return &IO; }                          // the input plumbing: InjectDelta / Inject for keyboards, mice and tests
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
     // Touch (input / time / date boxes): touch a character = it is highlighted at once (even on an idle box) and the box
     // waits for a drag; dragging up / down changes the character; lifting the finger accepts (OnAccept).

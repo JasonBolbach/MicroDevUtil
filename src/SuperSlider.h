@@ -24,6 +24,7 @@ public:
     int32_t GetValue() const { return Value; }
     int32_t GetLiveValue() const { return State == EDIT_ACTIVE ? Work : Value; }   // the value being edited (use inside OnChange)
 
+    SuperEditIO* EditIO() { return &IO; }                          // the input plumbing: InjectDelta / Inject for keyboards, mice and tests
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
     // Touch, no activation needed: touching the track moves the value there at once (even on an idle slider), dragging keeps
     // moving it live, and lifting the finger accepts (OnAccept). Long press = accept, tap outside = cancel.

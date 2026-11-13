@@ -29,6 +29,7 @@ public:
     void SetWrap(bool w) { Wrap = w; }                 // true: a field goes round (59 -> 00) instead of stopping at its limit
 
     // ---- editing ----
+    SuperEditIO* EditIO() { return &IO; }                          // the input plumbing: InjectDelta / Inject for keyboards, mice and tests
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
     bool StartOnPress(int, int) override { return true; }
 
@@ -113,6 +114,7 @@ protected:
     virtual int  FieldMax(int f, const std::vector<int>& v) const = 0;   // may depend on the other fields
     virtual void Constrain(std::vector<int>& v) { (void)v; }             // pull dependent fields back into range (day <= days in month)
 
+    const std::vector<int>& LiveVals() const { return State == EDIT_ACTIVE ? Work : Vals; }      // for the subclasses' GetLiveValue()
     void Build() { Sync(); Invalidate(); }                                // call after (re)describing the layout or changing Vals
     void Commit() { Sync(); Refresh(); }
 

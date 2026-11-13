@@ -47,6 +47,7 @@ public:
     int32_t GetLiveValue() const { return State == EDIT_ACTIVE ? Work : Value; }   // the value being edited (use inside OnChange)
 
     // ---- editing ----
+    SuperEditIO* EditIO() { return &IO; }                          // the input plumbing: InjectDelta / Inject for keyboards, mice and tests
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
     // Touch, like the text boxes: touching the box activates it at once (even when idle), dragging up / down changes the
     // value live, lifting the finger accepts (OnAccept). A plain tap: left third = one step down, right third = one step up,
