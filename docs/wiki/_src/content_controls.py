@@ -81,13 +81,13 @@ temp.SetValue(215);''',
  pitfalls=['With decimals, <code>SetRange(0, 100)</code> means 0.0 to 10.0. Think in scaled integers.','Rapid encoder ticks accelerate on purpose; do not "fix" big jumps in a test by faking ticks.'],
  see=['<a href="slider.html">SuperSlider</a>'])
 
-add(slug='timebox', cls='SuperTimeBox', header='SuperTimeBox.h', kind='edit', short='Time of day HH:MM[:SS], 24 hour',
+add(slug='timebox', extra_img=('img/timedate_centered.png','Time and date boxes with SetAlign(ALIGN_CENTER), idle and editing'), cls='SuperTimeBox', header='SuperTimeBox.h', kind='edit', short='Time of day HH:MM[:SS], 24 hour',
  tag='A time of day made of numeric fields. Scrolling changes a whole field, like a spin box.',
  code='''SuperTimeBox tm(&lcd, 10, 10, 130, &lgfx::fonts::Font2, &Enc, &BtnA, &BtnB /*, seconds=true*/);
 tm.SetTime(14, 30, 0);
 tm.SetOnAccept([](void*){ /* tm.GetValue() == "14:30:00" */ });''',
  features=['Always 24 hour. HH 0-23, MM 0-59, SS 0-59, each field kept in its range; <code>SetWrap(true)</code> makes a field go round (59 to 00).',
-  'Constructor flag <code>seconds=false</code> gives <code>HH:MM</code>.','<code>GetValue()</code> is <code>"HH:MM:SS"</code>; <code>GetSeconds()</code> is seconds since midnight.',
+  'Constructor flag <code>seconds=false</code> gives <code>HH:MM</code>.','<code>SetAlign(ALIGN_CENTER)</code> (or right) centres the text in the box; touch picks the right field either way.','<code>GetValue()</code> is <code>"HH:MM:SS"</code>; <code>GetSeconds()</code> is seconds since midnight.',
   'Built on <code>SuperFieldBox</code>: fixed-width digits and separators drawn in <code>ColLiteral</code>.'],
  gui='<p>Encoder changes the current field by whole units. A short = next field (after the last, back to the first); A long = accept; B short = cancel; B long = revert and keep editing.</p><p>Touch a field to select it, drag up/down to change it, lift to accept. Touching a separator does nothing; tap outside cancels.</p>',
  events='<p>' + EV + '. <code>OnChange</code> on every field change; <code>OnAccept</code> once. Stored time changes only on accept.</p>',
@@ -95,7 +95,7 @@ tm.SetOnAccept([](void*){ /* tm.GetValue() == "14:30:00" */ });''',
  pitfalls=['There is no AM/PM by design.'],
  see=['<a href="datebox.html">SuperDateBox</a>','<a href="spinbox.html">SuperSpinBox</a>'])
 
-add(slug='datebox', cls='SuperDateBox', header='SuperTimeBox.h', kind='edit', short='Year / month / day',
+add(slug='datebox', extra_img=('img/timedate_centered.png','Time and date boxes with SetAlign(ALIGN_CENTER), idle and editing'), cls='SuperDateBox', header='SuperTimeBox.h', kind='edit', short='Year / month / day',
  tag='A date made of year, month and day fields. Changing the month pulls the day back into range.',
  code='''SuperDateBox d(&lcd, 10, 10, 130, &lgfx::fonts::Font2, &Enc, &BtnA, &BtnB, DATE_YMD);
 d.SetLabel("Date (YMD)");

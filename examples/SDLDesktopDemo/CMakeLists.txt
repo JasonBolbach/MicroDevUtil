@@ -32,7 +32,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${SUPERGUI_ROOT}/src                       # the controls (SuperForm.h, SuperControl.h, ...) and SuperButton / SuperEncoder / SuperTouch
     ${SUPERGUI_ROOT}/extras/desktop            # desktop_input.h (wheel / mouse buttons as encoder and buttons)
     ${SUPERGUI_ROOT}/extras/desktop/compat     # a minimal Arduino.h so the SuperInput headers compile on the desktop
-    ${CMAKE_CURRENT_SOURCE_DIR}/../FreenoveS3Demo/src   # DemoUI.h, shared with the ESP32-S3 demo
     ${LGFX_SRC}
 )
 

@@ -1,5 +1,5 @@
 // SuperGUI desktop demo: every control on four tab pages, running in an SDL window on macOS / Linux / Windows.
-// The demo UI itself is the same DemoUI.h as the Freenove ESP32-S3 demo (480x320), so what you see here is what runs on the board.
+// The demo UI (DemoUI.h, next to this file) started as a copy of the Freenove ESP32-S3 demo's (480x320); it is independent now.
 //
 //   Mouse wheel       = encoder (move the highlight / change a value)
 //   Wheel click       = ButtonA  (short = edit / select, long = accept)

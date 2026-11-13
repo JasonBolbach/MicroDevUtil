@@ -60,6 +60,9 @@ def control_body(c):
             if c['kind'] in ('display', 'user', 'instant') or (suffix == '' and not os.path.exists(os.path.join(ROOT, f'img/{c["slug"]}_edit.png'))):
                 cap = c.get('shotcap', 'Rendered by the library')
             imgs.append(f'<figure><img src="../{f}" alt="{c["cls"]} {cap}" style="image-rendering:pixelated;max-width:100%"><figcaption>{cap}</figcaption></figure>')
+    if c.get('extra_img'):
+        f, cap = c['extra_img']
+        imgs.append(f'<figure><img src="../{f}" alt="{cap}" style="image-rendering:pixelated;max-width:100%"><figcaption>{cap}</figcaption></figure>')
     if imgs:
         b.append('<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px">' + ''.join(imgs) + '</div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>')
     b.append('<h2>Quick start</h2>' + f'<pre><code>{esc(c["code"])}</code></pre>')
