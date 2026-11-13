@@ -155,6 +155,10 @@ over the area it covered (generated restore thunk). Library: `SuperMessageBox::E
 Rendered mode shows the real control; Ctrl/Cmd+R switches, Ctrl/Cmd+Enter = OK. JSON: `"richText": ["line", ...]`; generated: `SetTextStatic("..." "...")` (a literal in flash). Library: `SuperRichText`, and
 `SetRich(true)` on `SuperLabel` and `SuperMessageBox` (off by default).
 
+**Scroll bars.** A zoomed form that is larger than the design surface gets a vertical and a horizontal scroll bar (drag the thumb, click the track to move a page; the wheel and Shift+wheel still work); the property panel has one too.
+They are one generic class, `src/DesignerScrollBar.h` (`FD::ScrollBar`, vertical or horizontal, no SDL: give it a rectangle, the content size and the visible size), kept ready to become a SuperGUI control later.
+Also fixed: a gauge has about 42 property rows, more than the old 40-row field table, which overwrote memory next to it (now 64, with a guard and a test).
+
 ## Build and run
 ```
 brew install sdl2 cmake            # macOS (Linux: your package manager's SDL2 + cmake)

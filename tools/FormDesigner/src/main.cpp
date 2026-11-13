@@ -33,6 +33,7 @@
 #include "MessageBoxEditor.h"
 #include "HelpDialog.h"
 #include "RichTextEditor.h"
+#include "DesignerScrollBar.h"
 #include "AppSettings.h"
 #include <SuperSpinBox.h>
 #include <vector>
@@ -72,7 +73,7 @@ enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_F
             P_ITEMS = 98,                          // the items of a list box / combo box / tab bar (opens the items dialog)
             P_HINT = 99,                           // a row that only shows a hint (the template legend)
             P_EXTRA = 100 };                       // P_EXTRA + i = the selected control's i-th extra property (FD::ExtraAt), see FormModel.h
-static const int MAX_FIELDS = 40;
+static const int MAX_FIELDS = 64;                    // (a gauge has about 42 rows)
 static FD::TextField fields[MAX_FIELDS];
 static int fieldProp[MAX_FIELDS], nFields = 0;
 static int propScroll = 0;                           // the property panel scrolls when a control has more rows than fit
@@ -117,9 +118,20 @@ static int FormOY() { return ZH() + 2 * PAD <= VH ? VY + (VH - ZH()) / 2 : VY + 
 static int ToFX(int sx) { return FloorDiv((sx - FormOX()) * 100, zoom); }      // a screen x as a form x
 static int ToFY(int sy) { return FloorDiv((sy - FormOY()) * 100, zoom); }
 static int Snap(int v) { if (v < 0) v = 0; return grid > 1 ? (v + grid / 2) / grid * grid : v; }
+// ---- scroll bars: one for the property panel, two for the design surface (they overlay the edge of the viewport: PAD is wider than a bar, so they never hide the form) ----
+static const int SB = 12;
+static FD::ScrollBar propBar(FD::ScrollBar::VERTICAL, 8), surfV(FD::ScrollBar::VERTICAL, SB), surfH(FD::ScrollBar::HORIZONTAL, SB);
+static FD::ScrollBar* barDrag = nullptr;             // the bar being dragged with the mouse
 static void ClampScroll() {
     int mx = std::max(0, ZW() + 2 * PAD - VW), my = std::max(0, ZH() + 2 * PAD - VH);
     scrollX = std::min(std::max(scrollX, 0), mx); scrollY = std::min(std::max(scrollY, 0), my);
+}
+static void SyncBars() {                             // geometry, range and position of the three bars follow the model
+    int th = PANEL_BOT - PANEL_TOP;
+    propBar.SetGeometry(1382, PANEL_TOP, th); propBar.SetRange(th + MaxPropScroll(), th); propBar.SetPos(propScroll);
+    bool needV = ZH() + 2 * PAD > VH, needH = ZW() + 2 * PAD > VW;
+    surfV.SetGeometry(VX + VW - SB, VY, VH - (needH ? SB : 0)); surfV.SetRange(ZH() + 2 * PAD, VH); surfV.SetPos(scrollY);
+    surfH.SetGeometry(VX, VY + VH - SB, VW - (needV ? SB : 0)); surfH.SetRange(ZW() + 2 * PAD, VW); surfH.SetPos(scrollX);
 }
 static void RefreshGeometry() { for (auto& c : form.items) FD::Measure(&scr, c); }
 static void ClampPos(DControl& c) {
@@ -301,7 +313,7 @@ static bool ApplyProp(int p, const std::string& v) {
 // Which fields the property panel shows (rebuilt when the selection changes) and their text (refreshed from the model).
 static void BuildFields() {
     nFields = 0;
-    auto add = [](int p) { FD::TextField& f = fields[nFields]; fieldProp[nFields++] = p; f.filter = FD::TextField::ANY; f.maxLen = 64;
+    auto add = [](int p) { if (nFields >= MAX_FIELDS) return; FD::TextField& f = fields[nFields]; fieldProp[nFields++] = p; f.filter = FD::TextField::ANY; f.maxLen = 64;
                            if (p == P_NAME || p == P_FNAME || p == P_GROUP || p == P_CGROUP) { f.filter = FD::TextField::IDENT; if (p == P_CGROUP) f.maxLen = 32; }
                            if (p == P_X || p == P_Y || p == P_W || p == P_FW || p == P_FH) { f.filter = FD::TextField::DIGITS; f.maxLen = 4; }
                            if (p == P_BSIZE || p == P_PAD) { f.filter = FD::TextField::DIGITS; f.maxLen = 2; }
@@ -689,6 +701,7 @@ static void Render() {
         scr.setTextColor(C_ACCENT); scr.drawString(FD::Info(tool).title, px + 8, py + 4);
     }
     scr.clearClipRect();
+    SyncBars(); surfV.Draw(scr, 0x18C3, 0x4A69, C_ACCENT); surfH.Draw(scr, 0x18C3, 0x4A69, C_ACCENT);        // the surface's bars (only when the zoomed form is larger than the viewport)
 
     // property panel
     Frame(1000, 56, 390, 754, Sel() ? ("Properties: " + Sel()->name).c_str() : ("Properties: form " + form.name).c_str());
@@ -757,10 +770,7 @@ static void Render() {
               scr.drawString(m.substr(0, cut).c_str(), 1010, yy); m = m.size() > cut ? m.substr(cut + (m[cut] == ' ' ? 1 : 0)) : ""; yy += 18; }
       } }
     scr.clearClipRect();
-    if (MaxPropScroll() > 0) {                                                               // a thin scroll bar
-        int th = PANEL_BOT - PANEL_TOP, kh = std::max(24, th * th / (th + MaxPropScroll())), ky = PANEL_TOP + (th - kh) * propScroll / MaxPropScroll();
-        scr.fillRect(1384, PANEL_TOP, 3, th, 0x2124); scr.fillRect(1384, ky, 3, kh, C_ACCENT);
-    }
+    SyncBars(); propBar.Draw(scr, 0x2124, 0x4A69, C_ACCENT);                                   // the property panel's bar
     if (colorDlg) colorDlg->Draw(SDL_GetTicks());
     if (fontDlg) fontDlg->Draw();
     if (fileDlg) fileDlg->Draw(SDL_GetTicks());
@@ -804,6 +814,7 @@ static void Handle(const InputEvent& e) {
     switch (e.type) {
     case InputEvent::MOVE: {
         dirty = true;
+        if (barDrag) { if (barDrag->Move(e.x, e.y)) { if (barDrag == &propBar) propScroll = barDrag->Pos(); else if (barDrag == &surfV) scrollY = barDrag->Pos(); else scrollX = barDrag->Pos(); ClampPropScroll(); ClampScroll(); } break; }
         if (spinDrag) { SpinPointer(spinStarted ? SuperPointerEvent::DRAG_MOVE : SuperPointerEvent::DRAG_START, e.x, e.y); spinStarted = true; break; }
         if (drag == D_TEXT && focus >= 0) { fields[focus].SetCaretFromX(e.x - FIELD_X - FIELD_PAD, true, MeasureText); Reveal(focus); break; }
         DControl* c = Sel(); if (!c || drag == D_NONE) break;
@@ -853,6 +864,12 @@ static void Handle(const InputEvent& e) {
             Reveal(fi); break;
         }
         SetFocus(-1);
+        SyncBars();
+        for (FD::ScrollBar* b : { &propBar, &surfV, &surfH }) if (b->Down(e.x, e.y)) {                // a scroll bar: grab the thumb or page toward the click
+            barDrag = b->Dragging() ? b : nullptr;
+            if (b == &propBar) propScroll = b->Pos(); else if (b == &surfV) scrollY = b->Pos(); else scrollX = b->Pos();
+            ClampPropScroll(); ClampScroll(); dirty = true; return;
+        }
         if (e.x >= 18 && e.x < 292 && e.y >= TOOL_Y0 && e.y < TOOL_Y0 + FD::C_COUNT * TOOL_H) {   // toolbox
             int t = (e.y - TOOL_Y0) / TOOL_H; tool = tool == t ? -1 : t; dirty = true; break;
         }
@@ -871,6 +888,7 @@ static void Handle(const InputEvent& e) {
         break; }
     case InputEvent::UP:
         if (spinDrag) { SpinPointer(spinStarted ? SuperPointerEvent::DRAG_END : SuperPointerEvent::TAP, e.x, e.y); SpinPump(); spinDrag = false; }
+        if (barDrag) { barDrag->Up(); barDrag = nullptr; }
         drag = D_NONE; break;
     case InputEvent::WHEEL:
         if (e.x >= 1000 && e.x < 1390 && e.y >= 56 && e.y < 810) { propScroll -= e.wheel * FIELD_GAP * 2; ClampPropScroll(); dirty = true; break; }      // the property panel scrolls
@@ -2337,6 +2355,46 @@ static void SelfTest() {
               Check(lf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperRichText\",\"name\":\"r\",\"richText\":\"a\\nb\\u00e9\"}]}", le) && lf.items[0].list == std::vector<std::string>({ "a", "b" }), "rich text: a single string with \\n is split, non-ASCII dropped"); }
             { DForm lf; lf.name = "T"; DControl c; c.type = C_RICHTEXT; c.name = "r"; c.list = { "x" }; lf.items.push_back(c); std::string u = GenerateUserFile(lf); Check(u.find("r_Accept() override") != std::string::npos, "user file: a stub for the rich text's Accept"); }
             form.Clear(); sel = -1; BuildFields();
+        }
+        // ---- scroll bars ----
+        {
+            ScrollBar v(ScrollBar::VERTICAL, 12), h(ScrollBar::HORIZONTAL, 10);
+            v.SetGeometry(100, 20, 200); v.SetRange(1000, 250); v.SetPos(0);
+            Check(v.Needed() && v.MaxPos() == 750 && v.ThumbLen() == 50 && v.ThumbStart() == 0 && v.TrackW() == 12 && v.TrackH() == 200, "scroll bar: thumb size follows page / total");
+            v.SetPos(750); Check(v.ThumbStart() == 150 && v.ThumbStart() + v.ThumbLen() == 200, "scroll bar: at the end the thumb touches the end of the track");
+            v.SetPos(5000); Check(v.Pos() == 750, "scroll bar: Pos is clamped to MaxPos"); v.SetPos(-5); Check(v.Pos() == 0, "scroll bar: ... and to 0");
+            Check(v.Down(105, 150) && !v.Dragging() && v.Pos() == 250, "scroll bar: a click below the thumb moves one page down");
+            Check(v.Down(105, 20 + 5) && v.Pos() == 0, "scroll bar: a click above the thumb moves one page up");
+            Check(v.Down(105, 20 + 10) && v.Dragging(), "scroll bar: a press on the thumb grabs it");
+            Check(v.Move(105, 20 + 10 + 75) && v.Pos() == 375, "scroll bar: dragging half the room moves half the way (grab offset kept)");
+            v.Move(105, 5000); Check(v.Pos() == 750, "scroll bar: dragging past the end stops at the end"); v.Move(105, -5000); Check(v.Pos() == 0, "scroll bar: ... and at the start");
+            v.Up(); Check(!v.Dragging() && !v.Move(105, 100), "scroll bar: after the button is up the mouse does nothing");
+            Check(!v.Contains(99, 100) && !v.Contains(112, 100) && !v.Contains(105, 19) && !v.Contains(105, 220) && v.Contains(105, 100), "scroll bar: hit area is the track only");
+            v.SetRange(100, 250); Check(!v.Needed() && !v.Contains(105, 100) && !v.Down(105, 100) && v.Pos() == 0, "scroll bar: nothing to scroll = no bar, no clicks");
+            h.SetGeometry(10, 300, 400); h.SetRange(800, 400); h.SetPos(100);
+            Check(h.TrackW() == 400 && h.TrackH() == 10 && h.ThumbLen() == 200 && h.ThumbStart() == 50 && h.Down(10 + 60, 305) && h.Dragging() && h.Move(10 + 60 + 100, 999) && h.Pos() == 300, "scroll bar: horizontal works the same along x");
+            h.Up(); h.SetRange(1000000, 10); Check(h.ThumbLen() == 24, "scroll bar: the thumb never gets smaller than its minimum");
+        }
+        {
+            form.Clear(); form.w = 320; form.h = 240; sel = -1; BuildFields(); zoom = 100; scrollX = scrollY = 0; zoomSpin->SetValue(100); SyncBars();
+            Check(!surfV.Needed() && !surfH.Needed(), "surface bars: a form that fits has no scroll bars");
+            ZoomCentre(400); scrollX = scrollY = 0; ClampScroll(); SyncBars();
+            Check(surfV.Needed() && surfH.Needed() && surfV.PageSize() == VH && surfV.Total() == ZH() + 2 * PAD && surfH.Total() == ZW() + 2 * PAD, "surface bars: zoomed beyond the viewport both bars appear");
+            Check(surfV.TrackX() == VX + VW - SB && surfH.TrackY() == VY + VH - SB && surfV.TrackH() == VH - SB && surfH.TrackW() == VW - SB, "surface bars: they sit on the viewport's right and bottom edges and leave the corner free");
+            auto Dn = [&](int x, int y) { Handle(ev(InputEvent::DOWN, x, y)); }; auto Mv = [&](int x, int y) { Handle(ev(InputEvent::MOVE, x, y)); }; auto Up = [&]() { Handle(ev(InputEvent::UP, 0, 0)); };
+            int before = scrollY; Dn(surfV.TrackX() + 4, surfV.TrackY() + surfV.TrackH() - 5); Up();
+            Check(scrollY == std::min(before + VH, ZH() + 2 * PAD - VH) && form.items.empty(), "surface bars: a click on the track pages the view (and does not touch the form)");
+            { int ty = surfV.TrackY() + surfV.ThumbStart() + 3; Dn(surfV.TrackX() + 4, ty); Mv(surfV.TrackX() + 4, 5000); Check(scrollY == ZH() + 2 * PAD - VH, "surface bars: dragging the thumb to the bottom scrolls to the end"); Mv(surfV.TrackX() + 4, -5000); Check(scrollY == 0, "surface bars: and back to the top"); Up(); }
+            { int tx = surfH.TrackX() + surfH.ThumbStart() + 3; Dn(tx, surfH.TrackY() + 4); Mv(5000, surfH.TrackY() + 4); Check(scrollX == ZW() + 2 * PAD - VW, "surface bars: the horizontal bar scrolls sideways"); Up(); Mv(0, surfH.TrackY()); Check(scrollX == ZW() + 2 * PAD - VW, "surface bars: after the button is released the mouse does not scroll"); }
+            { tool = C_LABEL; int n0 = (int)form.items.size(); Dn(surfV.TrackX() + 4, surfV.TrackY() + 40); Up(); Check((int)form.items.size() == n0 && tool == C_LABEL, "surface bars: a click on a bar does not place a control"); tool = -1; }
+            zoom = 100; ZoomCentre(100); scrollX = scrollY = 0; ClampScroll(); SyncBars(); Check(!surfV.Needed() && !surfH.Needed(), "surface bars: back at 1:1 they are gone");
+            // the property panel's bar
+            form.Clear(); Place(C_GAUGE, 8, 8); Select(0); SyncBars();
+            Check(MaxPropScroll() > 0 && propBar.Needed() && propBar.Total() == (PANEL_BOT - PANEL_TOP) + MaxPropScroll(), "property bar: a control with many rows has a scroll bar");
+            { int ty = propBar.TrackY() + propBar.ThumbStart() + 3; Dn(propBar.TrackX() + 3, ty); Mv(propBar.TrackX() + 3, 5000); Check(propScroll == MaxPropScroll(), "property bar: dragging the thumb scrolls the rows to the end"); Up(); }
+            Dn(propBar.TrackX() + 3, propBar.TrackY() + 5); Up(); Check(propScroll < MaxPropScroll() && propScroll >= 0, "property bar: a click above the thumb pages up");
+            form.Clear(); sel = -1; BuildFields(); SyncBars(); Check(!propBar.Needed(), "property bar: the form's own few rows need none");
+            { int worst = 0; for (int t = 0; t < C_COUNT; ++t) { form.Clear(); Place(t, 8, 8); Select(0); worst = std::max(worst, nFields); } Check(worst > 0 && worst < MAX_FIELDS, "property panel: no control type needs more rows than the field table holds (a gauge has about 42)"); form.Clear(); sel = -1; BuildFields(); }
         }
         form.Clear(); FixOutDir(); sel = -1; BuildFields();
         // delete
