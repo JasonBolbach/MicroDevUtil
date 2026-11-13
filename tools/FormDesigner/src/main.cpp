@@ -2217,6 +2217,9 @@ static void SelfTest() {
             Key5(SDLK_ESCAPE); Key5(SDLK_UP); Check(boxDlg->Selected() == 0 && boxDlg->FieldText(MessageBoxEditor::F_NAME) == "msgDelete", "message box editor: the list selects a box and the fields follow");
             { int x = boxDlg->LBX(3) + 5, y = boxDlg->LBY() + 3; Click5(x, y); Check(boxDlg->Boxes()[1].name == "msgDelete" && boxDlg->Selected() == 1, "message box editor: Down moves the box"); }
             { int x = boxDlg->LBX(1) + 5, y = boxDlg->LBY() + 3; Click5(x, y); Check(boxDlg->Boxes().size() == 1, "message box editor: Delete"); }
+            { int x = boxDlg->YesNoX() + 5, y = boxDlg->YesNoY() + 3; Click5(x, y); const DMessageBox& yn = boxDlg->Boxes()[boxDlg->Selected()];
+              Check(yn.name == "msgYesNo" && yn.lines == std::vector<std::string>({ "Confirm?" }) && yn.buttons.size() == 2 && yn.buttons[0].text == "Yes" && yn.buttons[0].itemId == "MSG_YESNO_YES" && yn.buttons[1].itemId == "MSG_YESNO_NO" && yn.defaultBtn == 1, "message box editor: Add Yes/No makes the ready-made Confirm? box with named buttons");
+              Click5(x, y); Check(boxDlg->Boxes()[boxDlg->Selected()].name == "msgYesNo2" && boxDlg->Boxes()[boxDlg->Selected()].buttons[0].itemId != "MSG_YESNO_YES", "message box editor: a second Yes/No gets its own names"); Key5(SDLK_ESCAPE); Key5(SDLK_DELETE); Key5(SDLK_DELETE); }
             Key5(SDLK_ESCAPE); Check(boxDlg == nullptr && form.boxes.empty(), "message box editor: Esc cancels (the form keeps its boxes)");
             Click5(FIELD_X + FIELD_W - 30, FieldY(br) + 5); Key5(SDLK_INSERT); SetF(MessageBoxEditor::F_NAME, "msgAsk"); SetF(MessageBoxEditor::F_T0, "Go"); Key5(SDLK_ESCAPE);
             { int x = boxDlg->OkX() + 5, y = boxDlg->BtnY() + 3; Click5(x, y); }

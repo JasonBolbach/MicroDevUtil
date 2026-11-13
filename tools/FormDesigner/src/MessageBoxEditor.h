@@ -56,6 +56,8 @@ public:
     int AutoX() const { return RX() + RW() - 110; }
     int AutoY() const { return Y + 236; }
     int LBY() const { return Y + 44 + List->GetHeight() + 10; }
+    int YesNoX() const { return X + 16; }
+    int YesNoY() const { return LBY() + 30; }
     int LBX(int k) const { return X + 16 + k * 60; }
     int BtnY() const { return Y + H - 16 - BtnH; }
     int OkX() const { return X + W - 16 - 90; }
@@ -107,10 +109,11 @@ public:
         { SuperPushButton c(G, CenterX(), CenterY(), 150, &lgfx::fonts::Font2, b && !b->centered ? "Centered: No" : "Centered: Yes"); c.Push();
           SuperPushButton m(G, MsgBtnX(), MsgBtnY(), 160, &lgfx::fonts::Font2, "Edit message..."); m.Push();
           SuperPushButton a(G, AutoX(), AutoY() + 36 * 3 - 4, 100, &lgfx::fonts::Font2, "Auto names"); a.Push(); }
+        { SuperPushButton y(G, YesNoX(), YesNoY(), 120, &lgfx::fonts::Font2, "Add Yes/No"); y.Push(); }
         static const char* l1[4] = { "Add", "Delete", "Up", "Down" };
         for (int k = 0; k < 4; ++k) { SuperPushButton bb(G, LBX(k), LBY(), 56, &lgfx::fonts::Font2, l1[k]); bb.Push(); }
         g.setFont(&lgfx::fonts::Font2); g.setTextDatum(lgfx::textdatum_t::top_left); g.setTextColor(COL_DIM);
-        char s[60]; snprintf(s, sizeof s, "%d message box%s", (int)F.boxes.size(), F.boxes.size() == 1 ? "" : "es"); g.drawString(s, X + 16, LBY() + 36);
+        char s[60]; snprintf(s, sizeof s, "%d message box%s", (int)F.boxes.size(), F.boxes.size() == 1 ? "" : "es"); g.drawString(s, X + 16, LBY() + 66);
         // the real message box
         int py = Y + 380, ph = BtnY() - 14 - py;
         g.fillRect(RX(), py, RW(), ph, FormBg); g.drawRect(RX(), py, RW(), ph, COL_LINE);
@@ -203,9 +206,15 @@ private:
         }
         Msg = added ? "" : "every button already has a name"; Load();
     }
-    void Add() {
+    // yesNo: the ready-made confirmation box: "Confirm?" with Yes / No (named buttons MSG_<BOX>_YES / _NO), No highlighted
+    void Add(bool yesNo = false) {
         if ((int)F.boxes.size() >= MAX_MSG_BOXES) { Msg = "a form has at most 20 message boxes"; return; }
         DMessageBox b; b.name = F.UniqueBoxName(); b.lines = { "Message" }; b.buttons = { { "OK", "" } };
+        if (yesNo) {
+            std::string n = "msgYesNo"; for (int k = 2; F.NameTaken(n); ++k) n = "msgYesNo" + std::to_string(k);
+            b.name = n; b.lines = { "Confirm?" }; b.buttons = { { "Yes", "" }, { "No", "" } }; b.defaultBtn = 1; b.w = 180;
+            for (MsgButton& m : b.buttons) { std::string id = DForm::AutoButtonName(b.name, m.text, [&](const std::string& x) { return F.NameTaken(x) || x == b.name || !ValidName(x); }); if (ValidName(id) && !F.NameTaken(id) && id != b.name) m.itemId = id; }
+        }
         int at = Sel >= 0 ? Sel + 1 : 0; F.boxes.insert(F.boxes.begin() + at, b); Sel = at; Msg.clear(); Rebuild(); Focus = F_NAME; Fld[F_NAME].SelectAll();
     }
     void Delete() { if (Sel < 0) return; F.boxes.erase(F.boxes.begin() + Sel); if (Sel >= (int)F.boxes.size()) Sel = (int)F.boxes.size() - 1; Msg.clear(); Rebuild(); Focus = -1; }
@@ -233,6 +242,7 @@ private:
         if (in(CenterX(), CenterY(), 150, BtnH)) { if (DMessageBox* b = Cur()) { b->centered = !b->centered; Msg.clear(); } return; }
         if (in(MsgBtnX(), MsgBtnY(), 160, BtnH)) { OpenSub(); return; }
         if (in(AutoX(), AutoY() + 36 * 3 - 4, 100, BtnH)) { AutoNames(); return; }
+        if (in(YesNoX(), YesNoY(), 120, BtnH)) { Add(true); return; }
         for (int k = 0; k < 4; ++k) if (in(LBX(k), LBY(), 56, BtnH)) { if (k == 0) Add(); else if (k == 1) Delete(); else Move(k == 2 ? -1 : 1); return; }
         if (!F.boxes.empty() && List->RowAt(e.x, e.y) >= 0) { Focus = -1; Drag = D_LIST; Started = false; PressX = e.x; PressY = e.y; Pointer(SuperPointerEvent::PRESS, e.x, e.y); return; }
         if (in(OkX(), BtnY(), 90, BtnH)) { state = OK; return; }
