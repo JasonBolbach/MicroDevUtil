@@ -59,10 +59,10 @@
 <h2>Quick start</h2><pre><code>SuperProgressBar pb(&amp;lcd, 10, 10, 200, &amp;lgfx::fonts::Font2);
 form.Add(&amp;pb, false);          // shown, never focused
 pb.SetRange(100); pb.SetValue(42);</code></pre>
-<h2>Unique features</h2><ul><li><code>ShowPercent</code> draws "42%" centred; the text changes colour where the fill passes under it.</li><li><code>StartEdit()</code> returns false: it never takes focus.</li></ul>
+<h2>Unique features</h2><ul><li><code>ColBar</code> is the bar colour (green by default). <code>ShowPercent = false</code> hides the percentage.</li><li>The percentage is centred by default: <code>SetPercentAlign(ALIGN_LEFT / ALIGN_CENTER / ALIGN_RIGHT)</code>. It is drawn in <code>ColFg</code>, the text colour, on the bar and off it (the old <code>ColBarFg</code> is gone).</li><li><code>StartEdit()</code> returns false: it never takes focus.</li></ul>
 <h2>GUI workflow</h2><p>Nothing to operate. It redraws when <code>SetValue()</code> changes the value.</p>
 <h2>Event workflow</h2><p>None. <code>SetValue</code> redraws immediately if the value changed.</p>
-<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetRange(max)</code></td><td>Maximum, minimum 1</td></tr><tr><td><code>SetValue(v)</code></td><td>Clamped to 0..Max</td></tr><tr><td><code>GetPercent()</code></td><td>Integer percent</td></tr></table>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetRange(max)</code></td><td>Maximum, minimum 1</td></tr><tr><td><code>SetValue(v)</code></td><td>Clamped to 0..Max</td></tr><tr><td><code>GetPercent()</code></td><td>Integer percent</td></tr><tr><td><code>ColBar</code></td><td>Bar colour</td></tr><tr><td><code>ShowPercent</code></td><td>Show the percentage at all</td></tr><tr><td><code>SetPercentAlign(a)</code></td><td>Left / centre / right</td></tr></table>
 <h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Only call <code>SetValue</code> when the value actually changes; an unchanged value is skipped anyway.</div>
 <h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>Each push is about 7 ms on the S3, so do not update at kHz rates.</div>
 <h2>See also</h2><p><a href="gauge.html">SuperGauge</a></p>

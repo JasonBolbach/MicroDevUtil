@@ -1,15 +1,14 @@
 #pragma once
 // SuperProgressBar - display-only progress bar built on SuperControl.
 //  * Value 0..Max (default 100). The fill grows left to right in ColBar.
-//  * ShowPercent draws "42%" centered; the text changes colour where the fill passes under it.
+//  * ShowPercent draws "42%" (centred by default: SetPercentAlign(ALIGN_LEFT / ALIGN_CENTER / ALIGN_RIGHT)) in ColFg, the text colour, on the fill and off it.
 //  * Not editable: it never takes focus input (StartEdit() returns false).
 #include "SuperControl.h"
 
 class SuperProgressBar : public SuperControl {
 public:
     uint16_t ColBar   = 0x07E0;         // fill
-    uint16_t ColBarFg = 0x0000;         // percent text where it sits on the fill
-    bool     ShowPercent = true;
+    bool     ShowPercent = true;        // the percentage is shown at all
 
     SuperProgressBar(lgfx::LovyanGFX* dst, int x, int y, int width, const lgfx::IFont* font)
         : SuperControl(dst, x, y, width, font) {}
@@ -18,6 +17,7 @@ public:
     void SetValue(int32_t v)     { v = std::clamp(v, (int32_t)0, Max); if (v == Value) return; Value = v; Dirty = true; Refresh(); }
     int32_t GetValue() const     { return Value; }
     int  GetPercent() const      { return (int)((int64_t)Value * 100 / Max); }
+    void SetPercentAlign(Align a) { PercentAlign = a; Dirty = true; }
 
 protected:
     void RenderBody(int x, int y, int w, int h) override {
@@ -27,13 +27,12 @@ protected:
         char s[8];
         snprintf(s, sizeof s, "%d%%", GetPercent());
         Spr.setFont(Font);
-        Spr.setTextDatum(lgfx::textdatum_t::middle_center);
-        int cx = x + w / 2, cy = y + h / 2;
-        Spr.setClipRect(x + fw, y, w - fw, h);  Spr.setTextColor(ColFg);   Spr.drawString(s, cx, cy);
-        Spr.setClipRect(x, y, fw, h);           Spr.setTextColor(ColBarFg); Spr.drawString(s, cx, cy);
-        Spr.clearClipRect();
+        Spr.setTextDatum(PercentAlign == ALIGN_LEFT ? lgfx::textdatum_t::middle_left : PercentAlign == ALIGN_RIGHT ? lgfx::textdatum_t::middle_right : lgfx::textdatum_t::middle_center);
+        int cx = PercentAlign == ALIGN_LEFT ? x + 4 : PercentAlign == ALIGN_RIGHT ? x + w - 4 : x + w / 2, cy = y + h / 2;
+        Spr.setTextColor(ColFg); Spr.drawString(s, cx, cy);
     }
 
 private:
     int32_t Value = 0, Max = 100;
+    Align   PercentAlign = ALIGN_CENTER;
 };

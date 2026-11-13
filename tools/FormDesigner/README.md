@@ -47,7 +47,7 @@ The pair was built and run as a real SDL app (LovyanGFX) to check that it draws 
 
 **Start-up:** the designer reopens the form file you opened or saved last (`lastForm` in the application settings). If that file is not accessible it looks for **`template.json` in the folder of the program**:
 if it exists it is opened as a starting point (no file yet: Save asks for a name) and the form is named `NewForm` (`NewForm2` ... if a control has that name); if neither works you get the regular default new form
-(with the ready-made `msgYesNo` box). An explicit `FD_FORM=file.json` skips all this (with `FD_OPEN=1` it loads that file).
+(with the ready-made `msgYesNo` box) at the **last form size used** (`lastFormWidth` / `lastFormHeight` in the application settings; kept when you type a Width / Height or open or save a form; **320 x 240** when nothing is remembered yet), zoomed to fit. An explicit `FD_FORM=file.json` skips all this (with `FD_OPEN=1` it loads that file).
 
 **Application settings** (`src/AppSettings.h`): the folders the Open and Save dialogs were last looking at, and the last form file, are kept per user, not per form, in
 `~/Library/Application Support/SuperGUI FormDesigner/settings.json` (macOS), `$XDG_CONFIG_HOME` or `~/.config/SuperGUI-FormDesigner/settings.json` (Linux),
@@ -87,7 +87,7 @@ saves the read-back sprite; *Read back* leaves the library default), tab bar Tab
 (all additive): `InsertItem` / `RemoveItem` / `SetItem` / `GetItem` on the list box, combo box and tab bar (the tab bar also gets `SetItems`; `GetTab` stays), and on `SuperMenu` `RemoveItem(item)` (with everything
 below it; the memory is reused by `AddItem`), `FindById(id)` and `Root()`. **Chunk 3b: the Menu.** A nested tree of items, stored as readable, hand-editable JSON:
 ```json
-{ "type": "SuperMenu", "name": "menu1", ...,
+{ "type": "SuperMenu", "name": "mnu1", ...,
   "items": [
     { "text": "System", "items": [
         { "text": "Reboot",    "itemId": "MNU_REBOOT",    "id": 7 },
@@ -95,7 +95,7 @@ below it; the memory is reused by `AddItem`), `FindById(id)` and `Root()`. **Chu
     { "text": "About", "itemId": "MNU_ABOUT", "id": 20 } ] }
 ```
 Every command (a leaf) has an **itemId** (a C++-safe name, unique across the whole form, refused if it is a keyword / macro / control name / ...) and a numeric **id** (0-65535, unique within the menu).
-The generated class gets `static constexpr uint16_t MNU_REBOOT = 7;` for each, the `AddItem` calls use the constants (`menu1.AddItem("Reboot", MNU_REBOOT, fd_p1)`), and the handler is
+The generated class gets `static constexpr uint16_t MNU_REBOOT = 7;` for each, the `AddItem` calls use the constants (`mnu1.AddItem("Reboot", MNU_REBOOT, fd_p1)`), and the handler is
 **`menu1_Choose(uint16_t id)`** (plus `menu1_Change()`); your file gets a `switch (id)` with one `case` per command. Parent items (sub-menus) may have an itemId and an id, or neither.
 **Minimal JSON is enough** (`"About"` or `{ "text": "About" }`): on load the designer fills in the missing itemIds (`<ID prefix><TEXT>`, default prefix `MNU_`, so "Power off" becomes `MNU_POWER_OFF`)
 and the next free ids (above the highest), and repairs problems (the first owner of a repeated id or name keeps it; unsafe names are replaced; empty items dropped; at most 5 levels and 200 items).
@@ -120,9 +120,9 @@ of another group from the list switches the view; initially hidden controls are 
 Zone needle, Smoothing (+ ms), Track / Tick / Needle colours, Min/Max window (ms, 0 = off) with minimum degrees and thickness, and the **Zones**: coloured bands on the dial, edited in a **zones dialog** (list of
 From / To / Color with a palette strip, Add / Delete / Move / **Fill 3 bands** (green / yellow / red over 60 / 85 / 100 % of the range) / Clear all, live preview of the real gauge). Strict: a zone must end above where it starts,
 Maximum above Minimum, the sweep must end after it starts, and a Value outside the range is refused; a new Minimum / Maximum moves the needle into the range. A new gauge starts with the three bands and the value 42.
-JSON: `"zones": [ { "from": 0, "to": 60, "color": "0x07E0" }, ... ]`. The generated code calls `SetValue()` last (after the range and the zones); update it at run time with `gauge1.SetValue(v)`.
+JSON: `"zones": [ { "from": 0, "to": 60, "color": "0x07E0" }, ... ]`. The generated code calls `SetValue()` last (after the range and the zones); update it at run time with `gg1.SetValue(v)`.
 *Graph:* Samples (capacity; 0 = one per pixel), Auto range or a fixed Range from / to, Grid, Show range, Line / Grid colours, and **Preview data** (Sine / Rising / Noise / None): sample data so the designer shows a
-graph. It is **designer only** and is not generated; at run time call `graph1.AddSample(v)`.
+graph. It is **designer only** and is not generated; at run time call `grf1.AddSample(v)`.
 *User draw:* Persistent canvas, Auto redraw (ms), Touch input. The designer cannot run your code, so it shows a placeholder (diagonals and the control's name). The generated class has `<name>_Draw(spr, body)`
 (and, with Touch input on, `<name>_Pointer(const SuperUserPointer& e)` and `<name>_Accept()`); your file gets stubs with a drawing example. With Touch input the control takes focus.
 
@@ -162,11 +162,29 @@ Also fixed: a gauge has about 42 property rows, more than the old 40-row field t
 `<b> <i> <b><i> <h1>` use the registered font, a slot with no font leaves the tag ignored; the line is as tall as its tallest font. The designer: a **Rich text** row on Label (off by default) and four optional
 style-font rows on Label and Rich text; the **message box editor** now also has the box's **Font**, **Text / Back / Border colours** (real font and colour dialogs), **Rich text** Yes/No and the four style fonts.
 *Keep hidden:* a form row (off by default). On, every Visible = No control is generated with `SetKeepHidden(true)` and group shows / tab pages leave it hidden (`SuperControl::SetKeepHidden`, `SuperForm` group
-operations skip it; a direct `SetVisible(true)` shows it and clears the mark). *Controls on form:* that list now scrolls (wheel / scroll bar) and follows the selection.
+operations skip it; a direct `SetVisible(true)` shows it and clears the mark). *Controls On Form:* that list now scrolls (wheel / scroll bar) and follows the selection.
 
-**Control order and big forms.** The **Up / Down / Front / Back** buttons above the "Controls on form" list move the selected control in the list. The list order is the order the controls are added to the form
+**Control order and big forms.** The **Up / Down / Front / Back** buttons above the "Controls On Form" list move the selected control in the list. The list order is the order the controls are added to the form
 (`Form.Add`), so it is the draw order (the last one is in front; the designer's click-hit test agrees). The encoder's **focus (tab) order** is separate: every focusable control has a **Tab order** number that is set once when it is added (the next free number) and never changes by itself, so moving a control in the list does not change its tab position; you edit the number in the Tab order row (the list shows it in front of the name). It is saved as `"tabOrder"` and generated as `SetTabOrder(n)` only when the focus order differs from the list order; equal numbers keep the list order, as the library does. Forms can now be up to **1920 x 1080** (`MAX_FORM_W` / `MAX_FORM_H`
 in `src/DesignerConfig.h`); the zoom and scroll bars handle them.
+
+**Progress bar options.** The progress bar has a **Bar color**, **Percent visible** (Yes / No) and **Percent align** (Left / Center / Right) row. The percentage is drawn in the control's **Text color**, on the bar and off it
+(library change: `SuperProgressBar` no longer has `ColBarFg`; it also gained `SetPercentAlign()`).
+
+**Separators and headings.** In `SuperListBox`, `SuperComboBox` and `SuperMenu` an item `~` is a separator line, `~Text` a heading with its text centred in the line (`---- Text ----`, dim, unclickable; too long ones are cut, leaving about a character plus 3 pixels of line on each side: constants in `SuperSeparator.h`) and `~~Text` an ordinary item showing `~Text` (`src/SuperSeparator.h`).
+The cursor skips them (encoder, touch, drag); the initial selection moves to a real item; a list or menu with nothing else cannot be edited. In the designer the items dialog and the menu editor accept them (the dialog shows
+them as ordinary rows to edit), a separator cannot be the initial Selected item, and menu separators get no Item ID / id (not commands, no `case` in the user file). Tab bars do not have them.
+
+**Sub-menu preview.** The menu editor's preview shows the level that holds the selected item (siblings + Back row). On the design surface a menu shows its top level, or the sub-menu named in the new **Preview sub-menu** row (`Settings` or `Settings/Sound`; designer only, not generated, dropped if that item is renamed or removed). Library: `SuperMenu::ShowLevel(item)` draws a level while idle.
+
+**Variable height.** List box, menu, gauge, graph, user draw and rich text have a **Height** row (the total height including the frame) and **top and bottom handles** (the top one keeps the bottom edge fixed).
+Lists and menus snap to **whole rows** (the height is `rows`), rich text to whole lines of its font (the body height is a multiple of the line height), gauge / graph / user draw follow the grid; typed heights snap too. It edits the
+same value as *Visible rows* / *Body height* (nothing new is saved). Dragging stops at the form's edges. The other controls' height follows their font, so they have no height handles.
+
+**Default names.** A new control is named `<prefix><number>` with the smallest number that is free (and a safe C++ name): Label `lbl`, Push Button `cmd`, Check Box `ck`, Radio Button `rb`, Progress Bar `pb`, Spin Box `sp`,
+Slider `sld`, Text Box `txt`, Input Box `inp`, Time Box `tm`, Date Box `dt`, List Box `lb`, Combo Box `cb`, Tab Bar `tab`, Menu `mnu`, Gauge `gg`, Graph `grf`, User Draw `ud`, Color Picker `cp`, Rich Text `rtb` (so `cmd1`, `cmd2`, `lbl1` ...;
+the table is `Info()` in `src/FormModel.h`). A radio group defaults to `rGrp1`, `rGrp2` ...; the Control group row and the tab bar's Page group field show `cGrp1`, `cGrp2` ... as the next free name (a hint: you type the name you want). Message boxes keep `msg1` / `msgYesNo`.
+Existing forms keep their names.
 
 ## Build and run
 ```

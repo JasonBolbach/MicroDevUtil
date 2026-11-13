@@ -91,6 +91,7 @@ public:
             g.setTextColor(0xFFFF); g.drawString("Page group (control group shown with this tab, empty = none):", RX(), PageY() - 22);
             bool pbad = Sel >= 0 && PageField.text != pages[(size_t)Sel];
             DrawField(g, PageField, RX(), PageY(), 300, 26, Focus == F_PAGE, pbad, ticks);
+            if (PageField.text.empty() && Focus != F_PAGE) { g.setFont(&lgfx::fonts::Font2); g.setTextDatum(lgfx::textdatum_t::top_left); g.setTextColor(0x4A69); g.drawString(("none  (next: " + NextPage() + ")").c_str(), RX() + 6, PageY() + 6); }       // a hint: the default name for a new page group
         }
         static const char* l1[5] = { "Add", "Insert", "Delete", "Move up", "Move down" }; static const char* l2[3] = { "Sort A-Z", "Paste lines", "Clear all" };
         for (int k = 0; k < 5; ++k) { SuperPushButton b(G, BtnX(1, k), Row1Y(), BtnW(1), &lgfx::fonts::Font2, l1[k]); b.Push(); }
@@ -100,6 +101,7 @@ public:
         g.setTextColor(0xFFFF); g.drawString(b, RX() + 360, Row2Y() + 6);
         g.setTextColor(COL_DIM); g.drawString("at most 200 items, each 1 to 60 characters (printable ASCII)", RX(), Row2Y() + 34);
         if (!Msg.empty()) { g.setTextColor(COL_ERR); g.drawString(Msg.c_str(), RX(), Row2Y() + 52); }
+        else if (!Tabs) { g.setTextColor(COL_DIM); g.drawString("~ = separator line   ~Text = heading   ~~Text = a real item starting with ~", RX(), Row2Y() + 52); }
         // the real control with these items
         int py = Y + 210 + (Tabs ? 60 : 0), ph = BtnY() - 14 - py;
         g.fillRect(RX(), py, RW(), ph, FormBg); g.drawRect(RX(), py, RW(), ph, COL_LINE);
@@ -128,8 +130,10 @@ private:
         if (v.size() > (size_t)MAX_ITEM_LEN) v.resize(MAX_ITEM_LEN);
         return v;
     }
+    // This dialog edits the items themselves, so its own list must not treat "~..." as a separator: a leading ~ is doubled (the list's escape) to show the raw text.
+    static std::string Raw(const std::string& t) { return !t.empty() && t[0] == '~' ? "~" + t : t; }
     void Rebuild() {                                          // list box and field follow `items` / `Sel`
-        if (!items.empty()) { List->SetItems(items); List->SetSelected(Sel < 0 ? 0 : Sel); List->StartEdit(); if (Sel < 0) Sel = 0; }
+        if (!items.empty()) { std::vector<std::string> shown; for (const std::string& t : items) shown.push_back(Raw(t)); List->SetItems(shown); List->SetSelected(Sel < 0 ? 0 : Sel); List->StartEdit(); if (Sel < 0) Sel = 0; }
         else { List->SetItems({}); Sel = -1; }
         Field.SetText(Sel >= 0 ? items[Sel] : ""); Field.SelectAll(); PageField.SetText(Sel >= 0 ? pages[(size_t)Sel] : "");
     }
@@ -149,13 +153,17 @@ private:
         if (Sel < 0) return;
         std::string v = Clean(Field.text);
         if (v.empty()) { Msg = "an item cannot be empty"; return; }
-        Msg.clear(); items[Sel] = v; List->SetItem(Sel, v);
+        Msg.clear(); items[Sel] = v; List->SetItem(Sel, Raw(v));
     }
     void PageEdited() {                                       // the page group of the selected tab (strict: a safe name nobody else has, or empty)
         if (Sel < 0) return; const std::string& v = PageField.text;
         if (!v.empty() && !ValidName(v)) { Msg = v + " is not a safe C++ name (a keyword, a reserved or library name, or a macro)"; return; }
         if (!v.empty() && Form.GroupNameTaken(v)) { Msg = v + " is already used by a control, a radio group, a menu item or the form's classes"; return; }
         Msg.clear(); pages[(size_t)Sel] = v;
+    }
+    // The default page group of a new tab: cGrp1, cGrp2 ... the first one that no control, group or other tab of this dialog uses.
+    std::string NextPage() const {
+        for (int n = 1;; ++n) { std::string s = "cGrp" + std::to_string(n); if (ValidName(s) && !Form.NameTaken(s) && std::find(pages.begin(), pages.end(), s) == pages.end()) return s; }
     }
     void Add(int at, const char* text) {                      // a new item before index `at` (items.size() = at the end)
         if (Full()) return;

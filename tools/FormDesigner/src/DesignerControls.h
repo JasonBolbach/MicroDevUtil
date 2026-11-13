@@ -103,7 +103,12 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
         if (XBool(c, "rich")) l->SetRich(true);
         for (int k = 0; k < 4; ++k) { std::string f = XStr(c, STYLE_FONT_KEYS[k]); if (!f.empty()) l->SetStyleFont(k, FindFont(f).font); }
         break; }
-    case C_PROGRESS: static_cast<SuperProgressBar*>(p.get())->SetValue(60); break;                 // a sample value so the bar shows something
+    case C_PROGRESS: {
+        auto* b = static_cast<SuperProgressBar*>(p.get());
+        b->ColBar = (uint16_t)XInt(c, "barColor"); b->ShowPercent = XBool(c, "showPercent");
+        b->SetPercentAlign((SuperControl::Align)XInt(c, "percentAlign"));
+        b->SetValue(50);                                                           // a sample value so the bar shows something (50%: a centred percentage is half on the bar, half off it)
+        break; }
     case C_SPINBOX: {
         auto* b = static_cast<SuperSpinBox*>(p.get());
         b->SetRange((int32_t)XInt(c, "min"), (int32_t)XInt(c, "max")); b->SetStep((int32_t)XInt(c, "step")); b->SetDecimals((int)XInt(c, "decimals"));
@@ -134,7 +139,15 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
         std::function<void(const std::vector<MenuNode>&, SuperMenu::Item*)> add = [&](const std::vector<MenuNode>& nodes, SuperMenu::Item* parent) {
             for (const MenuNode& k : nodes) { SuperMenu::Item* it = m->AddItem(k.text, k.id < 0 ? 0 : k.id, parent); add(k.kids, it); }
         };
-        add(c.menu, nullptr);                                                      // (the idle menu shows the top level)
+        add(c.menu, nullptr);
+        { std::string pl = XStr(c, "previewLevel");                                // a sub-menu level to look at instead of the top level (designer only: the idle control shows the top level)
+          if (!pl.empty()) { SuperMenu::Item* cur = nullptr; size_t pp = 0;
+            while (pp <= pl.size()) {
+                size_t q = pl.find('/', pp); if (q == std::string::npos) q = pl.size();
+                std::string seg = pl.substr(pp, q - pp); while (!seg.empty() && seg.front() == ' ') seg.erase(0, 1); while (!seg.empty() && seg.back() == ' ') seg.pop_back();
+                SuperMenu::Item* nxt = nullptr; for (SuperMenu::Item* k : (cur ? cur->Kids : const_cast<SuperMenu::Item*>(m->Root())->Kids)) if (k->Text == seg && !k->Kids.empty()) { nxt = k; break; }
+                if (!nxt) { cur = nullptr; break; } cur = nxt; pp = q + 1; }
+            m->ShowLevel(cur); } }
         break; }
     case C_GAUGE: {
         auto* g = static_cast<SuperGauge*>(p.get());
@@ -233,9 +246,11 @@ inline std::string Validate(lgfx::LovyanGFX* dst, const DControl& c) {
         return "";
     case C_MENU:
         if (!ValidName(XStr(c, "idPrefix") + "X")) return "the ID prefix must be letters, digits and underscores, safe in C++ (e.g. MNU_)";
+        if (!MenuPathOk(c.menu, XStr(c, "previewLevel"))) return "no sub-menu called \"" + XStr(c, "previewLevel") + "\": type the text of a parent item (Settings) or a path (Settings/Sound); empty = the top level";
         return "";
     case C_LISTBOX: case C_COMBOBOX: case C_TABBAR:
         if (!c.list.empty() && XInt(c, "selected") >= (long)c.list.size()) return "the list has " + std::to_string(c.list.size()) + " items: Selected can be 0 to " + std::to_string(c.list.size() - 1);
+        if (!c.list.empty() && c.type != C_TABBAR && SuperSep::IsUnclickable(c.list[(size_t)XInt(c, "selected")])) return "row " + std::to_string(XInt(c, "selected")) + " is a separator or heading (~): it cannot be selected";
         return "";
     default: return "";
     }
@@ -264,4 +279,39 @@ inline void Measure(lgfx::LovyanGFX* dst, DControl& c) {
     c.h = MakeControl(dst, c, 0, 0)->GetHeight();
 }
 inline int ControlHeight(lgfx::LovyanGFX* dst, const DControl& c) { DControl t = c; Measure(dst, t); return t.h; }
+
+// ---- variable height: the controls whose height the user can set (a Height row and top / bottom handles) ----
+//  H_ROWS: a list box or menu: the height is a whole number of rows ("rows"), so it snaps to full rows.
+//  H_BODY: gauge, graph, user draw, rich text: the height of the picture inside the frame ("bodyHeight"); rich text snaps to whole lines of text (the font's line height), the others are free.
+enum HeightKind { H_FIXED = 0, H_ROWS, H_BODY };
+inline int HeightKindOf(int type) { return type == C_LISTBOX || type == C_MENU ? H_ROWS : type == C_GAUGE || type == C_GRAPH || type == C_USERDRAW || type == C_RICHTEXT ? H_BODY : H_FIXED; }
+struct HeightInfo { int kind = H_FIXED, unit = 1, overhead = 0, minH = 0, maxH = 0; const ExtraDef* def = nullptr; };
+// total height = overhead (frame, padding, label) + n * unit, n limited by the extra's limits
+inline HeightInfo HeightOf(lgfx::LovyanGFX* dst, const DControl& c) {
+    HeightInfo r; r.kind = HeightKindOf(c.type); if (r.kind == H_FIXED) return r;
+    r.def = FindExtra(c.type, r.kind == H_ROWS ? "rows" : "bodyHeight"); if (!r.def) { r.kind = H_FIXED; return r; }
+    DControl a = c, b = c; Measure(dst, a);
+    if (r.kind == H_ROWS) {
+        ExtraSet(a, *r.def, std::to_string(r.def->lo)); ExtraSet(b, *r.def, std::to_string(r.def->lo + 1)); Measure(dst, a); Measure(dst, b);
+        r.unit = std::max(1, b.h - a.h); r.overhead = a.h - r.unit * (int)r.def->lo; r.minH = r.overhead + r.unit * (int)r.def->lo; r.maxH = r.overhead + r.unit * (int)r.def->hi;
+    } else {
+        ExtraSet(a, *r.def, std::to_string(r.def->lo)); Measure(dst, a);
+        r.overhead = a.h - (int)r.def->lo;
+        if (c.type == C_RICHTEXT) { dst->setFont(FindFont(c.font).font); r.unit = std::max(1, (int)dst->fontHeight()); }          // whole lines of text
+        r.minH = r.overhead + (int)r.def->lo; r.maxH = r.overhead + (int)r.def->hi;
+    }
+    return r;
+}
+// Sets the control's rows / body height so that its height is as near as possible to wantedH (whole rows / whole lines where the type has them). Returns the new height.
+inline int SetHeightTo(lgfx::LovyanGFX* dst, DControl& c, int wantedH, bool roundDown = false) {          // roundDown: never taller than wantedH (e.g. the form's edge)
+    HeightInfo h = HeightOf(dst, c); if (h.kind == H_FIXED) { Measure(dst, c); return c.h; }
+    long n;
+    auto rnd = [&](double v) { return roundDown ? (long)std::floor(v) : std::lround(v); };
+    if (h.kind == H_ROWS) n = rnd((double)(wantedH - h.overhead) / h.unit);
+    else if (h.unit > 1) n = rnd((double)(wantedH - h.overhead) / h.unit) * h.unit;               // whole lines: body height = a multiple of the line height
+    else n = wantedH - h.overhead;
+    n = std::max((long)h.def->lo, std::min((long)h.def->hi, n));
+    if (h.kind == H_BODY && h.unit > 1 && n < h.unit) n = std::max((long)h.def->lo, (long)h.unit);
+    ExtraSet(c, *h.def, std::to_string(n)); Measure(dst, c); return c.h;
+}
 }

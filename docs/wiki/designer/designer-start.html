@@ -67,7 +67,7 @@ build/FormDesigner</code></pre>
 <li><b>Name and size the form.</b> With nothing selected the right panel edits the form: Name, Width, Height (32x32 to 1920x1080: a big form scrolls and zooms) and Back color. Use your display's real size.</li>
 <li><b>Click a toolbox item, then click the form</b> to place a control. It snaps to the grid (press <code>G</code> to change the grid).</li>
 <li><b>Click a control to select it.</b> Drag to move it, drag the handles on its left / right edge to resize it, arrow keys nudge (Shift = one grid step), Delete removes it, Tab selects the next one.</li>
-<li><b>Name it.</b> The Name is the C++ member you will use in code (<code>okBtn</code>, <code>volume</code>). Names must be safe C++ names; the field turns red and says why when they are not.</li>
+<li><b>Name it.</b> New controls start with a short prefix and a number: <code>lbl1</code>, <code>cmd1</code> (push button), <code>txt1</code>, <code>rtb1</code>, <code>pb1</code> ... the number is the smallest free one. Rename them to something meaningful. The Name is the C++ member you will use in code (<code>okBtn</code>, <code>volume</code>). Names must be safe C++ names; the field turns red and says why when they are not.</li>
 <li><b>Set its properties</b> in the right panel: text, colours, font (click the Font row for the font dialog), border, and the control-specific rows (value, range, items ...). Only values that differ from the control's default are saved and generated.</li>
 <li><b>Save</b> with Ctrl/Cmd+S. A file dialog always opens, on the form's own file; type another name to save under it.</li>
 <li><b>Export</b> with Ctrl/Cmd+X. A folder dialog opens on the folder used last (saved in the form file); choose the folder for the code and click OK. It writes <code>Form1.designer.h</code> (regenerated every time) and, the first time, <code>Form1.h</code> (yours).</li>
@@ -77,7 +77,7 @@ build/FormDesigner</code></pre>
 </ol>
 <div class="box tip"><b class="h">Tip</b>You do not have to start from nothing: every new form already contains a ready-made <code>msgYesNo</code> confirmation box (see <a href="designer-boxes.html">Message boxes</a>). Delete it if you do not need it.</div>
 <h2>What the designer can place</h2>
-<p>Label, Push button, Check box, Radio button, Progress bar, Spin box, Slider, Text box, Input box, Time box, Date box, List box, Combo box, Tab bar, Menu, Gauge, Graph, User draw, Color picker and Rich text. Each is described on its own page under <i>Controls</i>; the designer page for a control only adds how its properties are edited. Message boxes are not placed on the surface: they live in a list (see below).</p>
+<p>Label, Push Button, Check Box, Radio Button, Progress Bar, Spin Box, Slider, Text Box, Input Box, Time Box, Date Box, List Box, Combo Box, Tab Bar, Menu, Gauge, Graph, User Draw, Color Picker and Rich Text. Each is described on its own page under <i>Controls</i>; the designer page for a control only adds how its properties are edited. Message boxes are not placed on the surface: they live in a list (see below).</p>
 
 <div class="pn"><span>&larr; <a href="../concepts/new-control.html">Writing your own control</a></span><span><a href="../designer/designer-usage.html">Using the designer</a> &rarr;</span></div>
 </main><script src="../assets/wiki.js"></script></body></html>

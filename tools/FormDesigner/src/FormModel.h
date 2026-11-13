@@ -4,13 +4,14 @@
 //   {
 //     "form": { "name": "Form1", "width": 320, "height": 240, "backColor": "0x0000", "outputPath": "/home/me/project" },
 //     "controls": [
-//       { "type": "SuperLabel", "name": "label1", "text": "Label", "font": "Font2", "textColor": "0xFFFF", "backColor": "0x0000", "borderColor": "0xFFFF",
+//       { "type": "SuperLabel", "name": "lbl1", "text": "Label", "font": "Font2", "textColor": "0xFFFF", "backColor": "0x0000", "borderColor": "0xFFFF",
 //         "x": 10, "y": 10, "width": 100 }
 //     ]
 //   }
 //
 // outputPath is the folder the generated code is written to. The designer checks on load that it exists and otherwise uses its working folder.
 // A control's height is not stored: it follows the font (the real SuperGUI control reports it, see DesignerControls.h).
+#include <SuperSeparator.h>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -161,6 +162,7 @@ static const ExtraDef MENU_EXTRAS[] = {
     { "showBack", "Back row",     PK_BOOL, "true",  0, 1, "No|Yes" },        // sub-menus start with a "< Back" row (touch friendly)
     { "rowPad",   "Row padding",  PK_INT,  "1",    0, 8, "" },
     { "idPrefix", "ID prefix",    PK_TEXT, "MNU_", 0, 0, "" },                // new item ids are named <prefix><TEXT>, e.g. MNU_REBOOT
+    { "previewLevel", "Preview sub-menu", PK_TEXT, "", 0, 0, "" },            // the DESIGNER only: show this sub-menu instead of the top level, e.g. Settings or Settings/Sound (not generated)
 };
 
 // Display controls (not editable: no encoder, no buttons). "bodyHeight" is the height of the picture inside the frame; the control is taller by its frame and label.
@@ -207,6 +209,12 @@ static const ExtraDef USERDRAW_EXTRAS[] = {
     { "touch",      "Touch input",       PK_BOOL, "false", 0, 1, "No|Yes" },               // the control then takes focus and raises Pointer / Accept events
 };
 
+// SuperProgressBar: the bar colour and the percentage (the percentage follows the control's Text color).
+static const ExtraDef PROGRESS_EXTRAS[] = {
+    { "barColor",     "Bar color",       PK_COLOR, "0x07E0", 0, 0, "" },
+    { "showPercent",  "Percent visible", PK_BOOL,  "true",   0, 1, "No|Yes" },
+    { "percentAlign", "Percent align",   PK_ENUM,  "1",      0, 2, "Left|Center|Right" },
+};
 // Style fonts (optional, "" = none): the fonts <b> <i> <b><i> and <h1> use in rich text. Shared by Label, Rich text (and, as fields, message boxes).
 #define FD_STYLE_FONT_EXTRAS \
     { "boldFont",       "Bold font <b>",         PK_FONT, "", 0, 0, "" }, \
@@ -239,7 +247,7 @@ static const ExtraDef COLORPICKER_EXTRAS[] = {
 struct TypeInfo {
     const char* key;       // the SuperGUI class name (also the "type" in the JSON)
     const char* title;     // shown in the toolbox
-    const char* prefix;    // default names: label1, label2 ...
+    const char* prefix;    // default names: <prefix><number>, e.g. lbl1, cmd1 (the smallest number that is free)
     int         defW;      // default width
     const char* defText;   // default caption / text
     bool        hasText;
@@ -255,26 +263,26 @@ struct TypeInfo {
 inline const TypeInfo& Info(int t) {
     static const TypeInfo T[C_COUNT] = {
         //  key                 title          prefix      w   text      hasText align  label  edit   extras          n                ctorText fit
-        { "SuperLabel",       "Label",       "label",    100, "Label",  true,  true,  false, false, LABELCTL_EXTRAS, FD_N(LABELCTL_EXTRAS), true,  false },
-        { "SuperPushButton",  "Push button", "button",   100, "Button", true,  true,  false, false, nullptr,       0,               true,  false },   // (no label group: its caption is the label)
-        { "SuperCheckBox",    "Check box",   "check",    120, "Check",  true,  false, false, false, CHECK_EXTRAS,  FD_N(CHECK_EXTRAS),  true,  false },   // (no label group: it has its own caption)
-        { "SuperRadioButton", "Radio button","radio",    120, "Option", true,  false, false, false, RADIO_EXTRAS,  FD_N(RADIO_EXTRAS),  true,  false },
-        { "SuperProgressBar", "Progress bar","progress", 150, "",       false, false, true,  false, nullptr,       0,               false, false },
-        { "SuperSpinBox",     "Spin box",    "spin",     100, "",       false, true,  true,  true,  SPIN_EXTRAS,   FD_N(SPIN_EXTRAS),   false, true  },
-        { "SuperSlider",      "Slider",      "slider",   160, "",       false, false, true,  true,  SLIDER_EXTRAS, FD_N(SLIDER_EXTRAS), false, false },
-        { "SuperTextBox",     "Text box",    "text",     120, "Text",   true,  true,  true,  false, nullptr,       0,               false, true  },
-        { "SuperInputBox",    "Input box",   "input",    120, "",       false, true,  true,  true,  INPUT_EXTRAS,  FD_N(INPUT_EXTRAS),  false, true  },
-        { "SuperTimeBox",     "Time box",    "time",      90, "",       false, true,  true,  true,  TIME_EXTRAS,   FD_N(TIME_EXTRAS),   false, true  },
-        { "SuperDateBox",     "Date box",    "date",     110, "",       false, true,  true,  true,  DATE_EXTRAS,   FD_N(DATE_EXTRAS),   false, true  },
-        { "SuperListBox",     "List box",    "list",     140, "",       false, true,  true,  true,  LISTBOX_EXTRAS, FD_N(LISTBOX_EXTRAS), false, false },
-        { "SuperComboBox",    "Combo box",   "combo",    140, "",       false, true,  true,  true,  COMBOBOX_EXTRAS, FD_N(COMBOBOX_EXTRAS), false, false },
-        { "SuperTabBar",      "Tab bar",     "tabs",     220, "",       false, false, true,  true,  TABBAR_EXTRAS, FD_N(TABBAR_EXTRAS), false, false },
-        { "SuperMenu",        "Menu",        "menu",     160, "",       false, false, true,  true,  MENU_EXTRAS,   FD_N(MENU_EXTRAS),   false, false },
-        { "SuperGauge",       "Gauge",       "gauge",    180, "",       false, false, true,  false, GAUGE_EXTRAS,  FD_N(GAUGE_EXTRAS),  false, false },
-        { "SuperGraph",       "Graph",       "graph",    200, "",       false, false, true,  false, GRAPH_EXTRAS,  FD_N(GRAPH_EXTRAS),  false, false },
-        { "SuperUserDraw",    "User draw",   "draw",     160, "",       false, false, true,  false, USERDRAW_EXTRAS, FD_N(USERDRAW_EXTRAS), false, false },
-        { "SuperColorPicker", "Color picker","picker",   200, "",       false, false, true,  true,  COLORPICKER_EXTRAS, FD_N(COLORPICKER_EXTRAS), false, false },
-        { "SuperRichText",    "Rich text",   "rich",     240, "",       false, true,  true,  true,  RICHTEXT_EXTRAS, FD_N(RICHTEXT_EXTRAS), false, false },
+        { "SuperLabel",       "Label",       "lbl",    100, "Label",  true,  true,  false, false, LABELCTL_EXTRAS, FD_N(LABELCTL_EXTRAS), true,  false },
+        { "SuperPushButton",  "Push Button", "cmd",   100, "Button", true,  true,  false, false, nullptr,       0,               true,  false },   // (no label group: its caption is the label)
+        { "SuperCheckBox",    "Check Box",   "ck",    120, "Check",  true,  false, false, false, CHECK_EXTRAS,  FD_N(CHECK_EXTRAS),  true,  false },   // (no label group: it has its own caption)
+        { "SuperRadioButton", "Radio Button","rb",    120, "Option", true,  false, false, false, RADIO_EXTRAS,  FD_N(RADIO_EXTRAS),  true,  false },
+        { "SuperProgressBar", "Progress Bar","pb", 150, "",       false, false, true,  false, PROGRESS_EXTRAS, FD_N(PROGRESS_EXTRAS), false, false },
+        { "SuperSpinBox",     "Spin Box",    "sp",     100, "",       false, true,  true,  true,  SPIN_EXTRAS,   FD_N(SPIN_EXTRAS),   false, true  },
+        { "SuperSlider",      "Slider",      "sld",   160, "",       false, false, true,  true,  SLIDER_EXTRAS, FD_N(SLIDER_EXTRAS), false, false },
+        { "SuperTextBox",     "Text Box",    "txt",     120, "Text",   true,  true,  true,  false, nullptr,       0,               false, true  },
+        { "SuperInputBox",    "Input Box",   "inp",    120, "",       false, true,  true,  true,  INPUT_EXTRAS,  FD_N(INPUT_EXTRAS),  false, true  },
+        { "SuperTimeBox",     "Time Box",    "tm",      90, "",       false, true,  true,  true,  TIME_EXTRAS,   FD_N(TIME_EXTRAS),   false, true  },
+        { "SuperDateBox",     "Date Box",    "dt",     110, "",       false, true,  true,  true,  DATE_EXTRAS,   FD_N(DATE_EXTRAS),   false, true  },
+        { "SuperListBox",     "List Box",    "lb",     140, "",       false, true,  true,  true,  LISTBOX_EXTRAS, FD_N(LISTBOX_EXTRAS), false, false },
+        { "SuperComboBox",    "Combo Box",   "cb",    140, "",       false, true,  true,  true,  COMBOBOX_EXTRAS, FD_N(COMBOBOX_EXTRAS), false, false },
+        { "SuperTabBar",      "Tab Bar",     "tab",     220, "",       false, false, true,  true,  TABBAR_EXTRAS, FD_N(TABBAR_EXTRAS), false, false },
+        { "SuperMenu",        "Menu",        "mnu",     160, "",       false, false, true,  true,  MENU_EXTRAS,   FD_N(MENU_EXTRAS),   false, false },
+        { "SuperGauge",       "Gauge",       "gg",    180, "",       false, false, true,  false, GAUGE_EXTRAS,  FD_N(GAUGE_EXTRAS),  false, false },
+        { "SuperGraph",       "Graph",       "grf",    200, "",       false, false, true,  false, GRAPH_EXTRAS,  FD_N(GRAPH_EXTRAS),  false, false },
+        { "SuperUserDraw",    "User Draw",   "ud",     160, "",       false, false, true,  false, USERDRAW_EXTRAS, FD_N(USERDRAW_EXTRAS), false, false },
+        { "SuperColorPicker", "Color Picker","cp",   200, "",       false, false, true,  true,  COLORPICKER_EXTRAS, FD_N(COLORPICKER_EXTRAS), false, false },
+        { "SuperRichText",    "Rich Text",   "rtb",     240, "",       false, true,  true,  true,  RICHTEXT_EXTRAS, FD_N(RICHTEXT_EXTRAS), false, false },
     };
     return T[t < 0 || t >= C_COUNT ? 0 : t];
 }
@@ -300,7 +308,7 @@ struct DControl {
     int x = 0, y = 0, w = 100;
     uint16_t fg = DEF_FG, bg = DEF_BG, border = DEF_BORDER;     // text / back / border colour
     std::string font = DEFAULT_FONT;                           // an lgfx::fonts name (see FontTable.h)
-    std::string group = "group1";                              // radio buttons only: buttons with the same group name share one SuperRadioGroup
+    std::string group = "rGrp1";                               // radio buttons only: buttons with the same group name share one SuperRadioGroup
     // Layout overrides: -1 = the control's own default (not saved, not generated). borderStyle 0 standard / 1 3D / 2 sleek, align 0 left / 1 centre / 2 right.
     int borderStyle = -1, borderSize = -1, padding = -1, align = -1;
     int defStyle = 0, defSize = 1, defPad = 2, defAlign = 0;    // derived: the control's own defaults (not saved)
@@ -342,7 +350,12 @@ inline bool XSet(const DControl& c, const char* key) { return c.extra.count(key)
 inline void ClampSelected(DControl& c) {
     const ExtraDef* d = FindExtra(c.type, "selected"); if (!d) return;
     long n = (long)c.list.size(), v = strtol(ExtraGet(c, *d).c_str(), nullptr, 10);
-    if (n == 0) c.extra.erase("selected"); else if (v >= n) ExtraSet(c, *d, std::to_string(n - 1));
+    if (n == 0) c.extra.erase("selected"); else if (v >= n) { ExtraSet(c, *d, std::to_string(n - 1)); v = n - 1; }
+    if (n > 0 && c.type != C_TABBAR && SuperSep::IsUnclickable(c.list[(size_t)v])) {              // the initial selection is a row that can be chosen: the next one, else the previous one
+        long j = -1; for (long k = v + 1; k < n && j < 0; ++k) if (!SuperSep::IsUnclickable(c.list[(size_t)k])) j = k;
+        for (long k = v - 1; k >= 0 && j < 0; --k) if (!SuperSep::IsUnclickable(c.list[(size_t)k])) j = k;
+        if (j < 0 || j == 0) c.extra.erase("selected"); else ExtraSet(c, *d, std::to_string(j));
+    }
 }
 
 inline std::string Ascii(const std::string& s) { std::string r; for (char c : s) if (c >= 0x20 && c < 0x7F) r += c; return r; }     // printable ASCII only (the designer's character set)
@@ -358,6 +371,20 @@ inline bool ValidName(const std::string& s) {
 inline std::string Trim(const std::string& s) { size_t a = s.find_first_not_of(' '), b = s.find_last_not_of(' '); return a == std::string::npos ? "" : s.substr(a, b - a + 1); }
 inline int MenuNodeCount(const std::vector<MenuNode>& v) { int n = 0; for (const MenuNode& k : v) n += 1 + MenuNodeCount(k.kids); return n; }
 inline int MenuMaxId(const std::vector<MenuNode>& v) { int m = -1; for (const MenuNode& k : v) m = std::max(m, std::max(k.id, MenuMaxId(k.kids))); return m; }
+// A sub-menu named by a path of item texts: "Settings" or "Settings/Sound". nullptr = not found / not a parent (the empty path is the top level and is "ok", see MenuPathOk).
+inline const MenuNode* FindMenuPath(const std::vector<MenuNode>& top, const std::string& path) {
+    const std::vector<MenuNode>* level = &top; const MenuNode* found = nullptr; size_t p = 0;
+    while (p <= path.size()) {
+        size_t q = path.find('/', p); if (q == std::string::npos) q = path.size();
+        std::string seg = path.substr(p, q - p); while (!seg.empty() && seg.front() == ' ') seg.erase(0, 1); while (!seg.empty() && seg.back() == ' ') seg.pop_back();
+        found = nullptr; for (const MenuNode& k : *level) if (k.text == seg && !k.kids.empty()) { found = &k; break; }
+        if (!found) return nullptr;
+        level = &found->kids; p = q + 1;
+    }
+    return found;
+}
+inline bool MenuPathOk(const std::vector<MenuNode>& top, const std::string& path) { return path.empty() || FindMenuPath(top, path) != nullptr; }
+inline bool IsSepNode(const MenuNode& k) { return k.kids.empty() && SuperSep::IsUnclickable(k.text); }       // "~" (line) or "~Text" (heading): not a command, no ids
 template <class F> void MenuForEach(std::vector<MenuNode>& v, F&& f) { for (MenuNode& k : v) { f(k); MenuForEach(k.kids, f); } }       // pre-order
 template <class F> void MenuForEach(const std::vector<MenuNode>& v, F&& f) { for (const MenuNode& k : v) { f(k); MenuForEach(k.kids, f); } }
 inline int MenuDepth(const std::vector<MenuNode>& v) { int d = 0; for (const MenuNode& k : v) d = std::max(d, 1 + MenuDepth(k.kids)); return d; }
@@ -540,13 +567,16 @@ struct DForm {
             }
             return false;
         };
+        if (XSet(c, "previewLevel") && !MenuPathOk(c.menu, XStr(c, "previewLevel"))) c.extra.erase("previewLevel");        // the sub-menu being previewed was renamed or removed: back to the top level
         MenuForEach(c.menu, [&](MenuNode& k) {                                          // A: keep the first valid explicit values
+            if (IsSepNode(k)) { k.itemId.clear(); k.id = -1; return; }                  // a separator or heading is not a command: no ids
             if (!k.itemId.empty() && !(ValidName(k.itemId) && !takenBefore(k.itemId) && usedNames.insert(k.itemId).second)) k.itemId.clear();
             if (k.id >= 0 && !(k.id <= MAX_MENU_ID && usedIds.insert(k.id).second)) k.id = -1;
             if (k.id > MAX_MENU_ID) k.id = -1;
         });
         int maxId = usedIds.empty() ? 0 : *usedIds.rbegin();
         MenuForEach(c.menu, [&](MenuNode& k) {                                          // B: fill in what a command needs
+            if (IsSepNode(k)) return;
             if (!(k.kids.empty() || !k.itemId.empty() || k.id >= 0)) return;
             if (k.id < 0) k.id = ++maxId;
             if (k.itemId.empty()) { k.itemId = AutoItemId(prefix, k.text, [&](const std::string& s) { return NameTaken(s, -1, mi, false) || usedNames.count(s) > 0; }); usedNames.insert(k.itemId); }
@@ -625,6 +655,7 @@ struct DForm {
             MenuForEach(c.menu, [&](const MenuNode& k) {
                 if (!bad.empty()) return;
                 if (k.text.empty()) bad = c.name + ": a menu item has no text";
+                else if (IsSepNode(k)) {}                                              // a separator or heading needs nothing
                 else if (k.kids.empty() && (k.itemId.empty() || k.id < 0)) bad = c.name + ": \"" + k.text + "\" needs an item ID and an id";
                 else if (!k.itemId.empty() && (!ValidName(k.itemId) || NameTaken(k.itemId, -1, mi) || !names.insert(k.itemId).second)) bad = c.name + ": the item ID " + k.itemId + " is not a safe, unused C++ name";
                 else if (k.id >= 0 && (k.id > MAX_MENU_ID || !ids.insert(k.id).second)) bad = c.name + ": the id " + std::to_string(k.id) + " of \"" + k.text + "\" is used twice (or too big)";
@@ -655,11 +686,15 @@ struct DForm {
     }
     void FreezeTabOrder() { for (size_t i = 0; i < items.size(); ++i) if (items[i].tabOrder <= 0) items[i].tabOrder = EffTab(i); }      // make every control's number explicit (a file without numbers: the list positions)
     bool TabOrderCustom() const { for (size_t i = 0; i < items.size(); ++i) if (EffTab(i) != (int)i + 1) return true; return false; }      // some control's number is not its list position
-    std::string UniqueGroupName() const {
-        for (int n = 1;; ++n) { std::string s = "group" + std::to_string(n); if (!NameTaken(s)) return s; }
+    // Default names are <prefix><number> with the smallest number that is free (and a valid, safe C++ name): lbl1, cmd1, cmd2 ...
+    std::string UniqueGroupName() const {                           // a radio group: rGrp1, rGrp2 ...
+        for (int n = 1;; ++n) { std::string s = "rGrp" + std::to_string(n); if (ValidName(s) && !NameTaken(s)) return s; }
+    }
+    std::string UniqueCtlGroupName() const {                        // a control group (tab pages ...): cGrp1, cGrp2 ...
+        for (int n = 1;; ++n) { std::string s = "cGrp" + std::to_string(n); if (ValidName(s) && !NameTaken(s)) return s; }
     }
     std::string UniqueName(const char* prefix) const {
-        for (int n = 1;; ++n) { std::string s = prefix + std::to_string(n); if (!NameTaken(s)) return s; }
+        for (int n = 1;; ++n) { std::string s = prefix + std::to_string(n); if (ValidName(s) && !NameTaken(s)) return s; }
     }
 
     static std::string Layout(const DControl& c) {              // only the overrides, e.g. , "borderStyle": "sleek", "padding": 4

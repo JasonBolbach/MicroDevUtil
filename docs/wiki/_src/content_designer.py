@@ -22,7 +22,7 @@ build/FormDesigner</code></pre>
 <li><b>Name and size the form.</b> With nothing selected the right panel edits the form: Name, Width, Height (32x32 to 1920x1080: a big form scrolls and zooms) and Back color. Use your display's real size.</li>
 <li><b>Click a toolbox item, then click the form</b> to place a control. It snaps to the grid (press <code>G</code> to change the grid).</li>
 <li><b>Click a control to select it.</b> Drag to move it, drag the handles on its left / right edge to resize it, arrow keys nudge (Shift = one grid step), Delete removes it, Tab selects the next one.</li>
-<li><b>Name it.</b> The Name is the C++ member you will use in code (<code>okBtn</code>, <code>volume</code>). Names must be safe C++ names; the field turns red and says why when they are not.</li>
+<li><b>Name it.</b> New controls start with a short prefix and a number: <code>lbl1</code>, <code>cmd1</code> (push button), <code>txt1</code>, <code>rtb1</code>, <code>pb1</code> ... the number is the smallest free one. Rename them to something meaningful. The Name is the C++ member you will use in code (<code>okBtn</code>, <code>volume</code>). Names must be safe C++ names; the field turns red and says why when they are not.</li>
 <li><b>Set its properties</b> in the right panel: text, colours, font (click the Font row for the font dialog), border, and the control-specific rows (value, range, items ...). Only values that differ from the control's default are saved and generated.</li>
 <li><b>Save</b> with Ctrl/Cmd+S. A file dialog always opens, on the form's own file; type another name to save under it.</li>
 <li><b>Export</b> with Ctrl/Cmd+X. A folder dialog opens on the folder used last (saved in the form file); choose the folder for the code and click OK. It writes <code>Form1.designer.h</code> (regenerated every time) and, the first time, <code>Form1.h</code> (yours).</li>
@@ -32,20 +32,21 @@ build/FormDesigner</code></pre>
 </ol>
 {tip('You do not have to start from nothing: every new form already contains a ready-made <code>msgYesNo</code> confirmation box (see <a href="designer-boxes.html">Message boxes</a>). Delete it if you do not need it.')}
 <h2>What the designer can place</h2>
-<p>Label, Push button, Check box, Radio button, Progress bar, Spin box, Slider, Text box, Input box, Time box, Date box, List box, Combo box, Tab bar, Menu, Gauge, Graph, User draw, Color picker and Rich text. Each is described on its own page under <i>Controls</i>; the designer page for a control only adds how its properties are edited. Message boxes are not placed on the surface: they live in a list (see below).</p>
+<p>Label, Push Button, Check Box, Radio Button, Progress Bar, Spin Box, Slider, Text Box, Input Box, Time Box, Date Box, List Box, Combo Box, Tab Bar, Menu, Gauge, Graph, User Draw, Color Picker and Rich Text. Each is described on its own page under <i>Controls</i>; the designer page for a control only adds how its properties are edited. Message boxes are not placed on the surface: they live in a list (see below).</p>
 ''')
 
 add('designer-usage', 'Using the designer', 'Surface, panel, zoom, files, shortcuts', f'''
 <h2>The three panels</h2>
 <table><tr><th>Panel</th><th>What it does</th></tr>
-<tr><td>Toolbox (left)</td><td>Click a type, then the form, to place it. Below it, <i>Controls on form</i> lists every control with its control group and type: click one to select it (handy for controls that are hidden or hard to hit). The list scrolls (wheel or its scroll bar) and follows the selection. The <b>Up / Down / Front / Back</b> buttons above it change the order of the selected control: that order is the order the controls are added to the form, so it is the <b>draw order</b>: the last control is in front, and where controls overlap a click hits the front one. The encoder&rsquo;s <b>focus (tab) order</b> is separate: each focusable control has a <b>Tab order</b> number (shown in front of its name in the list). It is set once when the control is added, as the next free number, and is <b>never changed by moving controls</b>; you change it yourself in the <i>Tab order</i> row. In the generated code <code>SetTabOrder(n)</code> is written only when the focus order differs from the list order (equal numbers keep the list order).</td></tr>
-<tr><td>Design surface (middle)</td><td>The form drawn by the real controls, pixel-exact, scaled by the zoom. Place, select, drag, resize here. A thin yellow frame is the form's edge.</td></tr>
+<tr><td>Toolbox (left)</td><td>Click a type, then the form, to place it. Below it, <i>Controls On Form</i> lists every control with its control group and type: click one to select it (handy for controls that are hidden or hard to hit). The list scrolls (wheel or its scroll bar) and follows the selection. The <b>Up / Down / Front / Back</b> buttons above it change the order of the selected control: that order is the order the controls are added to the form, so it is the <b>draw order</b>: the last control is in front, and where controls overlap a click hits the front one. The encoder&rsquo;s <b>focus (tab) order</b> is separate: each focusable control has a <b>Tab order</b> number (shown in front of its name in the list). It is set once when the control is added, as the next free number, and is <b>never changed by moving controls</b>; you change it yourself in the <i>Tab order</i> row. In the generated code <code>SetTabOrder(n)</code> is written only when the focus order differs from the list order (equal numbers keep the list order).</td></tr>
+<tr><td>Design Surface (middle)</td><td>The form drawn by the real controls, pixel-exact, scaled by the zoom. Place, select, drag, resize here. A thin yellow frame is the form's edge.</td></tr>
 <tr><td>Property panel (right)</td><td>The selected control's properties, or the form's when nothing is selected. Changes apply live. The panel scrolls with the wheel when a control has many rows.</td></tr></table>
 <h2>Mouse and keys</h2>
 <table><tr><th>Do this</th><th>Result</th></tr>
 <tr><td>Click toolbox item, click form</td><td>Place a control at the clicked spot (snapped to the grid)</td></tr>
 <tr><td>Drag a control</td><td>Move it (snapped to the grid)</td></tr>
-<tr><td>Drag a side handle</td><td>Change the width (the height follows the font)</td></tr>
+<tr><td>Drag a side handle</td><td>Change the width (most controls&rsquo; height follows their font)</td></tr>
+<tr><td>Drag a top or bottom handle</td><td>Change the height of a <b>list box, menu, gauge, graph, user draw or rich text</b> (the other controls&rsquo; height follows their font, so they have no such handles). The top handle keeps the bottom edge fixed. List boxes and menus snap to <b>whole rows</b>, rich text to <b>whole lines</b> of its font, the others to the grid.</td></tr>
 <tr><td>Arrows / Shift + arrows</td><td>Nudge by 1 pixel / by one grid step</td></tr>
 <tr><td>Tab, Delete</td><td>Select the next control; delete the selected one</td></tr>
 <tr><td><code>G</code></td><td>Change the grid step (1 = off)</td></tr>
@@ -65,7 +66,7 @@ add('designer-usage', 'Using the designer', 'Surface, panel, zoom, files, shortc
 <li>Controls with a frame of their own caption (everything except Label, Push button, Check box and Radio button) get a <b>label group</b>: label text, position (Above / Below), alignment, font and colour.</li>
 </ul>
 <h2>Files</h2>
-<p><b>At start</b> the designer reopens the form you opened or saved last. If that file is gone it looks for a file called <code>template.json</code> in the folder of the FormDesigner program and, if there is one, opens it as a starting point named <code>NewForm</code> (a new, unsaved form: Save asks for a name). Otherwise you get the regular new form. So to make your own starting form, build it, save it as <code>template.json</code> next to the program, and use it whenever the last file is not available.</p>
+<p><b>At start</b> the designer reopens the form you opened or saved last. If that file is gone it looks for a file called <code>template.json</code> in the folder of the FormDesigner program and, if there is one, opens it as a starting point named <code>NewForm</code> (a new, unsaved form: Save asks for a name). Otherwise you get the regular new form, at the last form size you used (320 x 240 the first time), zoomed to fit. So to make your own starting form, build it, save it as <code>template.json</code> next to the program, and use it whenever the last file is not available.</p>
 <p>The form is saved as a readable JSON file (see <a href="designer-json.html">The form file</a>). Open starts in the folder it was last looking at (an application setting kept per user, not per form). Save starts on the form's own file. The folder the code was last exported to is remembered inside the form file (<code>outputPath</code>); if it no longer exists, the folder of the FormDesigner program is used. In scripts you can skip the dialogs: <code>FD_FORM=form.json FD_OPEN=1 FD_EXPORT=1 build/FormDesigner</code> exports from the command line.</p>
 ''')
 
@@ -112,6 +113,8 @@ add('designer-groups', 'Lists, menus, tab pages and groups', 'Items dialogs, the
 <li><b>Enter</b> in the text field adds the next item: type a whole list with Enter between the entries.</li>
 <li>Add, Insert, Delete, Move up / down, Sort A-Z, Clear all. <b>Paste lines</b> adds every non-empty line of the clipboard (copy a column from a spreadsheet).</li>
 <li>Items are printable ASCII, 1 to 60 characters, at most 200. Enter = OK, Esc (in the list) = Cancel.</li>
+<li><b>Separators:</b> in a list box, combo box or menu an item <code>~</code> is a separator line and <code>~Text</code> a heading with the text centred in the line, <code>---- Text ----</code> (dim, cannot be chosen; a too long one is cut); <code>~~Text</code> is a real item that starts with ~. The dialog shows them as ordinary rows so you can edit them. A separator cannot be the initial <i>Selected</i> item. In the menu editor they get no Item ID or id and are not commands.</li>
+<li><b>Sub-menu preview:</b> the preview in the menu editor shows the level that holds the selected item (the siblings, with the Back row), so you see the sub-menu you are editing. On the design surface the menu shows its top level unless you type a parent item&rsquo;s name (<code>Settings</code>, or <code>Settings/Sound</code> for a deeper level) into the <i>Preview sub-menu</i> row. That row is only for the designer: nothing is generated, and it is cleared if the sub-menu is renamed or removed.</li>
 <li>In your code the lists change at run time too: <code>InsertItem</code>, <code>RemoveItem</code>, <code>SetItem</code>, <code>GetItem</code>.</li>
 </ul>
 <h2>Menu</h2>
@@ -183,7 +186,7 @@ add('designer-json', 'The form file (JSON)', 'Readable, hand-editable, repaired 
   "controls": [
     {{ "type": "SuperPushButton", "name": "okBtn", "text": "OK", "x": 16, "y": 80, "width": 90 }},
     {{ "type": "SuperListBox", "name": "colors", "items": ["Red", "Green", "Blue"], "selected": 2 }},
-    {{ "type": "SuperMenu", "name": "menu1", "items": [
+    {{ "type": "SuperMenu", "name": "mnu1", "items": [
         {{ "text": "System", "items": [ {{ "text": "Reboot", "itemId": "MNU_REBOOT", "id": 7 }} ] }},
         {{ "text": "About" }} ] }}
   ],
@@ -210,8 +213,9 @@ add('designer-tips', 'Designer tips, tricks and pitfalls', 'Things that save tim
 {tip('<b>Gauge:</b> the Zones dialog has <b>Fill 3 bands</b> (green / yellow / red at 60 / 85 / 100 % of the range). Update the needle with <code>load.SetValue(v)</code>.')}
 {tip('<b>Graph:</b> <i>Preview data</i> (Sine / Rising / Noise) only exists so the designer shows something. It is not generated: feed the real graph with <code>trace.AddSample(v)</code>.')}
 {tip('<b>Press <code>?</code></b> in the designer for the key list. A <b>Rich text</b> control is a good place for your own help screen: write it in the editor, scroll it with the encoder.')}
+{tip('<b>Heights:</b> the <i>Height</i> row (list box, menu, gauge, graph, user draw, rich text) takes the total height including the frame; type a number and it snaps to the nearest whole row or line. It changes the same thing as <i>Visible rows</i> / <i>Body height</i>.')}
 {tip('<b>Tab order:</b> add the controls in the order the user should visit them, or type the numbers in the Tab order row (1, 2, 3 ... or 10, 20, 30 to leave room). Display-only controls (labels, gauges ...) have no tab number.')}
-{tip('<b>Overlapping controls:</b> select one in the Controls on form list and use <b>Front</b> / <b>Back</b>. The list reads from back (top of the list) to front (bottom).')}
+{tip('<b>Overlapping controls:</b> select one in the Controls On Form list and use <b>Front</b> / <b>Back</b>. The list reads from back (top of the list) to front (bottom).')}
 {tip('<b>Pages:</b> design every page in the same area of the form and use the <b>View</b> button to edit one page at a time.')}
 {tip('<b>Hand edits:</b> the JSON file is meant to be edited. Rename a group, reorder menu items, paste a long message: save, open in the designer and it repairs anything unsafe.')}
 <h2>Pitfalls</h2>

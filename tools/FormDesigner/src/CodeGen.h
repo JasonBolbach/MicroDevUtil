@@ -158,6 +158,11 @@ inline void EmitExtras(std::ostringstream& o, const DControl& c) {
         if (XSet(c, "lineColor")) o << "        " << n << ".ColLine = " << HexColor((uint16_t)XInt(c, "lineColor")) << ";\n";
         if (XSet(c, "gridColor")) o << "        " << n << ".ColGrid = " << HexColor((uint16_t)XInt(c, "gridColor")) << ";\n";
     }
+    if (c.type == C_PROGRESS) {
+        if (XSet(c, "barColor")) o << "        " << n << ".ColBar = " << HexColor((uint16_t)XInt(c, "barColor")) << ";\n";
+        if (!XBool(c, "showPercent")) o << "        " << n << ".ShowPercent = false;\n";
+        if (XSet(c, "percentAlign")) o << "        " << n << ".SetPercentAlign(SuperControl::" << (XInt(c, "percentAlign") == 0 ? "ALIGN_LEFT" : "ALIGN_RIGHT") << ");\n";
+    }
     if (c.type == C_COLORPICKER && XSet(c, "value")) o << "        " << n << ".SetColor565(" << HexColor((uint16_t)XInt(c, "value")) << ");\n";
     if (c.type == C_LABEL || c.type == C_RICHTEXT) {                                      // style fonts of the rich tags (a label only when it is rich)
         const char* cls = c.type == C_LABEL ? "SuperLabel" : "SuperRichText";

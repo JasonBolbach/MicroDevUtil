@@ -15,10 +15,12 @@
 //      ButtonA short/long = open a sub-menu, or choose a leaf (BeginEdit() returns true),
 //      ButtonB short = back up one level (cancels the menu at the top level),
 //      ButtonB long  = leave the menu from any depth (cancel).
+//  * Unclickable rows: a leaf item "~" is a separator line, "~Text" a heading centred in a line, "~~Text" an ordinary item that shows "~Text" (see SuperSeparator.h). The cursor skips them.
 //  * OnChange = the cursor moved / the level changed (live), OnAccept = a leaf was chosen.
 //    GetResultId() / GetResultItem() describe the chosen leaf.
 #include "SuperControl.h"
 #include "SuperEditIO.h"
+#include "SuperSeparator.h"
 #include <deque>
 
 class SuperMenu : public SuperControl {
@@ -78,6 +80,9 @@ public:
     int  GetResultId() const { return Result ? Result->Id : -1; }
     const Item* GetResultItem() const { return Result; }
     const Item* GetCurrentLevel() const { return Level == &Top ? nullptr : Level; }   // nullptr = top level
+    // Show a sub-menu level while the menu is idle (a preview, e.g. in a design tool): the items of `parent` (with the "< Back" row if ShowBack), or the top level for nullptr / a leaf.
+    // StartEdit() always begins at the top level again.
+    void ShowLevel(const Item* parent) { Level = (parent && !parent->Kids.empty()) ? const_cast<Item*>(parent) : &Top; Cursor = First = 0; Dirty = true; }
 
     SuperEditIO* EditIO() { return &IO; }                          // the input plumbing: InjectDelta / Inject for keyboards, mice and tests
     bool IsEditing() const override { return State == EDIT_ACTIVE; }
@@ -108,7 +113,7 @@ public:
         case SuperPointerEvent::TAP: {
             TouchDown = false;
             int i = RowAt(e.X, e.Y);
-            if (i >= 0) { MoveCursor(i); IO.Inject(SuperEditIO::A_SHORT); return true; }
+            if (i >= 0) { if (Selectable(i)) { MoveCursor(i); IO.Inject(SuperEditIO::A_SHORT); } return true; }       // (a separator row: nothing happens)
             if (HitTest(e.X, e.Y, TouchPad)) return true;                       // on the frame: nothing
             IO.Inject(SuperEditIO::B_LONG); return true; }                      // outside: leave the menu
         case SuperPointerEvent::DRAG_START:
@@ -122,7 +127,7 @@ public:
             TouchDown = false;
             if (!was) return false;
             if (e.X < PosX - SuperControl::TouchPad || e.X >= PosX + GetWidth() + SuperControl::TouchPad) IO.Inject(SuperEditIO::B_LONG);   // off to the side: leave
-            else if (RowAt(e.X, e.Y) >= 0) IO.Inject(SuperEditIO::A_SHORT);                          // lifted over an item: do it
+            else if (Selectable(RowAt(e.X, e.Y))) IO.Inject(SuperEditIO::A_SHORT);                  // lifted over an item: do it (not over a separator)
             return true; }                                                                         // (over blank space: nothing happens)
         case SuperPointerEvent::LONG_PRESS:
             TouchDown = false;
@@ -134,6 +139,7 @@ public:
     bool StartEdit() override {
         if (Top.Kids.empty()) return false;
         Level = &Top; Cursor = First = 0; Result = nullptr; TouchDown = false; LevelAt = 0;
+        if (!Selectable(Cursor)) { int j = NextSel(Cursor, 1); if (j < 0) return false; Cursor = j; Keep(); }      // the first row that can be chosen
         IO.Flush(); State = EDIT_ACTIVE; PushUnlessPress(); return true;
     }
     SuperEditState Service() override {
@@ -144,17 +150,18 @@ public:
         if (TouchDown && AutoScroll()) redraw = true;
         int32_t d = IO.Delta();
         if (d && n) {
-            int step = d > 0 ? 1 : -1;
-            int nc = Wrap ? ((Cursor + step) % n + n) % n : std::clamp(Cursor + step, 0, n - 1);
+            int nc = NextSel(Cursor, d > 0 ? 1 : -1, Wrap);                      // separators and headings are skipped
+            if (nc < 0) nc = Cursor;
             if (nc != Cursor) { Cursor = nc; Keep(); redraw = true; IO.Changed(); }
         }
         switch (IO.NextKey()) {
         case SuperEditIO::A_SHORT:
         case SuperEditIO::A_LONG: {
             if (!n) break;
+            if (!Selectable(Cursor)) break;
             Item* it = At(Cursor);
             if (it == &BackItem) { GoUp(); LevelAt = lgfx::millis() | 1; redraw = true; IO.Changed(); }
-            else if (!it->Kids.empty()) { Level = it; Cursor = HasBack() ? 1 : 0; First = 0; Keep(); LevelAt = lgfx::millis() | 1; redraw = true; IO.Changed(); }
+            else if (!it->Kids.empty()) { Level = it; Cursor = HasBack() ? 1 : 0; First = 0; if (!Selectable(Cursor)) { int j = NextSel(Cursor, 1); if (j >= 0) Cursor = j; } Keep(); LevelAt = lgfx::millis() | 1; redraw = true; IO.Changed(); }
             else { Result = it; return Finish(EDIT_ACCEPTED); }
             break; }
         case SuperEditIO::B_SHORT:
@@ -170,7 +177,7 @@ public:
 
 protected:
     bool TouchDown = false; int TouchY = 0; uint32_t LastAuto = 0, LevelAt = 0;
-    void MoveCursor(int i) { if (i != Cursor) { Cursor = i; Keep(); IO.Changed(); Push(); } }
+    void MoveCursor(int i) { if (!Selectable(i)) return; if (i != Cursor) { Cursor = i; Keep(); IO.Changed(); Push(); } }
     void FollowFinger() {                                      // cursor = the visible row under the finger
         int rh = RowH(), y0 = GetBoxTop() + Inset();
         if (TouchY >= y0 && TouchY < y0 + Rows * rh && First + (TouchY - y0) / rh >= Count()) return;   // over blank space: keep the last row
@@ -184,8 +191,8 @@ protected:
         uint32_t now = lgfx::millis();
         if (now - LastAuto < (uint32_t)AutoScrollMs) return false;
         LastAuto = now;
-        int nc = std::clamp(Cursor + dir, 0, n - 1);
-        if (nc == Cursor) return false;
+        int nc = NextSel(Cursor, dir, false);
+        if (nc < 0 || nc == Cursor) return false;
         Cursor = nc; Keep(); IO.Changed();
         return true;
     }
@@ -206,10 +213,14 @@ protected:
             int ry = y + r * rh;
             Item* it = At(idx);
             uint16_t fg = ColFg;
+            if (!Selectable(idx)) {                                    // a separator line or a heading: dim, never highlighted
+                Spr.setClipRect(x, ry, tw, rh); SuperSep::Draw(Spr, it->Text, x, ry, tw, rh, ColArrow); Spr.clearClipRect();
+                continue;
+            }
             if (editing && idx == Cursor) { Spr.fillRect(x, ry, tw, rh, ColCursor); fg = ColCursorFg; }
             Spr.setClipRect(x, ry, tw - (it->Kids.empty() ? 0 : mk * 2 + 2), rh);
             Spr.setTextColor(fg);
-            Spr.drawString(it->Text.c_str(), x + 2, ry + rh / 2);
+            Spr.drawString(SuperSep::Shown(it->Text), x + 2, ry + rh / 2);
             Spr.clearClipRect();
             if (!it->Kids.empty()) {
                 int cx = x + tw - mk - 2, cy = ry + rh / 2;
@@ -242,6 +253,16 @@ private:
     bool HasBack() const { return ShowBack && Level != &Top; }
     int  Count() const { return (int)Level->Kids.size() + (HasBack() ? 1 : 0); }
     Item* At(int i) { return HasBack() ? (i == 0 ? &BackItem : Level->Kids[i - 1]) : Level->Kids[i]; }
+    bool Selectable(int i) { return i >= 0 && i < Count() && !(At(i)->Kids.empty() && At(i) != &BackItem && SuperSep::IsUnclickable(At(i)->Text)); }
+    int  NextSel(int from, int dir, bool wrap = false) {              // the next row that can be chosen; -1 = none
+        int n = Count(); if (n == 0) return -1;
+        for (int k = 1; k <= n; ++k) {
+            int j = from + dir * k;
+            if (wrap) j = ((j % n) + n) % n; else if (j < 0 || j >= n) return -1;
+            if (Selectable(j)) return j;
+        }
+        return -1;
+    }
     void GoUp() {                                              // back one level, cursor on the item we came from
         Item* from = Level; Level = Level->Parent ? Level->Parent : &Top;
         Cursor = 0;

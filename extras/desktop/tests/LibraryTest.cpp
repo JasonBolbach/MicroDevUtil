@@ -8,6 +8,10 @@
 #include "SuperLabel.h"
 #include "SuperMessageBox.h"
 #include "SuperForm.h"
+#include "SuperProgressBar.h"
+#include "SuperListBox.h"
+#include "SuperComboBox.h"
+#include "SuperMenu.h"
 static LGFX* lcd; static int fails = 0, checks = 0;
 #define CHECK(c, msg) do { ++checks; if (!(c)) { ++fails; printf("FAIL  %s\n", msg); } } while (0)
 using namespace SuperRich;
@@ -81,6 +85,67 @@ void setup() {
         rd.Push(); snap(scr, getenv("E2E_OUT"));
         lgfx::LGFX_Sprite scr2(lcd); scr2.setColorDepth(16); scr2.createSprite(240, 180); scr2.fillSprite(0x2104);
         SuperRichText rs(&scr2, 10, 10, 200, 150, &lgfx::fonts::Font2, &enc, &a, &b); rs.SetBorder(1, 0x7BEF); rs.SetShowSource(true); rs.SetText(rd.GetText()); rs.Push(); snap(scr2, (std::string(getenv("E2E_OUT")) + "2").c_str());
+    }
+    // unclickable rows ("~" line, "~Text" heading, "~~Text" escape) in the list box, combo box and menu
+    {
+        lgfx::LGFX_Sprite s(lcd); s.setColorDepth(16); s.createSprite(200, 200);
+        SuperEncoder enc(2, 3); SuperButton ba(4, true), bb(5, true);
+        SuperListBox lb(&s, 0, 0, 160, &lgfx::fonts::Font2, 8, &enc, &ba, &bb);
+        lb.SetItems({ "~Fruit", "Apple", "~", "Pear", "~~Tilde", "~Veg", "Leek" });
+        CHECK(lb.GetSelected() == 1 && lb.GetSelectedText() == "Apple", "separators: the selection is the first row that can be chosen (not a leading heading)");
+        lb.SetSelected(0); CHECK(lb.GetSelected() == 1, "separators: SetSelected on a heading moves to the next real item");
+        lb.SetSelected(2); CHECK(lb.GetSelected() == 3, "separators: ... also on a separator line");
+        lb.SetSelected(5); CHECK(lb.GetSelected() == 6, "separators: ... and on the last heading before an item");
+        CHECK(lb.IsSelectable(1) && !lb.IsSelectable(0) && !lb.IsSelectable(2) && lb.IsSelectable(4) && !lb.IsSelectable(5), "separators: ~Text and ~ are not selectable, ~~Text is");
+        lb.SetSelected(1); lb.StartEdit(); lb.EditIO()->InjectDelta(1); lb.Service(); CHECK(lb.GetCursor() == 3, "separators: the encoder skips the separator line");
+        lb.EditIO()->InjectDelta(1); lb.Service(); CHECK(lb.GetCursor() == 4, "separators: ... then the escaped ~~Tilde item");
+        lb.EditIO()->InjectDelta(1); lb.Service(); CHECK(lb.GetCursor() == 6, "separators: ... and the heading before Leek");
+        lb.EditIO()->InjectDelta(1); lb.Service(); CHECK(lb.GetCursor() == 6, "separators: the last item stops the cursor (no wrap)");
+        lb.EditIO()->InjectDelta(-1); lb.EditIO()->InjectDelta(-1); lb.Service(); lb.Service(); CHECK(lb.GetCursor() <= 4, "separators: moving back skips them too");
+        lb.EditIO()->Inject(SuperEditIO::A_SHORT); SuperEditState st = lb.Service(); CHECK(st == EDIT_ACCEPTED && lb.GetSelectedText() != "" && lb.IsSelectable(lb.GetSelected()), "separators: accepting always gives a real item");
+        lb.Wrap = true; lb.SetSelected(6); lb.StartEdit(); lb.EditIO()->InjectDelta(1); lb.Service(); CHECK(lb.GetCursor() == 1, "separators: with Wrap the cursor wraps past the leading heading to the first item"); lb.EditIO()->Inject(SuperEditIO::B_SHORT); lb.Service(); lb.Wrap = false;
+        // touch: a tap on a separator row does nothing
+        lb.SetSelected(1); lb.StartEdit(); s.setFont(&lgfx::fonts::Font2); { int rh = (int)s.fontHeight() + 2, y0 = lb.GetBoxTop() + lb.GetBorder() + lb.GetPadding(); SuperPointerEvent e; e.Type = SuperPointerEvent::TAP; e.X = 20; e.Y = (int16_t)(y0 + 2 * rh + rh / 2); lb.OnPointer(e); st = lb.Service(); CHECK(st == EDIT_ACTIVE && lb.GetCursor() == 1, "separators: a tap on a separator row does not choose it or move the cursor");
+          e.Y = (int16_t)(y0 + 3 * rh + rh / 2); lb.OnPointer(e); st = lb.Service(); CHECK(st == EDIT_ACCEPTED && lb.GetSelected() == 3, "separators: a tap on a real row still chooses it"); }
+        // drawing: a line is drawn for "~", the heading is dim (ColArrow), nothing is highlighted on them
+        lb.SetItems({ "A", "~", "B" }); s.fillSprite(0); lb.Push(); s.setFont(&lgfx::fonts::Font2); { int rh = (int)s.fontHeight() + 2, y0 = lb.GetBoxTop() + lb.GetBorder() + lb.GetPadding(); int ly = y0 + rh + rh / 2; int n = 0; for (int x = 0; x < 160; ++x) if (s.readPixel(x, ly) == lb.ColArrow) ++n; CHECK(n > 100, "separators: a separator line is drawn across its row"); }
+        SuperListBox only(&s, 0, 0, 100, &lgfx::fonts::Font2, 3, &enc, &ba, &bb); only.SetItems({ "~A", "~" }); CHECK(only.GetSelected() == -1 && !only.StartEdit(), "separators: a list with nothing but separators and headings cannot be edited");
+        // headings are centred in a line: ---- Text ----, too long ones are cut with room for a character plus 3 pixels of line on each side
+        { SuperListBox hl(&s, 0, 0, 160, &lgfx::fonts::Font2, 4, &enc, &ba, &bb); hl.SetBorder(0, 0); hl.SetPadding(0); hl.SetItems({ "~Weapon", "Arm", "~This heading is far too long to fit in the row", "Fire" });
+          s.fillSprite(0); hl.Push(); s.setFont(&lgfx::fonts::Font2); int rh = (int)s.fontHeight() + 2, my = rh / 2; uint16_t col = hl.ColArrow;
+          int firstLine = -1, lastLine = -1; for (int x = 0; x < 160; ++x) if (s.readPixel(x, my) == col) { if (firstLine < 0) firstLine = x; lastLine = x; }
+          int tl = 999, tr = -1; for (int y = 0; y < rh; ++y) for (int x = 8; x < 152; ++x) if (s.readPixel(x, y) == col && y != my) { tl = std::min(tl, x); tr = std::max(tr, x); }
+          CHECK(firstLine >= 0 && firstLine < 6 && lastLine > 153, "separators: a heading has line on both sides, out to the edges");
+          int tw = (int)s.textWidth("Weapon"); CHECK(std::abs((tl + tr) / 2 - 80) <= 3 && tr - tl + 1 <= tw + 2, "separators: the heading text is centred in the row");
+          int gapL = 0; for (int x = tl - 1; x >= 0 && s.readPixel(x, my) != col; --x) ++gapL; int lineL = 0; for (int x = tl - 1 - gapL; x >= 0 && s.readPixel(x, my) == col; --x) ++lineL; CHECK(lineL >= 8, "separators: the line left of the text is at least a character wide");
+          CHECK(SuperSep::Fit(s, "~Weapon", 160) == "Weapon" && SuperSep::Fit(s, "~~Tilde", 160) == "~Tilde", "separators: Fit keeps a short heading (and the escape text)");
+          std::string cut = SuperSep::Fit(s, "~This heading is far too long to fit in the row", 160); int cw = (int)s.textWidth("0");
+          CHECK(!cut.empty() && cut.size() < 40 && (int)s.textWidth(cut.c_str()) <= 160 - 2 * (cw + 3) && cut == std::string("This heading is far too long to fit in the row").substr(0, cut.size()), "separators: a too long heading is truncated so that a character + 3 pixels of line remain on each side");
+          int ly = 2 * rh + rh / 2; int ln = 0; for (int x = 0; x < 160; ++x) if (s.readPixel(x, ly) == col) ++ln; CHECK(ln >= 2 * (cw + 3 - 3), "separators: the line is still drawn on both sides of a cut heading");
+        }
+        // combo box: same rules through its popup list
+        SuperComboBox cb(&s, 0, 100, 120, &lgfx::fonts::Font2, &enc, &ba, &bb); cb.SetItems({ "~Pick one", "One", "~", "Two" }); CHECK(cb.GetSelected() == 1 && cb.GetValue() == "One", "separators: a combo box starts on the first real item");
+        // menu
+        SuperMenu m(&s, 0, 0, 160, &lgfx::fonts::Font2, 6, &enc, &ba, &bb);
+        m.AddItem("~Main", 0); m.AddItem("Alpha", 1); m.AddItem("~", 0); auto* sub = m.AddItem("More", 0); m.AddItem("~Inside", 0, sub); m.AddItem("Beta", 2, sub); m.AddItem("~~Tilde", 3);
+        m.StartEdit(); CHECK(m.IsEditing(), "separators: a menu that starts with a heading can be opened");
+        m.EditIO()->Inject(SuperEditIO::A_SHORT); st = m.Service(); CHECK(st == EDIT_ACCEPTED && m.GetResultId() == 1, "separators: the cursor starts on Alpha, not on the heading (A chooses it)");
+        m.StartEdit(); m.EditIO()->InjectDelta(1); m.Service(); m.EditIO()->Inject(SuperEditIO::A_SHORT); st = m.Service(); CHECK(st == EDIT_ACTIVE && m.GetCurrentLevel() == sub, "separators: the encoder skips the separator line and enters the sub-menu");
+        m.EditIO()->InjectDelta(1); m.Service(); m.EditIO()->Inject(SuperEditIO::A_SHORT); st = m.Service(); CHECK(st == EDIT_ACCEPTED && m.GetResultId() == 2, "separators: inside the sub-menu the cursor skips the heading and reaches Beta");
+        m.StartEdit(); m.EditIO()->InjectDelta(1); m.Service(); m.EditIO()->InjectDelta(1); m.Service(); m.EditIO()->Inject(SuperEditIO::A_SHORT); st = m.Service(); CHECK(st == EDIT_ACCEPTED && m.GetResultId() == 3, "separators: ~~Tilde is an ordinary item");
+        { m.ShowLevel(sub); CHECK(m.GetCurrentLevel() == sub, "menu level preview: ShowLevel shows a sub-menu while idle"); s.fillSprite(0); m.Push(); int px = 0; for (int y = 0; y < 40; ++y) for (int x = 0; x < 160; ++x) if (s.readPixel(x, y)) ++px; CHECK(px > 100, "menu level preview: and draws it");
+          m.ShowLevel(nullptr); CHECK(m.GetCurrentLevel() == nullptr, "menu level preview: nullptr is the top level again"); m.ShowLevel(sub); m.StartEdit(); CHECK(m.GetCurrentLevel() == nullptr, "menu level preview: StartEdit always begins at the top level"); m.EditIO()->Inject(SuperEditIO::B_LONG); m.Service(); }
+        SuperMenu mo(&s, 0, 0, 100, &lgfx::fonts::Font2, 3, &enc, &ba, &bb); mo.AddItem("~Head", 0); mo.AddItem("~", 0); CHECK(!mo.StartEdit(), "separators: a menu with nothing to choose cannot be opened");
+    }
+    // SuperProgressBar: the percentage follows the text colour, can be aligned and hidden
+    {
+        lgfx::LGFX_Sprite s(lcd); s.setColorDepth(16); s.createSprite(200, 30);
+        SuperProgressBar pb(&s, 0, 0, 200, &lgfx::fonts::Font2); pb.SetBorder(0, 0); pb.SetPadding(0); pb.ColBar = 0xF800; pb.ColFg = 0x001F; pb.SetValue(60);
+        auto cnt = [&](uint16_t col, int x0, int x1) { int n = 0; for (int y = 0; y < 30; ++y) for (int x = x0; x < x1; ++x) if (s.readPixel(x, y) == col) ++n; return n; };
+        s.fillSprite(0); pb.Push(); CHECK(cnt(0x001F, 0, 120) > 5, "progress bar: the percentage on the bar is drawn in the text colour (the right-aligned test below covers the part off the bar)");
+        pb.SetPercentAlign(SuperControl::ALIGN_LEFT); s.fillSprite(0); pb.Push(); int xl = 999; for (int y = 0; y < 30; ++y) for (int x = 0; x < 200; ++x) if (s.readPixel(x, y) == 0x001F) xl = std::min(xl, x); CHECK(xl < 8, "progress bar: SetPercentAlign(ALIGN_LEFT)");
+        pb.SetPercentAlign(SuperControl::ALIGN_RIGHT); s.fillSprite(0); pb.Push(); int xr = -1; for (int y = 0; y < 30; ++y) for (int x = 0; x < 200; ++x) if (s.readPixel(x, y) == 0x001F) xr = std::max(xr, x); CHECK(xr > 190, "progress bar: SetPercentAlign(ALIGN_RIGHT)");
+        pb.ShowPercent = false; s.fillSprite(0); pb.Push(); CHECK(cnt(0x001F, 0, 200) == 0 && cnt(0xF800, 0, 200) > 300, "progress bar: ShowPercent = false keeps only the bar");
     }
     // KeepHidden: a group show leaves a marked control hidden
     {

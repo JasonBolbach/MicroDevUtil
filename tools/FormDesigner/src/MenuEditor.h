@@ -56,6 +56,7 @@ public:
     SuperListBox* Lb() { return List.get(); }
     int Selected() const { return Sel; }
     int Rows() const { return (int)Flat.size(); }
+    std::string PreviewLevel() const { return PreviewPath(); }           // the sub-menu level the preview shows (the selected item's level; "" = top)
     std::string RowText(int i) const { return i >= 0 && i < (int)Flat.size() ? Label(i) : ""; }
     int FocusedField() const { return Focus; }                         // -1 tree, 0 Text, 1 Item ID, 2 Id
     const std::string& FieldText(int k) const { return (k == 0 ? FText : k == 1 ? FId : FNum).text; }
@@ -100,10 +101,11 @@ public:
         g.setFont(&lgfx::fonts::Font2); g.setTextDatum(lgfx::textdatum_t::top_left); g.setTextColor(COL_DIM);
         char b[100]; snprintf(b, sizeof b, "%d items (%d commands), ID prefix %s", MenuNodeCount(nodes), Commands(), Prefix.c_str());
         g.drawString(b, RX(), Row2Y() + 36);
+        g.drawString("~ = separator line   ~Text = heading (no IDs)   ~~Text = a real item starting with ~", RX(), Row2Y() + 54);
         // the real menu
-        int py = Y + 366, ph = BtnY() - 14 - py;
+        int py = Y + 380, ph = BtnY() - 14 - py;
         g.fillRect(RX(), py, RW(), ph, FormBg); g.drawRect(RX(), py, RW(), ph, COL_LINE);
-        DControl t = Proto; t.menu = nodes; t.x = 0; t.y = 0; t.w = std::min(RW() - 24, std::max(Proto.w, 140));
+        DControl t = Proto; t.menu = nodes; t.extra.erase("previewLevel"); { std::string lv = PreviewPath(); if (!lv.empty()) t.extra["previewLevel"] = lv; } t.x = 0; t.y = 0; t.w = std::min(RW() - 24, std::max(Proto.w, 140));
         g.setClipRect(RX() + 1, py + 1, RW() - 2, ph - 2); MakeControl(&g, t, RX() + 12, py + 12)->Push(); g.clearClipRect();
         SuperPushButton cancel(G, CancelX(), BtnY(), 90, &lgfx::fonts::Font2, "Cancel"), ok(G, OkX(), BtnY(), 90, &lgfx::fonts::Font2, "OK");
         ok.ColBorder = COL_ACCENT; cancel.Push(); ok.Push();
@@ -127,6 +129,13 @@ private:
         if (!n->itemId.empty()) s += "   [" + n->itemId + " = " + std::to_string(n->id) + "]";
         return s;
     }
+    // The level of the real menu to preview: the one that holds the selected item (its siblings, with the Back row), as a path of parent texts; "" = the top level.
+    std::string PreviewPath() const {
+        if (Sel < 0 || Sel >= (int)Flat.size()) return "";
+        const Path& p = Flat[(size_t)Sel]; std::string r; const std::vector<MenuNode>* v = &nodes;
+        for (size_t i = 0; i + 1 < p.size(); ++i) { const MenuNode& n = (*v)[(size_t)p[i]]; if (n.text.find('/') != std::string::npos) return ""; r += (r.empty() ? "" : "/") + n.text; v = &n.kids; }
+        return r;
+    }
     int Commands() const { int c = 0; MenuForEach(nodes, [&](const MenuNode& k) { if (!k.itemId.empty()) ++c; }); return c; }
     void Rebuild(const Path* select = nullptr) {                 // tree -> flat list -> list box, fields
         Flat.clear(); Path cur; Flatten(nodes, cur);
@@ -146,7 +155,7 @@ private:
         return AutoItemId(Prefix, text, [&](const std::string& s) { return Form.NameTaken(s, -1, Mi) || NameInTree(s, self); });
     }
     int NextId() const { return std::max(0, MenuMaxId(nodes)) + 1; }
-    void MakeCommand(MenuNode& n) { if (n.id < 0) n.id = NextId(); if (n.itemId.empty()) n.itemId = Auto(n.text, &n); }
+    void MakeCommand(MenuNode& n) { if (IsSepNode(n)) { n.itemId.clear(); n.id = -1; return; } if (n.id < 0) n.id = NextId(); if (n.itemId.empty()) n.itemId = Auto(n.text, &n); }
 
     // ---- editing ----
     TextField* Cur() { return Focus == 0 ? &FText : Focus == 1 ? &FId : Focus == 2 ? &FNum : nullptr; }
@@ -159,6 +168,10 @@ private:
             if (v.empty()) { Msg = "an item needs text"; return; }
             bool follows = !n->itemId.empty() && n->itemId == Auto(n->text, n);              // an automatic name follows the text
             n->text = v; if (follows) n->itemId = Auto(v, n);
+            if (IsSepNode(*n)) { n->itemId.clear(); n->id = -1; }                             // "~" / "~Text": a separator or heading, not a command
+            else if (n->kids.empty() && (n->itemId.empty() || n->id < 0)) MakeCommand(*n);      // (it was one: now it is an ordinary command again)
+        } else if (IsSepNode(*n)) {
+            Msg = "a separator or heading (~) is not a command: it has no Item ID or id";
         } else if (Focus == 1) {
             std::string v = FId.text;
             if (v.empty()) { if (!n->kids.empty()) { n->itemId.clear(); n->id = -1; } else Msg = "a command needs an Item ID"; }       // only a parent may have none

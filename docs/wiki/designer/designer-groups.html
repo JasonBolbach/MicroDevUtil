@@ -61,6 +61,8 @@
 <li><b>Enter</b> in the text field adds the next item: type a whole list with Enter between the entries.</li>
 <li>Add, Insert, Delete, Move up / down, Sort A-Z, Clear all. <b>Paste lines</b> adds every non-empty line of the clipboard (copy a column from a spreadsheet).</li>
 <li>Items are printable ASCII, 1 to 60 characters, at most 200. Enter = OK, Esc (in the list) = Cancel.</li>
+<li><b>Separators:</b> in a list box, combo box or menu an item <code>~</code> is a separator line and <code>~Text</code> a heading with the text centred in the line, <code>---- Text ----</code> (dim, cannot be chosen; a too long one is cut); <code>~~Text</code> is a real item that starts with ~. The dialog shows them as ordinary rows so you can edit them. A separator cannot be the initial <i>Selected</i> item. In the menu editor they get no Item ID or id and are not commands.</li>
+<li><b>Sub-menu preview:</b> the preview in the menu editor shows the level that holds the selected item (the siblings, with the Back row), so you see the sub-menu you are editing. On the design surface the menu shows its top level unless you type a parent item&rsquo;s name (<code>Settings</code>, or <code>Settings/Sound</code> for a deeper level) into the <i>Preview sub-menu</i> row. That row is only for the designer: nothing is generated, and it is cleared if the sub-menu is renamed or removed.</li>
 <li>In your code the lists change at run time too: <code>InsertItem</code>, <code>RemoveItem</code>, <code>SetItem</code>, <code>GetItem</code>.</li>
 </ul>
 <h2>Menu</h2>

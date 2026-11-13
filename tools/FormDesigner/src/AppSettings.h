@@ -18,6 +18,7 @@ struct AppSettings {
     std::string lastOpenDir;        // the folder the Open dialog was showing when it was closed last
     std::string lastSaveDir;        // the same for Save (used for a form that has no file yet)
     std::string lastForm;           // the form file opened or saved last: reopened at the next start
+    int lastFormW = 0, lastFormH = 0;   // the last form size used (0 = none): a new default form starts with it (and zoom fit) when there is no last form or template
 
     static std::string File() {
         if (const char* o = getenv("FD_SETTINGS")) if (*o) return o;
@@ -40,6 +41,8 @@ struct AppSettings {
         if (const JV* v = root.Get("lastOpenFolder")) if (v->t == JV::STR) lastOpenDir = v->s;
         if (const JV* v = root.Get("lastSaveFolder")) if (v->t == JV::STR) lastSaveDir = v->s;
         if (const JV* v = root.Get("lastForm")) if (v->t == JV::STR) lastForm = v->s;
+        if (const JV* v = root.Get("lastFormWidth")) if (v->t == JV::NUM) lastFormW = (int)std::max(0L, std::min(v->n, 100000L));
+        if (const JV* v = root.Get("lastFormHeight")) if (v->t == JV::NUM) lastFormH = (int)std::max(0L, std::min(v->n, 100000L));
         return true;
     }
     bool Save() const {
@@ -47,7 +50,7 @@ struct AppSettings {
         fs::path p = File(); if (p.has_parent_path()) fs::create_directories(p.parent_path(), ec);
         auto esc = [](const std::string& s) { std::string r; for (char c : s) { if (c == '"' || c == '\\') r += '\\'; r += c; } return r; };
         std::ofstream out(p, std::ios::binary | std::ios::trunc); if (!out) return false;
-        out << "{\n  \"lastOpenFolder\": \"" << esc(lastOpenDir) << "\",\n  \"lastSaveFolder\": \"" << esc(lastSaveDir) << "\",\n  \"lastForm\": \"" << esc(lastForm) << "\"\n}\n";
+        out << "{\n  \"lastOpenFolder\": \"" << esc(lastOpenDir) << "\",\n  \"lastSaveFolder\": \"" << esc(lastSaveDir) << "\",\n  \"lastForm\": \"" << esc(lastForm) << "\",\n  \"lastFormWidth\": " << lastFormW << ",\n  \"lastFormHeight\": " << lastFormH << "\n}\n";
         return (bool)out;
     }
 };

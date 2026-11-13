@@ -90,6 +90,7 @@ public:
         "Click a control<tab>Select it (click empty space: nothing)\n"
         "Drag a control<tab>Move it (snaps to the grid)\n"
         "Drag a side handle<tab>Change its width\n"
+        "Drag a top / bottom handle<tab>Change the height of a list, menu, gauge, graph,<br>user draw or rich text (lists, menus and rich text<br>snap to whole rows / lines); or type the Height row\n"
         "Arrows<tab>Nudge 1 pixel (Shift: one grid step)\n"
         "Tab<tab>Select the next control\n"
         "Up / Down / Front / Back<tab>Buttons above the controls list: change the draw order<br>(the last control is in front; the tab order is not touched)\n"
