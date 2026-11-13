@@ -12,6 +12,7 @@
 // outputPath is the folder the generated code is written to. The designer checks on load that it exists and otherwise uses its working folder.
 // A control's height is not stored: it follows the font (the real SuperGUI control reports it, see DesignerControls.h).
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <algorithm>
 #include <functional>
@@ -28,10 +29,14 @@
 
 namespace FD {
 
-enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_MENU, C_COUNT };
+enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_MENU, C_GAUGE, C_GRAPH, C_USERDRAW, C_COUNT };
 inline bool HasList(int type) { return type == C_LISTBOX || type == C_COMBOBOX || type == C_TABBAR; }      // the control has a list of items (rows / choices / tabs)
 constexpr int MAX_LIST_ITEMS = 200, MAX_ITEM_LEN = 60;
 constexpr int MAX_MENU_NODES = 200, MAX_MENU_DEPTH = 5, MAX_MENU_TEXT = 40, MAX_MENU_ID = 65535;
+
+// A colour band on a gauge dial: from..to in the gauge's own units. Limits: at most 20 bands.
+struct GaugeZone { double from = 0, to = 0; uint16_t color = 0x07E0; };
+constexpr int MAX_GAUGE_ZONES = 20;
 
 // ---- menu items: a tree. Every item that is a command (a leaf) has an itemId (a C++-safe name that becomes `static constexpr uint16_t <itemId> = <id>;`
 // in the generated class) and a numeric id; a parent (an item with sub-items) may have them too. id < 0 / empty itemId = none. ----
@@ -42,7 +47,7 @@ struct MenuNode {
 };
 
 // ---- per-type properties beyond the common ones ("extras"): a table drives the property panel, the JSON and the code generator ----
-enum PKind { PK_INT, PK_TEXT, PK_BOOL, PK_ENUM, PK_COLOR, PK_FONT };
+enum PKind { PK_INT, PK_TEXT, PK_BOOL, PK_ENUM, PK_COLOR, PK_FONT, PK_FLOAT };      // PK_FLOAT: a decimal number (lo / hi are the limits), stored as short text (12.5, 100)
 struct ExtraDef {
     const char* key;          // JSON key (and the name in the generated code's docs)
     const char* label;        // property panel
@@ -56,6 +61,10 @@ inline std::string ChoiceName(const ExtraDef& d, int i) {
     std::string s; int k = 0;
     for (const char* p = d.choices; ; ++p) { if (*p == '|' || !*p) { if (k == i) return s; s.clear(); ++k; if (!*p) break; } else s += *p; }
     return "";
+}
+inline std::string FloatText(double x) {                         // 12.5 -> "12.5", 100.0 -> "100", at most 4 decimals
+    if (std::fabs(x - std::round(x)) < 1e-9) return std::to_string((long)std::lround(x));
+    char b[40]; snprintf(b, sizeof b, "%.4f", x); std::string s = b; while (!s.empty() && s.back() == '0') s.pop_back(); if (!s.empty() && s.back() == '.') s.pop_back(); return s;
 }
 inline std::string Lower(std::string s) { for (char& c : s) c = (char)tolower((unsigned char)c); return s; }
 
@@ -137,6 +146,50 @@ static const ExtraDef MENU_EXTRAS[] = {
     { "idPrefix", "ID prefix",    PK_TEXT, "MNU_", 0, 0, "" },                // new item ids are named <prefix><TEXT>, e.g. MNU_REBOOT
 };
 
+// Display controls (not editable: no encoder, no buttons). "bodyHeight" is the height of the picture inside the frame; the control is taller by its frame and label.
+static const ExtraDef GAUGE_EXTRAS[] = {
+    { "bodyHeight",  "Body height",         PK_INT,   "100",    8, 400, "" },
+    { "min",         "Minimum",             PK_FLOAT, "0",      -999999, 999999, "" },
+    { "max",         "Maximum",             PK_FLOAT, "100",    -999999, 999999, "" },
+    { "value",       "Value",               PK_FLOAT, "0",      -999999, 999999, "" },
+    { "sweepStart",  "Sweep start",   PK_INT,   "-90",    -360, 360, "" },           // degrees clockwise from 12 o'clock: -90 .. 90 is a half dial
+    { "sweepEnd",    "Sweep end",     PK_INT,   "90",     -360, 360, "" },
+    { "majorTicks",  "Major ticks",         PK_INT,   "4",      1, 20, "" },
+    { "minorTicks",  "Minor ticks",         PK_INT,   "1",      0, 10, "" },
+    { "tickLabels",  "Tick numbers",        PK_BOOL,  "true",   0, 1, "No|Yes" },
+    { "decimals",    "Decimals",            PK_INT,   "0",      0, 4, "" },
+    { "unit",        "Unit",                PK_TEXT,  "",       0, 0, "" },
+    { "showValue",   "Show value",          PK_BOOL,  "true",   0, 1, "No|Yes" },
+    { "needle",      "Needle",              PK_ENUM,  "0",      0, 1, "Taper|Line" },
+    { "needleByZone","Zone needle",      PK_BOOL,  "true",   0, 1, "No|Yes" },
+    { "smoothing",   "Smoothing",           PK_BOOL,  "true",   0, 1, "No|Yes" },
+    { "smoothMs",    "Smooth (ms)",      PK_INT,   "250",    1, 5000, "" },
+    { "trackColor",  "Track color",         PK_COLOR, "0x2104", 0, 0, "" },
+    { "tickColor",   "Tick color",          PK_COLOR, "0x7BEF", 0, 0, "" },
+    { "needleColor", "Needle color",        PK_COLOR, "0xFFFF", 0, 0, "" },
+    { "minMaxMs",    "MinMax (ms)", PK_INT,   "0",      0, 600000, "" },           // 0 = off: lines for the lowest / highest value of the last window
+    { "minMaxDeg",   "MinMax deg", PK_FLOAT, "3",     0, 90, "" },
+    { "minMaxThick", "MinMax thick",   PK_INT,   "2",      1, 8, "" },
+};
+static const ExtraDef GRAPH_EXTRAS[] = {
+    { "bodyHeight", "Body height",   PK_INT,   "80",     8, 400, "" },
+    { "capacity",   "Samples",       PK_INT,   "0",      0, 2000, "" },                    // 0 = one per pixel of width (the library default)
+    { "autoRange",  "Auto range",    PK_BOOL,  "true",   0, 1, "No|Yes" },
+    { "rangeMin",   "Range from",    PK_FLOAT, "0",      -999999, 999999, "" },
+    { "rangeMax",   "Range to",      PK_FLOAT, "100",    -999999, 999999, "" },
+    { "showGrid",   "Grid",          PK_BOOL,  "true",   0, 1, "No|Yes" },
+    { "showRange",  "Show range",    PK_BOOL,  "false",  0, 1, "No|Yes" },
+    { "lineColor",  "Line color",    PK_COLOR, "0x07FF", 0, 0, "" },
+    { "gridColor",  "Grid color",    PK_COLOR, "0x2104", 0, 0, "" },
+    { "preview",    "Preview data",  PK_ENUM,  "0",      0, 3, "Sine|Rising|Noise|None" },   // the DESIGNER only: sample data so the graph shows something (not generated)
+};
+static const ExtraDef USERDRAW_EXTRAS[] = {
+    { "bodyHeight", "Body height",       PK_INT,  "100",   1, 400, "" },
+    { "persistent", "Persistent", PK_BOOL, "false", 0, 1, "No|Yes" },               // a canvas that keeps what you drew (costs width x height x 2 bytes)
+    { "autoRedraw", "Redraw (ms)",  PK_INT,  "0",     0, 60000, "" },                 // 0 = only when you call Repaint()
+    { "touch",      "Touch input",       PK_BOOL, "false", 0, 1, "No|Yes" },               // the control then takes focus and raises Pointer / Accept events
+};
+
 struct TypeInfo {
     const char* key;       // the SuperGUI class name (also the "type" in the JSON)
     const char* title;     // shown in the toolbox
@@ -171,6 +224,9 @@ inline const TypeInfo& Info(int t) {
         { "SuperComboBox",    "Combo box",   "combo",    140, "",       false, true,  true,  true,  COMBOBOX_EXTRAS, FD_N(COMBOBOX_EXTRAS), false, false },
         { "SuperTabBar",      "Tab bar",     "tabs",     220, "",       false, false, true,  true,  TABBAR_EXTRAS, FD_N(TABBAR_EXTRAS), false, false },
         { "SuperMenu",        "Menu",        "menu",     160, "",       false, false, true,  true,  MENU_EXTRAS,   FD_N(MENU_EXTRAS),   false, false },
+        { "SuperGauge",       "Gauge",       "gauge",    180, "",       false, false, true,  false, GAUGE_EXTRAS,  FD_N(GAUGE_EXTRAS),  false, false },
+        { "SuperGraph",       "Graph",       "graph",    200, "",       false, false, true,  false, GRAPH_EXTRAS,  FD_N(GRAPH_EXTRAS),  false, false },
+        { "SuperUserDraw",    "User draw",   "draw",     160, "",       false, false, true,  false, USERDRAW_EXTRAS, FD_N(USERDRAW_EXTRAS), false, false },
     };
     return T[t < 0 || t >= C_COUNT ? 0 : t];
 }
@@ -202,6 +258,7 @@ struct DControl {
     int defStyle = 0, defSize = 1, defPad = 2, defAlign = 0;    // derived: the control's own defaults (not saved)
     int h = 16;                      // derived from the real control (not saved)
     std::vector<MenuNode> menu;                                 // the items of a menu (a tree)
+    std::vector<GaugeZone> zones;                               // gauge: the colour bands on the dial
     std::string ctlGroup;                                       // control group: a name (generated as a uint16_t constant); "" = none (group 0, the default)
     bool visible = true, enabled = true;                        // the initial state (SetVisible / SetEnabled)
     std::vector<std::string> pages;                             // tab bar: the control group each tab shows ("" = none), parallel to `list` (may be shorter)
@@ -215,6 +272,7 @@ inline bool ExtraSet(DControl& c, const ExtraDef& d, const std::string& v) {    
     std::string n = v;
     switch (d.kind) {
     case PK_INT:   { if (n.empty() || n == "-") return false; long x = strtol(n.c_str(), nullptr, 10); x = x < d.lo ? d.lo : x > d.hi ? d.hi : x; n = std::to_string(x); break; }
+    case PK_FLOAT: { char* end = nullptr; double x = strtod(n.c_str(), &end); if (n.empty() || end == n.c_str() || *end) return false; x = x < d.lo ? d.lo : x > d.hi ? d.hi : x; n = FloatText(x); break; }
     case PK_BOOL:  if (n != "true" && n != "false") return false; break;
     case PK_ENUM:  { int k = atoi(n.c_str()); if (k < 0 || k >= ChoiceCount(d)) return false; n = std::to_string(k); break; }
     case PK_COLOR: { long x = strtol(n.c_str(), nullptr, 0); char b[8]; snprintf(b, sizeof b, "0x%04lX", (unsigned long)(x < 0 ? 0 : x > 0xFFFF ? 0xFFFF : x)); n = b; break; }
@@ -226,7 +284,9 @@ inline bool ExtraSet(DControl& c, const ExtraDef& d, const std::string& v) {    
 inline long XInt(const DControl& c, const char* key);
 inline void ClampSelected(DControl& c);
 inline long XInt(const DControl& c, const char* key) { const ExtraDef* d = FindExtra(c.type, key); return d ? strtol(ExtraGet(c, *d).c_str(), nullptr, 0) : 0; }
+inline double XFloat(const DControl& c, const char* key);
 inline bool XBool(const DControl& c, const char* key) { const ExtraDef* d = FindExtra(c.type, key); return d && ExtraGet(c, *d) == "true"; }
+inline double XFloat(const DControl& c, const char* key) { const ExtraDef* d = FindExtra(c.type, key); return d ? strtod(ExtraGet(c, *d).c_str(), nullptr) : 0.0; }
 inline std::string XStr(const DControl& c, const char* key) { const ExtraDef* d = FindExtra(c.type, key); return d ? ExtraGet(c, *d) : ""; }
 inline bool XSet(const DControl& c, const char* key) { return c.extra.count(key) > 0; }     // explicitly set (differs from the default)
 // The initial selection of a list must be one of its items (an empty list has none): pulled back to the last item.
@@ -269,7 +329,7 @@ inline std::string AutoItemId(const std::string& prefix, const std::string& text
 // ---- a tiny JSON reader (objects, arrays, strings, integers; enough for the designer's own files) ----
 struct JV {
     enum T { NUL, NUM, STR, ARR, OBJ } t = NUL;
-    long n = 0; std::string s;
+    long n = 0; double d = 0; std::string s;                       // n: the integer part, d: the whole number
     std::vector<JV> a; std::vector<std::pair<std::string, JV>> o;
     const JV* Get(const char* k) const { for (auto& p : o) if (p.first == k) return &p.second; return nullptr; }
 };
@@ -340,7 +400,8 @@ private:
         if (S.compare(P, 4, "null") == 0)  { v.t = JV::NUL; P += 4; return true; }
         if (S.compare(P, 5, "false") == 0) { v.t = JV::NUM; v.n = 0; P += 5; return true; }
         if (c == '-' || isdigit((unsigned char)c)) {
-            char* end = nullptr; v.n = strtol(S.c_str() + P, &end, 10); v.t = JV::NUM;
+            char* end = nullptr; v.d = strtod(S.c_str() + P, &end); v.n = (long)v.d; v.t = JV::NUM;
+            if (end == S.c_str() + P) return Fail("number expected");
             P = (size_t)(end - S.c_str()); return true;
         }
         return Fail("value expected");
@@ -486,6 +547,11 @@ struct DForm {
             }
             s += "]";
         }
+        if (c.type == C_GAUGE && !c.zones.empty()) {                       // "zones": [ { "from": 0, "to": 60, "color": "0x07E0" }, ... ]
+            s += ", \"zones\": [";
+            for (size_t i = 0; i < c.zones.size(); ++i) s += (i ? ", " : "") + std::string("{ \"from\": ") + FloatText(c.zones[i].from) + ", \"to\": " + FloatText(c.zones[i].to) + ", \"color\": \"" + Hex(c.zones[i].color) + "\" }";
+            s += "]";
+        }
         if (!c.ctlGroup.empty()) s += ", \"controlGroup\": \"" + c.ctlGroup + "\"";
         if (!c.visible) s += ", \"visible\": false";
         if (!c.enabled) s += ", \"enabled\": false";
@@ -500,6 +566,7 @@ struct DForm {
             s += std::string(", \"") + d.key + "\": ";
             switch (d.kind) {
             case PK_INT:   s += it->second; break;
+            case PK_FLOAT: s += it->second; break;                                  // a number: 12.5
             case PK_BOOL:  s += it->second; break;                                 // true / false
             case PK_ENUM:  s += "\"" + Lower(ChoiceName(d, atoi(it->second.c_str()))) + "\""; break;
             default:       s += "\"" + esc(it->second) + "\""; break;                // colour "0x...." , text, font id
@@ -581,6 +648,7 @@ struct DForm {
                 const ExtraDef& ed = ExtraAt(t, ei); const JV* v = c.Get(ed.key); if (!v) continue;
                 switch (ed.kind) {
                 case PK_INT:   if (v->t == JV::NUM) ExtraSet(d, ed, std::to_string(v->n)); break;
+                case PK_FLOAT: if (v->t == JV::NUM) ExtraSet(d, ed, FloatText(v->d)); break;
                 case PK_BOOL:  if (v->t == JV::NUM) ExtraSet(d, ed, v->n ? "true" : "false"); break;
                 case PK_ENUM:  if (v->t == JV::NUM) ExtraSet(d, ed, std::to_string(v->n));
                                else if (v->t == JV::STR) for (int k = 0; k < ChoiceCount(ed); ++k) if (Lower(ChoiceName(ed, k)) == Lower(v->s)) ExtraSet(d, ed, std::to_string(k));
@@ -598,6 +666,14 @@ struct DForm {
                     if (v.empty()) continue;
                     d.list.push_back(v);
                     if (t == C_TABBAR) { const JV* gv = it.t == JV::OBJ ? it.Get("group") : nullptr; d.pages.resize(d.list.size()); if (gv && gv->t == JV::STR) d.pages.back() = gv->s; }
+                }
+            if (t == C_GAUGE) if (const JV* zv = c.Get("zones")) if (zv->t == JV::ARR)
+                for (const JV& z : zv->a) if (z.t == JV::OBJ && (int)d.zones.size() < MAX_GAUGE_ZONES) {                          // a band needs from < to; the colour is 0xRRRR or a number
+                    const JV* fv = z.Get("from"); const JV* tv = z.Get("to"); const JV* cv = z.Get("color");
+                    if (!fv || !tv || fv->t != JV::NUM || tv->t != JV::NUM || !(fv->d < tv->d)) continue;
+                    GaugeZone gz; gz.from = fv->d; gz.to = tv->d;
+                    if (cv && cv->t == JV::STR) gz.color = (uint16_t)std::min(65535L, std::max(0L, strtol(cv->s.c_str(), nullptr, 0))); else if (cv && cv->t == JV::NUM) gz.color = (uint16_t)std::min(65535L, std::max(0L, cv->n));
+                    d.zones.push_back(gz);
                 }
             if (const JV* v = c.Get("controlGroup")) if (v->t == JV::STR) d.ctlGroup = v->s;
             if (const JV* v = c.Get("visible")) if (v->t == JV::NUM) d.visible = v->n != 0;

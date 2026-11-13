@@ -42,11 +42,11 @@ inline std::string HexColor(uint16_t c) { char b[8]; snprintf(b, sizeof b, "0x%0
 inline std::string DesignerFileName(const DForm& f) { return f.name + ".designer.h"; }
 
 inline const char* HeaderOf(int type) {
-    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h", "SuperMenu.h" };
+    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h", "SuperMenu.h", "SuperGauge.h", "SuperGraph.h", "SuperUserDraw.h" };
     return h[type];
 }
 // The events a control raises: the handler is <control>_<Name>() and it is connected with control.<setter>(thunk, this).
-struct EventDef { const char* name; const char* setter; const char* hint; bool idArg = false; };    // idArg: the handler receives the id of the chosen menu item      // hint: what the stub's comment tells the user (%s = the control)
+struct EventDef { const char* name; const char* setter; const char* hint; bool idArg = false; const char* params = ""; const char* thunkParams = ""; const char* thunkArgs = ""; };       // params: the handler's parameters ("" = none); thunkParams / thunkArgs: the library callback's signature and what it passes on    // idArg: the handler receives the id of the chosen menu item      // hint: what the stub's comment tells the user (%s = the control)
 inline std::vector<EventDef> EventsOf(int type) {
     switch (type) {
     case C_PUSHBUTTON: return { { "Click",  "SetOnAccept", "%s was pressed." } };
@@ -66,17 +66,29 @@ inline std::vector<EventDef> EventsOf(int type) {
                                 { "Accept", "SetOnAccept", "%s: a tab was chosen: %s.GetSelected() is its index (show that page)." } };
     case C_MENU:       return { { "Change", "SetOnChange", "%s: the cursor moved, or the menu level changed." },
                                 { "Choose", "SetOnAccept", "%s: a command was chosen: id is its constant (switch on it).", true } };
+    case C_USERDRAW:   return { { "Draw", "SetOnDraw", "%s: draw your picture here. spr is the sprite and body the rectangle to draw in (everything is clipped to it), e.g. spr->drawCircle(body.x + body.w / 2, body.y + body.h / 2, 20, 0x07E0);", false,
+                                  "lgfx::LGFX_Sprite* spr, const SuperRect& body", "SuperUserDraw&, lgfx::LGFX_Sprite* s, const SuperRect& r, void* u", "s, r" },
+                                { "Pointer", "SetOnPointer", "%s: touch. e.Type is PRESS, MOVE, RELEASE, TAP or LONG_PRESS; e.X / e.Y are relative to the body. Call %s.Repaint() to redraw.", false,
+                                  "const SuperUserPointer& e", "SuperUserDraw&, const SuperUserPointer& e, void* u", "e" },
+                                { "Accept", "SetOnAccept", "%s: a touch gesture ended." } };
     default:           return {};
     }
+}
+// The events this control really has (a user-draw control has Pointer and Accept only when Touch input is on).
+inline std::vector<EventDef> EventsOf(const DControl& c) {
+    std::vector<EventDef> v = EventsOf(static_cast<int>(c.type));
+    if (c.type == C_USERDRAW && !XBool(c, "touch")) v.erase(std::remove_if(v.begin(), v.end(), [](const EventDef& e) { return std::string(e.name) != "Draw"; }), v.end());
+    return v;
 }
 // every handler the Base declares, as "name_Event"
 inline std::vector<std::string> HandlerNames(const DForm& f) {
     std::vector<std::string> v;
-    for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) v.push_back(c.name + "_" + ev.name);
+    for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c)) v.push_back(c.name + "_" + ev.name);
     return v;
 }
 inline bool HasPages(const DControl& c) { if (c.type != C_TABBAR) return false; for (const std::string& p : c.pages) if (!p.empty()) return true; return false; }
-inline bool Focusable(int type) { return type != C_LABEL && type != C_PROGRESS && type != C_TEXTBOX; }
+inline bool Focusable(const DControl& c) { return c.type != C_LABEL && c.type != C_PROGRESS && c.type != C_TEXTBOX && c.type != C_GAUGE && c.type != C_GRAPH && !(c.type == C_USERDRAW && !XBool(c, "touch")); }
+inline std::string FloatLit(double x) { std::string t = FloatText(x); if (t.find('.') == std::string::npos) t += ".0"; return t + "f"; }
 inline std::string CppChar(char c) { return c == '\'' ? "'\\''" : c == '\\' ? "'\\\\'" : std::string("'") + c + "'"; }
 
 // The label (caption above / below the box) of a control: only what differs from the defaults.
@@ -115,6 +127,36 @@ inline void EmitExtras(std::ostringstream& o, const DControl& c) {
             if (XSet(c, "selected")) o << "        " << n << ".SetSelected(" << XInt(c, "selected") << ");\n";                    // after the items
         }
         if (c.type == C_COMBOBOX && XInt(c, "restore") == 0) o << "        " << n << ".SetRestore(" << n << "_RestoreThunk, this);      // the form redraws what the popup covered\n";
+    }
+    if (c.type == C_GAUGE) {
+        if (XSet(c, "min") || XSet(c, "max")) o << "        " << n << ".SetRange(" << FloatLit(XFloat(c, "min")) << ", " << FloatLit(XFloat(c, "max")) << ");\n";
+        if (XSet(c, "sweepStart") || XSet(c, "sweepEnd")) o << "        " << n << ".SetSweep(" << FloatLit((double)XInt(c, "sweepStart")) << ", " << FloatLit((double)XInt(c, "sweepEnd")) << ");\n";
+        if (XSet(c, "majorTicks") || XSet(c, "minorTicks")) o << "        " << n << ".SetTicks(" << XInt(c, "majorTicks") << ", " << XInt(c, "minorTicks") << ");\n";
+        if (!XBool(c, "tickLabels")) o << "        " << n << ".ShowTickLabels = false;\n";
+        if (XSet(c, "decimals") || XSet(c, "unit")) o << "        " << n << ".SetFormat(" << XInt(c, "decimals") << ", " << CppString(XStr(c, "unit")) << ");\n";
+        if (!XBool(c, "showValue")) o << "        " << n << ".ShowValue = false;\n";
+        if (XInt(c, "needle") == 1) o << "        " << n << ".Needle = SuperGauge::NEEDLE_LINE;\n";
+        if (!XBool(c, "needleByZone")) o << "        " << n << ".NeedleByZone = false;\n";
+        if (XSet(c, "trackColor")) o << "        " << n << ".ColTrack = " << HexColor((uint16_t)XInt(c, "trackColor")) << ";\n";
+        if (XSet(c, "tickColor")) o << "        " << n << ".ColTick = " << HexColor((uint16_t)XInt(c, "tickColor")) << ";\n";
+        if (XSet(c, "needleColor")) o << "        " << n << ".ColNeedle = " << HexColor((uint16_t)XInt(c, "needleColor")) << ";\n";
+        for (const GaugeZone& z : c.zones) o << "        " << n << ".AddZone(" << FloatLit(z.from) << ", " << FloatLit(z.to) << ", " << HexColor(z.color) << ");\n";
+        if (XInt(c, "minMaxMs") > 0) o << "        " << n << ".SetMinMax(" << XInt(c, "minMaxMs") << ", " << FloatLit(XFloat(c, "minMaxDeg")) << ", " << XInt(c, "minMaxThick") << ");\n";
+        if (!XBool(c, "smoothing")) o << "        " << n << ".SetSmoothing(false);\n";
+        else if (XSet(c, "smoothMs")) o << "        " << n << ".SetSmoothing(true, " << XInt(c, "smoothMs") << ");\n";
+        if (XSet(c, "value")) o << "        " << n << ".SetValue(" << FloatLit(XFloat(c, "value")) << ");\n";                       // last: the range and the zones are in place
+    }
+    if (c.type == C_GRAPH) {
+        if (XSet(c, "capacity")) o << "        " << n << ".SetCapacity(" << XInt(c, "capacity") << ");\n";
+        if (!XBool(c, "autoRange")) o << "        " << n << ".SetRange(" << FloatLit(XFloat(c, "rangeMin")) << ", " << FloatLit(XFloat(c, "rangeMax")) << ");\n";
+        if (!XBool(c, "showGrid")) o << "        " << n << ".ShowGrid = false;\n";
+        if (XBool(c, "showRange")) o << "        " << n << ".ShowRange = true;\n";
+        if (XSet(c, "lineColor")) o << "        " << n << ".ColLine = " << HexColor((uint16_t)XInt(c, "lineColor")) << ";\n";
+        if (XSet(c, "gridColor")) o << "        " << n << ".ColGrid = " << HexColor((uint16_t)XInt(c, "gridColor")) << ";\n";
+    }
+    if (c.type == C_USERDRAW) {
+        if (XBool(c, "persistent")) o << "        " << n << ".SetPersistent(true);\n";
+        if (XSet(c, "autoRedraw")) o << "        " << n << ".SetAutoRedraw(" << XInt(c, "autoRedraw") << ");\n";
     }
     if (c.type == C_MENU) {
         if (XBool(c, "wrap")) o << "        " << n << ".Wrap = true;\n";
@@ -186,7 +228,10 @@ inline std::string GenerateDesigner(const DForm& f) {
     auto sep = [&]() { o << (first ? "\n        : " : ",\n          "); first = false; };
     for (const DControl& c : f.items) {
         sep();
-        o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", &lgfx::fonts::" << FindFont(c.font).id;
+        const std::string fontArg = std::string("&lgfx::fonts::") + FindFont(c.font).id;
+        if (c.type == C_GAUGE || c.type == C_USERDRAW) { o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", " << XInt(c, "bodyHeight") << ", " << fontArg << ")"; continue; }       // (dst, x, y, w, bodyHeight, font)
+        if (c.type == C_GRAPH) { o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", " << fontArg << ", " << XInt(c, "bodyHeight") << ")"; continue; }                        // (dst, x, y, w, font, bodyHeight)
+        o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", " << fontArg;
         if (Info(c.type).ctorText) o << ", " << CppString(c.text);
         if (c.type == C_LISTBOX || c.type == C_MENU) o << ", " << XInt(c, "rows");                                    // the number of visible rows is a constructor argument
         if (c.type == C_INPUTBOX) o << ", " << CppString(XStr(c, "template"));                      // the template comes before the encoder and buttons
@@ -214,7 +259,7 @@ inline std::string GenerateDesigner(const DForm& f) {
 
     if (!HandlerNames(f).empty()) {
         o << "protected:\n    // Events: override these in your own class.\n";
-        for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) o << "    virtual void " << c.name << "_" << ev.name << (ev.idArg ? "(uint16_t id) {}\n" : "() {}\n");
+        for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c)) o << "    virtual void " << c.name << "_" << ev.name << (ev.idArg ? "(uint16_t id) {}\n" : std::string("(") + ev.params + ") {}\n");
         o << "\n";
     }
 
@@ -240,13 +285,14 @@ inline std::string GenerateDesigner(const DForm& f) {
         if (!c.enabled) o << "        " << n << ".SetEnabled(false);\n";
         EmitLabel(o, c);
         EmitExtras(o, c);
-        for (const EventDef& ev : EventsOf(c.type)) o << "        " << n << "." << ev.setter << "(" << n << "_" << ev.name << "Thunk, this);\n";
+        for (const EventDef& ev : EventsOf(c)) o << "        " << n << "." << ev.setter << "(" << n << "_" << ev.name << "Thunk, this);\n";
         if (c.type == C_RADIO) o << "        " << c.group << ".Add(&" << n << ");\n";
-        o << "        Form.Add(&" << n << (Focusable(c.type) ? "" : ", false") << ");\n";
+        o << "        Form.Add(&" << n << (Focusable(c) ? "" : ", false") << ");\n";
     }
     o << "    }\n";
-    for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) {
+    for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c)) {
         if (ev.idArg) o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { auto* s = static_cast<" << base << "*>(u); s->" << c.name << "_" << ev.name << "((uint16_t)s->" << c.name << ".GetResultId()); }\n";
+        else if (ev.params[0]) o << "    static void " << c.name << "_" << ev.name << "Thunk(" << ev.thunkParams << ") { static_cast<" << base << "*>(u)->" << c.name << "_" << ev.name << "(" << ev.thunkArgs << "); }\n";
         else if (HasPages(c) && std::string(ev.name) == "Accept")
             o << "    static void " << c.name << "_AcceptThunk(void* u) { auto* s = static_cast<" << base << "*>(u); s->" << c.name << "_ShowPage(s->" << c.name << ".GetSelected()); s->" << c.name << "_Accept(); }\n";
         else o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { static_cast<" << base << "*>(u)->" << c.name << "_" << ev.name << "(); }\n";
@@ -277,7 +323,7 @@ inline std::string GenerateUserFile(const DForm& f) {
     auto h = HandlerNames(f);
     if (!h.empty()) {
         o << "\nprotected:\n";
-        for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) {
+        for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c)) {
             std::string hint = ev.hint;                                       // %s = the control, GROUP = its radio group
             for (size_t p; (p = hint.find("%s")) != std::string::npos;) hint.replace(p, 2, c.name);
             for (size_t p; (p = hint.find("GROUP")) != std::string::npos;) hint.replace(p, 5, c.group);
@@ -288,7 +334,7 @@ inline std::string GenerateUserFile(const DForm& f) {
                 continue;
             }
             if (HasPages(c) && std::string(ev.name) == "Accept") hint += " The page (control group) of that tab is already shown.";
-            o << "    void " << c.name << "_" << ev.name << "() override {\n        // " << hint << "\n    }\n";
+            o << "    void " << c.name << "_" << ev.name << "(" << ev.params << ") override {\n        // " << hint << "\n    }\n";
         }
     }
     o << "};\n";

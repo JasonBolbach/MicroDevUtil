@@ -76,7 +76,7 @@ at most 40 cells; OK needs at least one slot). Time box: Seconds, Value `HH:MM[:
 a template without a slot) is refused: the model keeps the old value, the field turns red, and the reason is shown under the rows and in the status line. Valid values are stored the way the box prints them
 (`7:5` becomes `07:05:00`). A new template that the old value no longer fits clears the value (and says so). **Fit** (on the Width row of text-like controls) sets the exact width that shows the whole text;
 new input / time / date boxes are placed that wide. They raise `<name>_Change()` / `<name>_Accept()` like the spin box (`GetLiveValue()` / `GetValue()`). Library additions: `GetLiveValue()` on the input,
-time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: chunk 4 display (Gauge, Graph, UserDraw),
+time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: chunk 5 (Gauge, Graph, UserDraw),
 chunk 5 MessageBox and ColorPicker.
 
 **Chunk 3a: lists.** **List box**, **Combo box**, **Tab bar**. Their items are edited in a modal **items dialog** (the **Edit...** button on the Items / Tabs row): the real `SuperListBox` of items, a text
@@ -114,6 +114,18 @@ first page is shown, so it wins at start). **Tab pages:** in the tab bar's items
 the other tabs', calls it when a tab is chosen (then your `tabs1_Accept()`), and shows the first tab's page at start. JSON: a tab with a page is `{ "text": "Home", "group": "GRP_HOME" }`, others plain strings.
 The design surface has a **View** button (All -> each group in turn): only the controls of that group, and those without a group, are shown and clickable, so overlapping pages can be edited one at a time; selecting a control
 of another group from the list switches the view; initially hidden controls are drawn faded with an H. Export refuses a control group with an unsafe or clashing name. Library: `SuperTabBar::EditIO()`.
+
+**Chunk 4: display controls.** **Gauge**, **Graph** and **User draw** (not editable: no encoder, no buttons; each has a **Body height**: the height of the picture inside the frame). New: **decimal numbers**
+(property kind `PK_FLOAT`, typed with a decimal point, saved as JSON numbers like `55.5`, written in code as `55.5f`).
+*Gauge:* Minimum / Maximum / Value (decimals), Sweep start / end in degrees (-90..90 half dial, -135..135 a 270 degree dial), Major / Minor ticks, Tick numbers, Decimals + Unit, Show value, Needle (Taper / Line),
+Zone needle, Smoothing (+ ms), Track / Tick / Needle colours, Min/Max window (ms, 0 = off) with minimum degrees and thickness, and the **Zones**: coloured bands on the dial, edited in a **zones dialog** (list of
+From / To / Color with a palette strip, Add / Delete / Move / **Fill 3 bands** (green / yellow / red over 60 / 85 / 100 % of the range) / Clear all, live preview of the real gauge). Strict: a zone must end above where it starts,
+Maximum above Minimum, the sweep must end after it starts, and a Value outside the range is refused; a new Minimum / Maximum moves the needle into the range. A new gauge starts with the three bands and the value 42.
+JSON: `"zones": [ { "from": 0, "to": 60, "color": "0x07E0" }, ... ]`. The generated code calls `SetValue()` last (after the range and the zones); update it at run time with `gauge1.SetValue(v)`.
+*Graph:* Samples (capacity; 0 = one per pixel), Auto range or a fixed Range from / to, Grid, Show range, Line / Grid colours, and **Preview data** (Sine / Rising / Noise / None): sample data so the designer shows a
+graph. It is **designer only** and is not generated; at run time call `graph1.AddSample(v)`.
+*User draw:* Persistent canvas, Auto redraw (ms), Touch input. The designer cannot run your code, so it shows a placeholder (diagonals and the control's name). The generated class has `<name>_Draw(spr, body)`
+(and, with Touch input on, `<name>_Pointer(const SuperUserPointer& e)` and `<name>_Accept()`); your file gets stubs with a drawing example. With Touch input the control takes focus. Planned next: chunk 5 (MessageBox and ColorPicker).
 
 **Names** (`src/ReservedNames.h`, `FD::ValidName`): a control, radio group or form name must be a plain identifier that is safe in the generated C++ for Arduino, ESP32, Pico and the desktop.
 Refused: every C++ keyword (C++23, incl. `wchar_t`, `static_assert`, `bitand`, `co_await`, contextual `final` / `override`), the generated class's own names (`Form`, `Show`, `Service`, ...),

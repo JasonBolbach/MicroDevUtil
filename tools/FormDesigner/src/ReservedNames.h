@@ -64,7 +64,7 @@ inline bool IsReserved(const std::string& s) {
     if (IsKeyword(s) || IsGeneratorName(s) || IsPlatformName(s) || IsMacroName(s)) return true;
     if (s.empty()) return false;
     if (s[0] == '_' || s.find("__") != std::string::npos) return true;                                         // reserved identifier shapes
-    if (EndsWith(s, "_Click") || EndsWith(s, "_Change") || EndsWith(s, "_Accept") || EndsWith(s, "_ClickThunk") || EndsWith(s, "_ChangeThunk") || EndsWith(s, "_AcceptThunk") || EndsWith(s, "_RestoreThunk") || EndsWith(s, "_Choose") || EndsWith(s, "_ChooseThunk") || EndsWith(s, "_ShowPage")) return true;   // handler names of the generated class
+    if (EndsWith(s, "_Click") || EndsWith(s, "_Change") || EndsWith(s, "_Accept") || EndsWith(s, "_ClickThunk") || EndsWith(s, "_ChangeThunk") || EndsWith(s, "_AcceptThunk") || EndsWith(s, "_RestoreThunk") || EndsWith(s, "_Choose") || EndsWith(s, "_ChooseThunk") || EndsWith(s, "_ShowPage") || EndsWith(s, "_Draw") || EndsWith(s, "_DrawThunk") || EndsWith(s, "_Pointer") || EndsWith(s, "_PointerThunk")) return true;   // handler names of the generated class
     if (StartsWith(s, "fd_")) return true;                                                                       // fd_... : locals the generator uses
     if (StartsWith(s, "Super") || s == "lgfx" || StartsWith(s, "LGFX") || StartsWith(s, "lgfx")) return true;   // SuperGUI / LovyanGFX types and namespaces
     if (StartsWith(s, "TFT_") || StartsWith(s, "ESP") || StartsWith(s, "esp_") || StartsWith(s, "GPIO") || StartsWith(s, "gpio_") || StartsWith(s, "PICO") ||

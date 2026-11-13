@@ -29,6 +29,7 @@
 #include "TemplateBuilder.h"
 #include "ItemsDialog.h"
 #include "MenuEditor.h"
+#include "ZonesDialog.h"
 #include "AppSettings.h"
 #include <SuperSpinBox.h>
 #include <vector>
@@ -62,6 +63,7 @@ static DragMode drag = D_NONE; static int dragDX = 0, dragDY = 0, dragRight = 0;
 
 // ---- property fields ----
 enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN, P_CGROUP, P_VISIBLE, P_ENABLED,
+            P_ZONES = 97,                          // the colour zones of a gauge (opens the zones dialog)
             P_ITEMS = 98,                          // the items of a list box / combo box / tab bar (opens the items dialog)
             P_HINT = 99,                           // a row that only shows a hint (the template legend)
             P_EXTRA = 100 };                       // P_EXTRA + i = the selected control's i-th extra property (FD::ExtraAt), see FormModel.h
@@ -136,7 +138,7 @@ static int RowKindOf(int p) {
     }
     if (p == P_HINT) return RK_HINT;
     if (p == P_VISIBLE || p == P_ENABLED) return RK_SEG;
-    if (p == P_ITEMS) return RK_ITEMS;
+    if (p == P_ITEMS || p == P_ZONES) return RK_ITEMS;
     if (p == P_FONT) return RK_FONT;
     if (p == P_BSTYLE || p == P_ALIGN) return RK_SEG;
     if (p >= P_FG && p <= P_FBG) return RK_COLOR;
@@ -147,6 +149,7 @@ static bool IsPickRow(int p) { return RowKindOf(p) != RK_TEXT; }                
 static std::string PropLabel(int p) {
     if (const FD::ExtraDef* d = ExtraOf(p)) return d->label;
     static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align", "Control group", "Visible", "Enabled" };
+    if (p == P_ZONES) return "Zones";
     if (p == P_ITEMS) return Sel() && Sel()->type == FD::C_TABBAR ? "Tabs" : Sel() && Sel()->type == FD::C_MENU ? "Menu items" : "Items";
     return p >= 0 && p <= P_ENABLED ? L[p] : "";
 }
@@ -235,7 +238,8 @@ static std::string PropValue(int p) {
 static bool ApplyExtra(int p, const std::string& v) {
     DControl* c = Sel(); const FD::ExtraDef* d = ExtraOf(p); if (!c || !d) return false;
     DControl cand = *c;
-    if (!FD::ExtraSet(cand, *d, v.empty() && d->kind == FD::PK_INT ? std::string(d->def) : v)) return false;      // (an empty number = the default)
+    if (!FD::ExtraSet(cand, *d, v.empty() && (d->kind == FD::PK_INT || d->kind == FD::PK_FLOAT) ? std::string(d->def) : v)) return false;
+    if (std::string(d->key) != "value") FD::ClampGaugeValue(cand);                          // a gauge: a new range moves the needle into it      // (an empty number = the default)
     std::string key = d->key, msg = FD::Validate(&scr, cand);
     if (!msg.empty() && key == "template" && XSet(cand, "value")) {          // a new template that the old value no longer fits: the value is cleared
         DControl t2 = cand; t2.extra.erase("value");
@@ -288,11 +292,12 @@ static void BuildFields() {
                            if (p == P_NAME || p == P_FNAME || p == P_GROUP || p == P_CGROUP) { f.filter = FD::TextField::IDENT; if (p == P_CGROUP) f.maxLen = 32; }
                            if (p == P_X || p == P_Y || p == P_W || p == P_FW || p == P_FH) { f.filter = FD::TextField::DIGITS; f.maxLen = 4; }
                            if (p == P_BSIZE || p == P_PAD) { f.filter = FD::TextField::DIGITS; f.maxLen = 2; }
-                           if (const FD::ExtraDef* d = ExtraOf(p)) { if (d->kind == FD::PK_INT) { f.filter = d->lo < 0 ? FD::TextField::SIGNED : FD::TextField::DIGITS; f.maxLen = 11; } else f.maxLen = 40; } };
+                           if (const FD::ExtraDef* d = ExtraOf(p)) { if (d->kind == FD::PK_INT) { f.filter = d->lo < 0 ? FD::TextField::SIGNED : FD::TextField::DIGITS; f.maxLen = 11; } else if (d->kind == FD::PK_FLOAT) { f.filter = FD::TextField::DECIMAL; f.maxLen = 12; } else f.maxLen = 40; } };
     if (Sel()) {
         const FD::TypeInfo& ti = FD::Info(Sel()->type);
         add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W); add(P_CGROUP); add(P_VISIBLE); add(P_ENABLED);
         if (FD::HasList(Sel()->type) || Sel()->type == FD::C_MENU) add(P_ITEMS);
+        if (Sel()->type == FD::C_GAUGE) add(P_ZONES);
         for (int i = 0; i < ti.nExtras; ++i) { add(P_EXTRA + i); if (std::string(ti.extras[i].key) == "template") add(P_HINT); }   // the type's own properties (+ the template legend)
         add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (ti.hasAlign) add(P_ALIGN);
         if (ti.hasLabel) for (int i = 0; i < FD::N_LABEL_EXTRAS; ++i) add(P_EXTRA + ti.nExtras + i);   // the label group
@@ -353,12 +358,19 @@ static void CloseFontDialog() {
 static FD::PresetDialog* presetDlg = nullptr; static FD::TemplateBuilder* builderDlg = nullptr; static int templateProp = -1;
 static int TemplateRowProp() { for (int i = 0; i < nFields; ++i) if (const FD::ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == "template") return fieldProp[i]; return -1; }
 static bool AnyModal();
-static FD::ItemsDialog* itemsDlg = nullptr; static FD::MenuEditor* menuDlg = nullptr;
+static FD::ItemsDialog* itemsDlg = nullptr; static FD::MenuEditor* menuDlg = nullptr; static FD::ZonesDialog* zonesDlg = nullptr;
 static void OpenItemsDialog() {
     DControl* c = Sel(); if (!c || AnyModal()) return;
+    if (c->type == FD::C_GAUGE) { zonesDlg = new FD::ZonesDialog(&scr, "Zones of " + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     if (c->type == FD::C_MENU) { menuDlg = new FD::MenuEditor(&scr, "Menu items of " + c->name, *c, form, sel, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     if (!FD::HasList(c->type)) return;
     itemsDlg = new FD::ItemsDialog(&scr, std::string(c->type == FD::C_TABBAR ? "Tabs of " : "Items of ") + c->name, *c, form, form.bg); focus = -1; drag = D_NONE; dirty = true;
+}
+static void CloseZonesDialog() {
+    bool ok = zonesDlg->state == FD::ZonesDialog::OK; std::vector<FD::GaugeZone> r = zonesDlg->zones;
+    delete zonesDlg; zonesDlg = nullptr; drag = D_NONE; dirty = true;
+    if (!ok) return;
+    if (DControl* c = Sel()) { c->zones = r; RefreshGeometry(); SyncFields(); Status("%s: %d zones", c->name.c_str(), (int)r.size()); }
 }
 static void CloseMenuDialog() {
     bool ok = menuDlg->state == FD::MenuEditor::OK; std::vector<FD::MenuNode> r = menuDlg->nodes;
@@ -395,7 +407,7 @@ static void FitSel() {                                // Fit: the control is exa
 static bool SaveForm(); static bool OpenForm(); static void ExportForm(const std::string& dir);
 enum FilePurpose { FP_OPEN, FP_SAVE, FP_EXPORT };
 static FD::FileDialog* fileDlg = nullptr; static int filePurpose = FP_OPEN;
-static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg || menuDlg; }
+static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg || menuDlg || zonesDlg; }
 static bool DirOk(const std::string& d) { std::error_code ec; return !d.empty() && std::filesystem::is_directory(d, ec); }
 static void OpenFileDialog(int purpose) {
     if (AnyModal()) return;
@@ -446,6 +458,9 @@ static void Place(int type, int fx, int fy) {        // fx, fy in form coordinat
     if (FD::HasList(type)) for (int i = 1; i <= 3; ++i) c.list.push_back(std::string(type == FD::C_TABBAR ? "Tab " : "Item ") + std::to_string(i));      // a few sample items
     if (type == FD::C_MENU) {                                                    // a small sample menu; ids and names are filled in below
         FD::MenuNode sys; sys.text = "System"; FD::MenuNode a, b, about; a.text = "Reboot"; b.text = "Power off"; about.text = "About"; sys.kids = { a, b }; c.menu = { sys, about };
+    }
+    if (type == FD::C_GAUGE) {                                                   // a sample: green / yellow / red bands and a value, so a new gauge shows something
+        c.zones = { { 0, 60, 0x07E0 }, { 60, 85, 0xFFE0 }, { 85, 100, 0xF800 } }; FD::ExtraSet(c, *FD::FindExtra(FD::C_GAUGE, "value"), "42");
     }
     FD::Measure(&scr, c);
     if (type == FD::C_INPUTBOX || type == FD::C_TIMEBOX || type == FD::C_DATEBOX) c.w = std::max(FD::MIN_CONTROL_W, FD::FitWidth(&scr, c));      // exactly as wide as its text
@@ -665,7 +680,8 @@ static void Render() {
             else if (!optional) { scr.setTextColor(0x8410); scr.drawString("click to change", FIELD_X + FIELD_W - 100, fy + 6); }
         } else if (kind == RK_ITEMS) {                                                       // a summary of the list; the Edit button (or a click) opens the items dialog
             const DControl* ic = Sel(); std::string sm;
-            if (ic->type == FD::C_MENU) { int cmds = 0; FD::MenuForEach(ic->menu, [&](const FD::MenuNode& k) { if (!k.itemId.empty()) ++cmds; }); sm = std::to_string(FD::MenuNodeCount(ic->menu)) + " items, " + std::to_string(cmds) + " ids: ";
+            if (fieldProp[i] == P_ZONES) { sm = std::to_string(ic->zones.size()) + (ic->zones.size() == 1 ? " zone" : " zones"); for (size_t k = 0; k < ic->zones.size() && sm.size() < 60; ++k) sm += (k ? ", " : ": ") + FD::FloatText(ic->zones[k].from) + "-" + FD::FloatText(ic->zones[k].to); }
+            else if (ic->type == FD::C_MENU) { int cmds = 0; FD::MenuForEach(ic->menu, [&](const FD::MenuNode& k) { if (!k.itemId.empty()) ++cmds; }); sm = std::to_string(FD::MenuNodeCount(ic->menu)) + " items, " + std::to_string(cmds) + " ids: ";
                                           for (size_t k = 0; k < ic->menu.size() && sm.size() < 60; ++k) sm += (k ? ", " : "") + ic->menu[k].text; }
             else { sm = std::to_string(ic->list.size()) + (ic->type == FD::C_TABBAR ? " tabs: " : " items: ");
                    for (size_t k = 0; k < ic->list.size() && sm.size() < 60; ++k) sm += (k ? ", " : "") + ic->list[k]; }
@@ -692,7 +708,7 @@ static void Render() {
     scr.setClipRect(1002, PANEL_TOP, 386, PANEL_BOT - PANEL_TOP);
     scr.setTextDatum(lgfx::textdatum_t::top_left); scr.setFont(&lgfx::fonts::Font2); scr.setTextColor(0x8410);
     { int iy = FieldY(nFields) + 6;
-      if (Sel()) { snprintf(b, sizeof b, "Height %d (follows the font)", Sel()->h); scr.drawString(b, 1010, iy); }
+      if (Sel()) { snprintf(b, sizeof b, FD::FindExtra(Sel()->type, "bodyHeight") ? "Height %d (the body height + the frame)" : "Height %d (follows the font)", Sel()->h); scr.drawString(b, 1010, iy); }
       else scr.drawString("Select a control to edit it.", 1010, iy);
       if (focus >= 0) scr.drawString("Enter / Esc: done    Tab: next field", 1010, iy + 24);
       if (!rejectMsg.empty()) {                                                          // why the last value was refused (red, wrapped)
@@ -712,12 +728,14 @@ static void Render() {
     if (builderDlg) builderDlg->Draw();
     if (itemsDlg) itemsDlg->Draw(SDL_GetTicks());
     if (menuDlg) menuDlg->Draw(SDL_GetTicks());
+    if (zonesDlg) zonesDlg->Draw(SDL_GetTicks());
     scr.pushSprite(lcd, 0, 0);
     dirty = false;
 }
 
 // ---- input ----
 static void Handle(const InputEvent& e) {
+    if (zonesDlg) { zonesDlg->Event(e); dirty = true; if (zonesDlg->state != FD::ZonesDialog::OPEN) CloseZonesDialog(); return; }
     if (menuDlg) { menuDlg->Event(e); dirty = true; if (menuDlg->state != FD::MenuEditor::OPEN) CloseMenuDialog(); return; }
     if (itemsDlg) { itemsDlg->Event(e); dirty = true; if (itemsDlg->state != FD::ItemsDialog::OPEN) CloseItemsDialog(); return; }
     if (presetDlg) { presetDlg->Event(e); dirty = true; if (presetDlg->state != FD::PresetDialog::OPEN) ClosePresetDialog(); return; }
@@ -1436,7 +1454,7 @@ static void SelfTest() {
         }
         // ---- chunk 1: spin box and slider, the property schema, the label, the scrolling panel ----
         form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ctl";
-        Check(C_COUNT == 15 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
+        Check(C_COUNT == 18 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
         Check(ExtraCount(C_SPINBOX) == 8 + N_LABEL_EXTRAS && ExtraCount(C_SLIDER) == 5 + N_LABEL_EXTRAS && ExtraCount(C_LABEL) == 0 && ExtraCount(C_PROGRESS) == N_LABEL_EXTRAS, "chunk 1: a control has its own extras plus the label group (SuperLabel has none)");
         { DControl d; d.type = C_SPINBOX; const ExtraDef& mn = *FindExtra(C_SPINBOX, "min");
           Check(ExtraSet(d, mn, "-5") && XInt(d, "min") == -5 && d.extra.count("min") && ExtraSet(d, mn, "0") && !d.extra.count("min"), "extras: a value equal to the default is not stored");
@@ -2014,6 +2032,116 @@ static void SelfTest() {
           bad.items[0].ctlGroup = "G_OK"; br = WriteDesigner(bad, bdir); Check(br.ok, "export: a valid group exports"); std::filesystem::remove_all(bdir, bec); }
         Check(!ValidName("tabs1_ShowPage") && !ValidName("x_ShowPage"), "names: _ShowPage is reserved too");
         form.Clear(); FixOutDir(); sel = -1; BuildFields(); viewGroup.clear();
+        // ---- chunk 4: gauge, graph, user draw; decimal numbers ----
+        {
+            Check(FloatText(12.5) == "12.5" && FloatText(100.0) == "100" && FloatText(0.1 + 0.2) == "0.3" && FloatText(-20.5) == "-20.5" && FloatText(1.23456789) == "1.2346" && FloatText(2.50) == "2.5", "decimals: numbers are kept as short canonical text (at most 4 decimals)");
+            DControl d; d.type = C_GAUGE; const ExtraDef& mn = *FindExtra(C_GAUGE, "min");
+            Check(ExtraSet(d, mn, "-20.5") && XFloat(d, "min") == -20.5 && XStr(d, "min") == "-20.5" && ExtraSet(d, mn, "0.0") && !d.extra.count("min"), "decimals: a decimal extra is stored canonically, and the default is not stored");
+            Check(!ExtraSet(d, mn, "") && !ExtraSet(d, mn, "-") && !ExtraSet(d, mn, ".") && !ExtraSet(d, mn, "1.2.3") && !ExtraSet(d, mn, "12x") && ExtraSet(d, mn, "9999999") && XFloat(d, "min") == 999999, "decimals: not-a-number text is refused, an out-of-range number is clamped");
+            JV v; std::string jsrc = "[1, 2.5, -0.25, 1e2, 7]", je; JsonParser jp(jsrc); Check(jp.Parse(v, je) && v.a.size() == 5 && v.a[1].d == 2.5 && v.a[2].d == -0.25 && v.a[3].d == 100 && v.a[0].n == 1 && v.a[1].n == 2, "decimals: the JSON reader reads decimal numbers (the integer part stays in n)");
+            Check(Info(C_GAUGE).extras && ExtraCount(C_GAUGE) == 22 + N_LABEL_EXTRAS && ExtraCount(C_GRAPH) == 10 + N_LABEL_EXTRAS && ExtraCount(C_USERDRAW) == 4 + N_LABEL_EXTRAS && !Info(C_GAUGE).editable && !Info(C_GRAPH).editable && !Info(C_USERDRAW).editable, "chunk 4: three display types with their extras (not editable: no encoder, no buttons)");
+        }
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ch4";
+        Place(C_GAUGE, 8, 8); Place(C_GRAPH, 8, 120); Place(C_USERDRAW, 8, 180);
+        { DControl& g0 = form.items[0]; Check(g0.name == "gauge1" && g0.zones.size() == 3 && XFloat(g0, "value") == 42 && g0.zones[0].to == 60 && g0.zones[2].color == 0xF800 && g0.h > 90, "gauge: a new gauge has a sample (three bands, value 42) and the height of its body plus frame"); }
+        auto F4 = [&](const char* key) { for (int i = 0; i < nFields; ++i) if (const ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == key) return i; return -1; };
+        auto T4 = [&](const char* key, const char* text) { int r = F4(key); EnsureRowVisible(r); Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); if (text[0]) Type(text); else Key(SDLK_BACKSPACE); Key(SDLK_RETURN); };
+        auto S4 = [&](const char* key, int seg, int n) { int r = F4(key); EnsureRowVisible(r); Click(FIELD_X + seg * (FIELD_W / n) + 6, FieldY(r) + 5); };
+        Select(0);
+        { int zr = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_ZONES) zr = i; Check(zr >= 0 && PropLabel(P_ZONES) == "Zones" && F4("bodyHeight") >= 0 && F4("min") >= 0 && F4("value") >= 0 && F4("sweepStart") >= 0 && F4("minMaxMs") >= 0 && F4("label") >= 0, "gauge: rows for Zones, Body height, Minimum / Maximum / Value, sweep, ticks, format, look, Min/Max and the label group"); }
+        T4("value", "55.5"); Check(XFloat(form.items[0], "value") == 55.5 && XStr(form.items[0], "value") == "55.5", "gauge: a decimal value is accepted");
+        T4("value", "150"); Check(XFloat(form.items[0], "value") == 55.5 && status.find("between") != std::string::npos, "gauge: a value outside the range is refused, with the reason");
+        T4("max", "80"); Check(XFloat(form.items[0], "max") == 80 && XFloat(form.items[0], "value") == 55.5, "gauge: a new Maximum above the value keeps it");
+        T4("max", "40"); Check(XFloat(form.items[0], "max") == 40 && XFloat(form.items[0], "value") == 40, "gauge: a new range moves the needle into it (value 55.5 -> 40)");
+        T4("min", "40"); Check(XFloat(form.items[0], "min") == 0 && status.find("above") != std::string::npos, "gauge: Minimum must stay below Maximum (refused)");
+        T4("max", "100"); T4("min", "-20.5"); Check(XFloat(form.items[0], "min") == -20.5 && XStr(form.items[0], "min") == "-20.5", "gauge: a negative decimal Minimum");
+        T4("min", "0");
+        T4("sweepEnd", "-90"); Check(XInt(form.items[0], "sweepEnd") == 90 && status.find("sweep") != std::string::npos, "gauge: the sweep must end after it starts (refused)");
+        T4("sweepStart", "-135"); T4("sweepEnd", "135"); Check(XInt(form.items[0], "sweepStart") == -135 && XInt(form.items[0], "sweepEnd") == 135, "gauge: a 270 degree dial");
+        T4("minMaxMs", "5000"); Check(XInt(form.items[0], "minMaxMs") == 5000, "gauge: Min/Max window");
+        T4("unit", " %"); T4("decimals", "1");
+        S4("needle", 1, 2); S4("tickLabels", 0, 2); Check(XInt(form.items[0], "needle") == 1 && !XBool(form.items[0], "tickLabels"), "gauge: needle style and tick numbers");
+        { auto gc = MakeControl(&scr, form.items[0], 0, 0); auto* g = static_cast<SuperGauge*>(gc.get());
+          Check(g->GetValue() == 42 || g->GetValue() == 40, "gauge: the real gauge is built (value at once, no animation)");
+          Check(g->IsMinMax() && !g->ShowTickLabels && g->Needle == SuperGauge::NEEDLE_LINE, "gauge: the real gauge gets the settings"); }
+        // JSON
+        { std::string gj = form.ToJson(), ge; DForm gf; Check(gf.FromJson(gj, ge) && gf.ToJson() == gj && gf.items[0].zones.size() == 3 && gf.items[0].zones[1].from == 60 && XFloat(gf.items[0], "min") == 0, "gauge: the JSON round trip is stable (numbers, zones)");
+          Check(gj.find("\"zones\": [{ \"from\": 0, \"to\": 60, \"color\": \"0x07E0\" }, { \"from\": 60, \"to\": 85, \"color\": \"0xFFE0\" }, { \"from\": 85, \"to\": 100, \"color\": \"0xF800\" }]") != std::string::npos && gj.find("\"sweepStart\": -135") != std::string::npos, "gauge: zones are written readably, decimals as numbers");
+          Check(gf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperGauge\",\"name\":\"g\",\"value\":2.5,\"min\":-1.25,\"zones\":[{\"from\":5,\"to\":5,\"color\":\"0x07E0\"},{\"from\":3,\"to\":2},{\"from\":0,\"to\":1.5,\"color\":63488},{\"from\":0,\"to\":1,\"color\":\"zzz\"},\"x\",{\"to\":4}]}]}", ge)
+                && gf.items[0].zones.size() == 2 && gf.items[0].zones[0].to == 1.5 && gf.items[0].zones[0].color == 0xF800 && gf.items[0].zones[1].color == 0, "gauge: zones without from < to are dropped, a colour may be a number, a bad colour is 0");
+          std::string manyz = "{\"form\":{},\"controls\":[{\"type\":\"SuperGauge\",\"name\":\"g\",\"zones\":["; for (int i = 0; i < 30; ++i) manyz += (i ? ",{\"from\":" : "{\"from\":") + std::to_string(i) + ",\"to\":" + std::to_string(i + 1) + "}"; manyz += "]}]}";
+          Check(gf.FromJson(manyz, ge) && (int)gf.items[0].zones.size() == MAX_GAUGE_ZONES, "gauge: at most 20 zones are read"); }
+        // ---- the zones dialog ----
+        { int zr = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_ZONES) zr = i; EnsureRowVisible(zr); Click(FIELD_X + FIELD_W - 30, FieldY(zr) + 5); }
+        Check(zonesDlg != nullptr && zonesDlg->zones.size() == 3 && zonesDlg->Selected() == 0 && zonesDlg->FieldText(0) == "0" && zonesDlg->FieldText(1) == "60" && zonesDlg->FieldText(2) == "07E0", "zones dialog: opens on the gauge's zones with the first selected");
+        { auto ZK = [&](SDL_Keycode k, Uint16 m = 0) { InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = k; v.mod = m; Handle(v); };
+          auto ZT = [&](const char* tx) { InputEvent v; v.type = InputEvent::TEXT; strncpy(v.text, tx, sizeof v.text - 1); Handle(v); };
+          auto ZF = [&](int k) { Handle(ev(InputEvent::DOWN, zonesDlg->FieldX(k) + 20, zonesDlg->FieldY() + 5)); Handle(ev(InputEvent::UP, 0, 0)); };
+          auto ZB = [&](int k) { Handle(ev(InputEvent::DOWN, zonesDlg->BtnX(k) + 6, zonesDlg->BtnY(k) + 3)); Handle(ev(InputEvent::UP, 0, 0)); };
+          auto ZSet = [&](int k, const char* v) { ZF(k); ZK(SDLK_a, KMOD_LCTRL); if (v[0]) ZT(v); else ZK(SDLK_BACKSPACE); };
+          auto ZSel = [&](int i) { SuperListBox* lb = zonesDlg->Lb(); int x = lb->GetX() + lb->GetBorder() + lb->GetPadding() + 8, y = lb->GetBoxTop() + lb->GetBorder() + lb->GetPadding() + 2 + i * 18; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); };
+          { int g0 = grid; ZK(SDLK_g); Check(zonesDlg != nullptr && grid == g0, "zones dialog: modal"); }
+          ZSet(1, "55.5"); Check(zonesDlg->zones[0].to == 55.5 && zonesDlg->Message().empty(), "zones dialog: a decimal To is applied");
+          ZSet(1, "0"); Check(zonesDlg->zones[0].to == 55.5 && zonesDlg->Message().find("end above") != std::string::npos, "zones dialog: a zone must end above where it starts (refused, red, with the reason)");
+          ZSet(1, "-"); Check(zonesDlg->zones[0].to == 55.5 && zonesDlg->Message().find("number") != std::string::npos, "zones dialog: text that is not a number is refused");
+          ZSet(0, "60"); Check(zonesDlg->zones[0].from == 0, "zones dialog: From above To is refused too");
+          ZSet(1, "60"); ZSet(2, "07"); Check(zonesDlg->zones[0].color == 0x07E0, "zones dialog: a partial colour is ignored until it has 4 hex digits");
+          ZSet(2, "F81f"); Check(zonesDlg->zones[0].color == 0xF81F && zonesDlg->FieldText(2) == "F81F", "zones dialog: a 4-digit hex colour is applied (digits only, upper case)");
+          ZK(SDLK_ESCAPE);
+          { int px = zonesDlg->PalX() + 2, py = zonesDlg->PalY() + 2; Handle(ev(InputEvent::DOWN, px, py)); Handle(ev(InputEvent::UP, 0, 0)); Check(zonesDlg->zones[0].color == ZonesDialog::PaletteColor(0), "zones dialog: clicking a palette colour sets it"); }
+          ZSel(2); Check(zonesDlg->Selected() == 2 && zonesDlg->FieldText(0) == "85", "zones dialog: clicking a zone selects it");
+          ZB(0); Check(zonesDlg->zones.size() == 4 && zonesDlg->Selected() == 3 && zonesDlg->zones[3].from < zonesDlg->zones[3].to && zonesDlg->FocusedField() == 0, "zones dialog: Add puts a new valid zone after the selection and focuses From");
+          ZK(SDLK_ESCAPE); ZB(1); Check(zonesDlg->zones.size() == 3, "zones dialog: Delete");
+          ZSel(0); ZB(3); Check(zonesDlg->zones[1].to == 60 && zonesDlg->Selected() == 1 && zonesDlg->zones[0].from == 60, "zones dialog: Move down swaps neighbours");
+          ZB(2); Check(zonesDlg->zones[0].from == 0 && zonesDlg->Selected() == 0, "zones dialog: Move up");
+          ZB(5); Check(zonesDlg->zones.empty() && zonesDlg->Selected() == -1, "zones dialog: Clear all");
+          ZB(4); Check(zonesDlg->zones.size() == 3 && zonesDlg->zones[0].from == 0 && zonesDlg->zones[0].to == 60 && zonesDlg->zones[1].to == 85 && zonesDlg->zones[2].to == 100 && zonesDlg->zones[0].color == 0x07E0 && zonesDlg->zones[1].color == 0xFFE0 && zonesDlg->zones[2].color == 0xF800, "zones dialog: Fill 3 bands makes green / yellow / red over 60 / 85 / 100 % of the range");
+          for (int i = 0; i < 25 && zonesDlg; ++i) { ZB(0); if (zonesDlg && zonesDlg->FocusedField() >= 0) ZK(SDLK_ESCAPE); }          // (Esc in the list would cancel the dialog)
+          Check((int)zonesDlg->zones.size() == MAX_GAUGE_ZONES && zonesDlg->Message().find("20") != std::string::npos, "zones dialog: at most 20 zones");
+          if (zonesDlg) { ZB(4); ZK(SDLK_ESCAPE); } Check(zonesDlg == nullptr && form.items[0].zones.size() == 3 && form.items[0].zones[1].to == 85, "zones dialog: Esc cancels (the gauge keeps its zones)");
+          { int zr = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_ZONES) zr = i; EnsureRowVisible(zr); Click(FIELD_X + FIELD_W - 30, FieldY(zr) + 5); }
+          if (zonesDlg) { ZB(5); ZB(0); if (zonesDlg->FocusedField() >= 0) ZK(SDLK_ESCAPE); int x = zonesDlg->OkX() + 5, y = zonesDlg->OkY() + 3; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); }
+          Check(zonesDlg == nullptr && form.items[0].zones.size() == 1, "zones dialog: OK stores the zones"); }
+        // ---- graph ----
+        Select(1);
+        Check(F4("bodyHeight") >= 0 && F4("capacity") >= 0 && F4("autoRange") >= 0 && F4("rangeMin") >= 0 && F4("showGrid") >= 0 && F4("lineColor") >= 0 && F4("preview") >= 0, "graph: rows for body height, samples, range, grid, colours and the preview data");
+        { auto gc = MakeControl(&scr, form.items[1], 0, 0); auto* g = static_cast<SuperGraph*>(gc.get()); Check(g->GetCount() == g->GetWidth() - 2 * (g->GetBorder() + g->GetPadding()) && g->GetCount() > 100, "graph: the preview fills the real graph (one sample per pixel of its inner width, sine by default)"); }
+        S4("preview", 3, 4); { auto gc = MakeControl(&scr, form.items[1], 0, 0); Check(static_cast<SuperGraph*>(gc.get())->GetCount() == 0 && XInt(form.items[1], "preview") == 3, "graph: Preview data = None leaves the graph empty"); }
+        S4("preview", 1, 4); T4("capacity", "50"); { auto gc = MakeControl(&scr, form.items[1], 0, 0); Check(static_cast<SuperGraph*>(gc.get())->GetCount() == 50, "graph: Samples sets the capacity (the preview fills it)"); }
+        S4("autoRange", 0, 2); T4("rangeMax", "0"); Check(XFloat(form.items[1], "rangeMax") == 100 && status.find("above") != std::string::npos, "graph: a fixed range must end above where it starts (refused)");
+        T4("rangeMin", "-5.5"); T4("rangeMax", "5.5"); Check(XFloat(form.items[1], "rangeMin") == -5.5 && XFloat(form.items[1], "rangeMax") == 5.5, "graph: a decimal range");
+        S4("autoRange", 1, 2); S4("showGrid", 0, 2); S4("showRange", 1, 2);
+        // ---- user draw ----
+        Select(2);
+        Check(F4("bodyHeight") >= 0 && F4("persistent") >= 0 && F4("autoRedraw") >= 0 && F4("touch") >= 0, "user draw: rows for body height, persistent canvas, auto redraw, touch input");
+        { auto uc = MakeControl(&scr, form.items[2], 0, 0); uc->Push(); Check(uc->GetHeight() >= 100, "user draw: the placeholder control draws (the designer cannot run your code)"); }
+        T4("bodyHeight", "60"); Check(XInt(form.items[2], "bodyHeight") == 60 && form.items[2].h < 100, "user draw: the body height sets the control's height");
+        T4("bodyHeight", "100");
+        // ---- generated code ----
+        form.items[0].zones = { { 0, 60, 0x07E0 }, { 60, 85.5, 0xFFE0 } };
+        { DControl& g0 = form.items[0]; g0.extra.clear(); ExtraSet(g0, *FindExtra(C_GAUGE, "min"), "-20"); ExtraSet(g0, *FindExtra(C_GAUGE, "max"), "120.5"); ExtraSet(g0, *FindExtra(C_GAUGE, "value"), "55.5"); ExtraSet(g0, *FindExtra(C_GAUGE, "sweepStart"), "-135"); ExtraSet(g0, *FindExtra(C_GAUGE, "sweepEnd"), "135");
+          ExtraSet(g0, *FindExtra(C_GAUGE, "majorTicks"), "6"); ExtraSet(g0, *FindExtra(C_GAUGE, "decimals"), "1"); ExtraSet(g0, *FindExtra(C_GAUGE, "unit"), " C"); ExtraSet(g0, *FindExtra(C_GAUGE, "tickLabels"), "false"); ExtraSet(g0, *FindExtra(C_GAUGE, "showValue"), "false");
+          ExtraSet(g0, *FindExtra(C_GAUGE, "needle"), "1"); ExtraSet(g0, *FindExtra(C_GAUGE, "needleByZone"), "false"); ExtraSet(g0, *FindExtra(C_GAUGE, "smoothing"), "false"); ExtraSet(g0, *FindExtra(C_GAUGE, "trackColor"), "0x1082"); ExtraSet(g0, *FindExtra(C_GAUGE, "minMaxMs"), "3000"); ExtraSet(g0, *FindExtra(C_GAUGE, "minMaxDeg"), "5"); ExtraSet(g0, *FindExtra(C_GAUGE, "bodyHeight"), "120"); }
+        { DControl& g1 = form.items[1]; g1.extra.clear(); ExtraSet(g1, *FindExtra(C_GRAPH, "capacity"), "100"); ExtraSet(g1, *FindExtra(C_GRAPH, "autoRange"), "false"); ExtraSet(g1, *FindExtra(C_GRAPH, "rangeMin"), "-5.5"); ExtraSet(g1, *FindExtra(C_GRAPH, "rangeMax"), "5.5"); ExtraSet(g1, *FindExtra(C_GRAPH, "showGrid"), "false"); ExtraSet(g1, *FindExtra(C_GRAPH, "showRange"), "true"); ExtraSet(g1, *FindExtra(C_GRAPH, "lineColor"), "0xF800"); ExtraSet(g1, *FindExtra(C_GRAPH, "preview"), "2"); ExtraSet(g1, *FindExtra(C_GRAPH, "bodyHeight"), "60"); }
+        { DControl& g2 = form.items[2]; g2.extra.clear(); ExtraSet(g2, *FindExtra(C_USERDRAW, "persistent"), "true"); ExtraSet(g2, *FindExtra(C_USERDRAW, "autoRedraw"), "50"); ExtraSet(g2, *FindExtra(C_USERDRAW, "touch"), "true"); }
+        { std::string g = GenerateDesigner(form); auto h6 = [&](const char* x) { return g.find(x) != std::string::npos; };
+          Check(h6("#include <SuperGauge.h>") && h6("#include <SuperGraph.h>") && h6("#include <SuperUserDraw.h>"), "codegen: headers of the display controls");
+          Check(h6(("gauge1(dst, 8, " + std::to_string(form.items[0].y) + ", ").c_str()) && h6(", 120, &lgfx::fonts::Font2)") && h6(", &lgfx::fonts::Font2, 60)") && h6(", 100, &lgfx::fonts::Font2)"), "codegen: constructors: gauge (.., bodyHeight, font), graph (.., font, bodyHeight), user draw (.., bodyHeight, font)");
+          Check(h6("gauge1.SetRange(-20.0f, 120.5f);") && h6("gauge1.SetSweep(-135.0f, 135.0f);") && h6("gauge1.SetTicks(6, 1);") && h6("gauge1.SetFormat(1, \" C\");") && h6("gauge1.ShowTickLabels = false;") && h6("gauge1.ShowValue = false;") && h6("gauge1.Needle = SuperGauge::NEEDLE_LINE;") && h6("gauge1.NeedleByZone = false;") && h6("gauge1.ColTrack = 0x1082;") && h6("gauge1.SetMinMax(3000, 5.0f, 2);") && h6("gauge1.SetSmoothing(false);"), "codegen: gauge settings (floats as 12.5f, only what differs from the defaults)");
+          Check(h6("gauge1.AddZone(0.0f, 60.0f, 0x07E0);") && h6("gauge1.AddZone(60.0f, 85.5f, 0xFFE0);") && g.find("gauge1.AddZone(0.0f") < g.find("gauge1.SetValue(55.5f);") && g.find("gauge1.SetRange") < g.find("gauge1.AddZone"), "codegen: the zones, with the range before them and the value last");
+          Check(h6("graph1.SetCapacity(100);") && h6("graph1.SetRange(-5.5f, 5.5f);") && h6("graph1.ShowGrid = false;") && h6("graph1.ShowRange = true;") && h6("graph1.ColLine = 0xF800;") && !h6("preview") && !h6("graph1.ColGrid"), "codegen: graph settings; the preview data is designer only and is not generated");
+          Check(h6("draw1.SetPersistent(true);") && h6("draw1.SetAutoRedraw(50);"), "codegen: user draw settings");
+          Check(h6("virtual void draw1_Draw(lgfx::LGFX_Sprite* spr, const SuperRect& body) {}") && h6("virtual void draw1_Pointer(const SuperUserPointer& e) {}") && h6("virtual void draw1_Accept() {}"), "codegen: user draw handlers: Draw, and Pointer / Accept because Touch input is on");
+          Check(h6("static void draw1_DrawThunk(SuperUserDraw&, lgfx::LGFX_Sprite* s, const SuperRect& r, void* u) { static_cast<Ch4Base*>(u)->draw1_Draw(s, r); }") && h6("static void draw1_PointerThunk(SuperUserDraw&, const SuperUserPointer& e, void* u) { static_cast<Ch4Base*>(u)->draw1_Pointer(e); }"), "codegen: the library callbacks pass their arguments on to the handlers");
+          Check(h6("draw1.SetOnDraw(draw1_DrawThunk, this);") && h6("draw1.SetOnPointer(draw1_PointerThunk, this);") && h6("draw1.SetOnAccept(draw1_AcceptThunk, this);"), "codegen: the callbacks are connected");
+          Check(h6("Form.Add(&gauge1, false);") && h6("Form.Add(&graph1, false);") && h6("Form.Add(&draw1);") && !h6("gauge1_") && !h6("graph1_"), "codegen: gauge and graph are display only (no handlers, not focusable); user draw with touch takes focus");
+          std::string u = GenerateUserFile(form);
+          Check(u.find("void draw1_Draw(lgfx::LGFX_Sprite* spr, const SuperRect& body) override {") != std::string::npos && u.find("spr->drawCircle(body.x + body.w / 2") != std::string::npos && u.find("void draw1_Pointer(const SuperUserPointer& e) override {") != std::string::npos, "user file: stubs with the signatures and a drawing example");
+          ExtraSet(form.items[2], *FindExtra(C_USERDRAW, "touch"), "false"); std::string g2 = GenerateDesigner(form);
+          Check(g2.find("draw1_Draw") != std::string::npos && g2.find("draw1_Pointer") == std::string::npos && g2.find("draw1_Accept") == std::string::npos && g2.find("Form.Add(&draw1, false);") != std::string::npos, "codegen: without touch a user draw control has only the Draw handler and is not focusable");
+          Check(UserFileMissing(form, GenerateUserFile(form)).empty() && HandlerNames(form) == std::vector<std::string>({ "draw1_Draw" }), "user file: the Draw handler counts as a handler"); }
+        Check(!ValidName("x_Draw") && !ValidName("x_DrawThunk") && !ValidName("x_Pointer") && !ValidName("x_PointerThunk") && ValidName("drawing"), "names: _Draw and _Pointer handler names are reserved");
+        form.Clear(); FixOutDir(); sel = -1; BuildFields();
         // delete
         form.Clear(); Place(C_LABEL, 8, 8); Place(C_CHECKBOX, 8, 40); sel = -1; Key(SDLK_TAB); Key(SDLK_DELETE); Check(form.items.size() == 1 && sel == -1, "designer: Delete removes the selected control");
         form.Clear(); sel = -1; BuildFields(); unsetenv("FD_FORM");

@@ -20,10 +20,22 @@
 #include <SuperTabBar.h>
 #include <SuperMenu.h>
 #include <SuperForm.h>
+#include <SuperGauge.h>
+#include <SuperGraph.h>
+#include <SuperUserDraw.h>
 #include "FormModel.h"
 #include "FontTable.h"
 
 namespace FD {
+// The designer cannot run the user's drawing code: a UserDraw control shows this placeholder (diagonals and the control's name).
+inline void UserDrawPlaceholder(SuperUserDraw&, lgfx::LGFX_Sprite* s, const SuperRect& r, void* user) {
+    s->drawLine(r.x, r.y, r.x + r.w - 1, r.y + r.h - 1, 0x4A69); s->drawLine(r.x + r.w - 1, r.y, r.x, r.y + r.h - 1, 0x4A69);
+    s->setFont(&lgfx::fonts::Font2); s->setTextDatum(lgfx::textdatum_t::middle_center); s->setTextColor(0xBDF7);
+    std::string name = user ? *static_cast<std::string*>(user) : std::string("user draw"); int cx = r.x + r.w / 2, cy = r.y + r.h / 2, h = s->fontHeight();
+    int w = std::max(s->textWidth(name.c_str()), s->textWidth("your code")) + 8;
+    s->fillRect(cx - w / 2, cy - h - 2, w, 2 * h + 4, 0x0000);
+    s->drawString(name.c_str(), cx, cy - h / 2); s->drawString("your code", cx, cy + h / 2 + 1);
+}
 // dst = the sprite the designer draws into; (ox, oy) = where the form's top-left corner is in dst.
 inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DControl& c, int ox, int oy) {
     const lgfx::IFont* font = FindFont(c.font).font;
@@ -43,6 +55,9 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     case C_COMBOBOX:   p.reset(new SuperComboBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr)); break;
     case C_TABBAR:     p.reset(new SuperTabBar(dst, x, y, c.w, font, nullptr, nullptr, nullptr)); break;
     case C_MENU:       p.reset(new SuperMenu(dst, x, y, c.w, font, (int)XInt(c, "rows"), nullptr, nullptr, nullptr)); break;
+    case C_GAUGE:      p.reset(new SuperGauge(dst, x, y, c.w, (int)XInt(c, "bodyHeight"), font)); break;
+    case C_GRAPH:      p.reset(new SuperGraph(dst, x, y, c.w, font, (int)XInt(c, "bodyHeight"))); break;
+    case C_USERDRAW:   p.reset(new SuperUserDraw(dst, x, y, c.w, (int)XInt(c, "bodyHeight"), font)); break;
     case C_DATEBOX:    p.reset(new SuperDateBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr, (SuperDateBox::DateStyle)XInt(c, "style"))); break;
     default:           p.reset(new SuperLabel(dst, x, y, c.w, font, c.text)); break;
     }
@@ -96,6 +111,31 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
         };
         add(c.menu, nullptr);                                                      // (the idle menu shows the top level)
         break; }
+    case C_GAUGE: {
+        auto* g = static_cast<SuperGauge*>(p.get());
+        g->SetRange((float)XFloat(c, "min"), (float)XFloat(c, "max")); g->SetSweep((float)XInt(c, "sweepStart"), (float)XInt(c, "sweepEnd")); g->SetTicks((int)XInt(c, "majorTicks"), (int)XInt(c, "minorTicks"));
+        g->ShowTickLabels = XBool(c, "tickLabels"); g->SetFormat((int)XInt(c, "decimals"), XStr(c, "unit")); g->ShowValue = XBool(c, "showValue");
+        g->Needle = (SuperGauge::NeedleStyle)XInt(c, "needle"); g->NeedleByZone = XBool(c, "needleByZone");
+        g->ColTrack = (uint16_t)XInt(c, "trackColor"); g->ColTick = (uint16_t)XInt(c, "tickColor"); g->ColNeedle = (uint16_t)XInt(c, "needleColor");
+        for (const GaugeZone& z : c.zones) g->AddZone((float)z.from, (float)z.to, z.color);
+        if (XInt(c, "minMaxMs") > 0) g->SetMinMax((int)XInt(c, "minMaxMs"), (float)XFloat(c, "minMaxDeg"), (int)XInt(c, "minMaxThick"));
+        g->SetSmoothing(false); g->SetValue((float)XFloat(c, "value"));                      // (the picture is static: the needle is at the value at once)
+        break; }
+    case C_GRAPH: {
+        auto* g = static_cast<SuperGraph*>(p.get());
+        g->ShowGrid = XBool(c, "showGrid"); g->ShowRange = XBool(c, "showRange"); g->ColLine = (uint16_t)XInt(c, "lineColor"); g->ColGrid = (uint16_t)XInt(c, "gridColor");
+        int cap = (int)XInt(c, "capacity"); if (cap > 0) g->SetCapacity(cap);
+        if (!XBool(c, "autoRange")) g->SetRange((float)XFloat(c, "rangeMin"), (float)XFloat(c, "rangeMax"));
+        int n = cap > 0 ? cap : c.w, kind = (int)XInt(c, "preview"); unsigned rnd = 12345;     // sample data so the designer shows a graph (not generated)
+        for (int i = 0; i < n && kind != 3; ++i) {
+            float v = kind == 0 ? 50.f + 40.f * std::sin(i * 0.12f) : kind == 1 ? 5.f + 90.f * i / std::max(1, n - 1) : (rnd = rnd * 1103515245u + 12345u, (float)((rnd >> 8) % 1000) / 10.f);
+            g->AddSample(v, false);
+        }
+        break; }
+    case C_USERDRAW: {
+        auto* u = static_cast<SuperUserDraw*>(p.get());
+        u->SetOnDraw(&UserDrawPlaceholder, (void*)&c.name);
+        break; }
     case C_TEXTBOX: static_cast<SuperTextBox*>(p.get())->SetText(c.text); break;
     case C_INPUTBOX: {
         auto* b = static_cast<SuperInputBox*>(p.get());
@@ -117,6 +157,12 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     p->SetVisible(true, false);
     // no ApplyTheme: the controls' own defaults (which equal SuperTheme::Dark) are what the device draws unless the sketch sets a theme
     return p;
+}
+// A gauge's value is pulled into its range (changing Minimum / Maximum moves the needle instead of refusing).
+inline void ClampGaugeValue(DControl& c) {
+    if (c.type != C_GAUGE) return;
+    double mn = XFloat(c, "min"), mx = XFloat(c, "max"), v = XFloat(c, "value");
+    if (mx > mn && (v < mn || v > mx)) ExtraSet(c, *FindExtra(C_GAUGE, "value"), FloatText(v < mn ? mn : mx));
 }
 // "" when the control's own settings make sense, else a message for the user (the real control is the judge). Used to refuse bad input.
 inline std::string Validate(lgfx::LovyanGFX* dst, const DControl& c) {
@@ -144,6 +190,15 @@ inline std::string Validate(lgfx::LovyanGFX* dst, const DControl& c) {
         t.SetYearRange((int)XInt(c, "yearMin"), (int)XInt(c, "yearMax"));
         if (!t.SetValue(XStr(c, "value"))) return "not a valid date inside the year range: YYYY-MM-DD, e.g. 2026-12-31 (2026-02-30 does not exist)";
         return ""; }
+    case C_GAUGE:
+        if (XFloat(c, "max") <= XFloat(c, "min")) return "Maximum must be above Minimum";
+        if (XFloat(c, "value") < XFloat(c, "min") || XFloat(c, "value") > XFloat(c, "max")) return "Value must be between Minimum and Maximum";
+        if (XInt(c, "sweepEnd") <= XInt(c, "sweepStart")) return "the sweep must end after it starts (start -90, end 90 is a half dial)";
+        for (const GaugeZone& z : c.zones) if (!(z.from < z.to)) return "a zone must end above where it starts";
+        return "";
+    case C_GRAPH:
+        if (!XBool(c, "autoRange") && XFloat(c, "rangeMax") <= XFloat(c, "rangeMin")) return "Range to must be above Range from";
+        return "";
     case C_MENU:
         if (!ValidName(XStr(c, "idPrefix") + "X")) return "the ID prefix must be letters, digits and underscores, safe in C++ (e.g. MNU_)";
         return "";
