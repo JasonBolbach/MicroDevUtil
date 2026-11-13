@@ -9,7 +9,18 @@
 #include <LGFX_AUTODETECT.hpp>
 #include <algorithm>
 #include <csignal>
+#ifdef _WIN32
+#include <io.h>
+#include <process.h>
+#include <cstdlib>
+#ifndef SIGBUS
+#define SIGBUS SIGSEGV                                   // no SIGBUS on Windows
+#endif
+static inline int setenv(const char* n, const char* v, int overwrite) { if (!overwrite && std::getenv(n)) return 0; return _putenv_s(n, v); }
+static inline int unsetenv(const char* n) { return _putenv_s(n, ""); }
+#else
 #include <unistd.h>
+#endif
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -981,7 +992,13 @@ static bool ToJsonHas(const FD::DForm& f, const char* what) { return f.ToJson().
 static int fails = 0;
 static const char* lastCheck = "(none)";
 static void CrashHandler(int sig) {                    // self-test only: report the last check and leave quietly (no macOS crash dialog)
-    char b[300]; int n = snprintf(b, sizeof b, "\nSELFTEST CRASHED (signal %d) after the check: %s\n", sig, lastCheck); if (n > 0) { ssize_t r = write(2, b, (size_t)n); (void)r; }
+    char b[300]; int n = snprintf(b, sizeof b, "\nSELFTEST CRASHED (signal %d) after the check: %s\n", sig, lastCheck); if (n > 0) {
+#ifdef _WIN32
+        int r = _write(2, b, (unsigned)n); (void)r;
+#else
+        ssize_t r = write(2, b, (size_t)n); (void)r;
+#endif
+    }
     _exit(139);
 }
 static void Check(bool ok, const char* what) { lastCheck = what; printf("%s  %s\n", ok ? "ok  " : "FAIL", what); fflush(stdout); if (!ok) ++fails; }       // (flushed: a crash shows the last check)
