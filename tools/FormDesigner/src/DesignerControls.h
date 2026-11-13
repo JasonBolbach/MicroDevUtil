@@ -23,6 +23,8 @@
 #include <SuperGauge.h>
 #include <SuperGraph.h>
 #include <SuperUserDraw.h>
+#include <SuperColorPicker.h>
+#include <SuperMessageBox.h>
 #include "FormModel.h"
 #include "FontTable.h"
 
@@ -35,6 +37,19 @@ inline void UserDrawPlaceholder(SuperUserDraw&, lgfx::LGFX_Sprite* s, const Supe
     int w = std::max(s->textWidth(name.c_str()), s->textWidth("your code")) + 8;
     s->fillRect(cx - w / 2, cy - h - 2, w, 2 * h + 4, 0x0000);
     s->drawString(name.c_str(), cx, cy - h / 2); s->drawString("your code", cx, cy + h / 2 + 1);
+}
+// A message box as the real control, for the designer's preview. Centred on dst (give it a sprite as big as the form) or placed at its x, y. SetRestore with a no-op
+// stops the control from reading pixels back: the designer only shows it (StartEdit draws it with its default button highlighted).
+inline void NoRestore(void*) {}
+inline std::unique_ptr<SuperMessageBox> MakeMessageBox(lgfx::LovyanGFX* dst, const DMessageBox& b) {
+    std::unique_ptr<SuperMessageBox> m(new SuperMessageBox(dst, b.w, FindFont(b.font).font, nullptr, nullptr, nullptr));
+    std::string msg; for (size_t i = 0; i < b.lines.size(); ++i) msg += (i ? "\n" : "") + b.lines[i];
+    m->SetMessage(msg); for (const MsgButton& mb : b.buttons) m->AddButton(mb.text); m->SetDefault(b.defaultBtn);
+    if (!b.title.empty()) m->SetLabel(b.title);
+    if (!b.centered) { m->SetCentered(false); m->SetDisplayPos(b.x, b.y); }
+    m->SetBorder(2, b.border); m->ColFg = b.fg; m->ColBg = b.bg;
+    m->SetRestore(&NoRestore, nullptr);
+    return m;
 }
 // dst = the sprite the designer draws into; (ox, oy) = where the form's top-left corner is in dst.
 inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DControl& c, int ox, int oy) {
@@ -58,6 +73,7 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     case C_GAUGE:      p.reset(new SuperGauge(dst, x, y, c.w, (int)XInt(c, "bodyHeight"), font)); break;
     case C_GRAPH:      p.reset(new SuperGraph(dst, x, y, c.w, font, (int)XInt(c, "bodyHeight"))); break;
     case C_USERDRAW:   p.reset(new SuperUserDraw(dst, x, y, c.w, (int)XInt(c, "bodyHeight"), font)); break;
+    case C_COLORPICKER: p.reset(new SuperColorPicker(dst, x, y, c.w, font, nullptr, nullptr, nullptr)); break;
     case C_DATEBOX:    p.reset(new SuperDateBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr, (SuperDateBox::DateStyle)XInt(c, "style"))); break;
     default:           p.reset(new SuperLabel(dst, x, y, c.w, font, c.text)); break;
     }
@@ -132,6 +148,7 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
             g->AddSample(v, false);
         }
         break; }
+    case C_COLORPICKER: static_cast<SuperColorPicker*>(p.get())->SetColor565((uint16_t)XInt(c, "value")); break;
     case C_USERDRAW: {
         auto* u = static_cast<SuperUserDraw*>(p.get());
         u->SetOnDraw(&UserDrawPlaceholder, (void*)&c.name);

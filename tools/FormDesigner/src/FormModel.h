@@ -29,7 +29,7 @@
 
 namespace FD {
 
-enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_MENU, C_GAUGE, C_GRAPH, C_USERDRAW, C_COUNT };
+enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_MENU, C_GAUGE, C_GRAPH, C_USERDRAW, C_COLORPICKER, C_COUNT };
 inline bool HasList(int type) { return type == C_LISTBOX || type == C_COMBOBOX || type == C_TABBAR; }      // the control has a list of items (rows / choices / tabs)
 constexpr int MAX_LIST_ITEMS = 200, MAX_ITEM_LEN = 60;
 constexpr int MAX_MENU_NODES = 200, MAX_MENU_DEPTH = 5, MAX_MENU_TEXT = 40, MAX_MENU_ID = 65535;
@@ -37,6 +37,21 @@ constexpr int MAX_MENU_NODES = 200, MAX_MENU_DEPTH = 5, MAX_MENU_TEXT = 40, MAX_
 // A colour band on a gauge dial: from..to in the gauge's own units. Limits: at most 20 bands.
 struct GaugeZone { double from = 0, to = 0; uint16_t color = 0x07E0; };
 constexpr int MAX_GAUGE_ZONES = 20;
+
+// ---- message boxes: modal popups the form can show (SuperMessageBox). Not on the design surface: a list in the form. Each button may have a name that
+// becomes `static constexpr int <name> = <index>;` in the generated class, so code reads  if (msgDelete_Ask() == MSG_DELETE_YES). ----
+struct MsgButton { std::string text, itemId; };
+struct DMessageBox {
+    std::string name;                                           // the generated member (and <name>_Ask / _Open / _Poll)
+    int w = 220; std::string font = DEFAULT_FONT;
+    std::string title;                                          // shown above the box (SetLabel); "" = none
+    std::vector<std::string> lines;                             // the message, one line per entry (joined with \n)
+    std::vector<MsgButton> buttons;                             // 1..3
+    int defaultBtn = 0;                                         // the highlighted button
+    bool centered = true; int x = 0, y = 0;                     // centred on the screen, or placed at x, y
+    uint16_t fg = 0xFFFF, bg = 0x0000, border = 0xFFFF;         // text / back / border colour (the control defaults)
+};
+constexpr int MAX_MSG_BOXES = 20, MAX_MSG_LINES = 12, MAX_MSG_LINE = 60, MAX_MSG_BTN_TEXT = 24, MIN_MSG_W = 60, MAX_MSG_W = 1000;
 
 // ---- menu items: a tree. Every item that is a command (a leaf) has an itemId (a C++-safe name that becomes `static constexpr uint16_t <itemId> = <id>;`
 // in the generated class) and a numeric id; a parent (an item with sub-items) may have them too. id < 0 / empty itemId = none. ----
@@ -190,6 +205,11 @@ static const ExtraDef USERDRAW_EXTRAS[] = {
     { "touch",      "Touch input",       PK_BOOL, "false", 0, 1, "No|Yes" },               // the control then takes focus and raises Pointer / Accept events
 };
 
+// SuperColorPicker: the three HSV bars with a swatch; "value" is the initial colour (RGB565).
+static const ExtraDef COLORPICKER_EXTRAS[] = {
+    { "value", "Color", PK_COLOR, "0xF800", 0, 0, "" },
+};
+
 struct TypeInfo {
     const char* key;       // the SuperGUI class name (also the "type" in the JSON)
     const char* title;     // shown in the toolbox
@@ -227,6 +247,7 @@ inline const TypeInfo& Info(int t) {
         { "SuperGauge",       "Gauge",       "gauge",    180, "",       false, false, true,  false, GAUGE_EXTRAS,  FD_N(GAUGE_EXTRAS),  false, false },
         { "SuperGraph",       "Graph",       "graph",    200, "",       false, false, true,  false, GRAPH_EXTRAS,  FD_N(GRAPH_EXTRAS),  false, false },
         { "SuperUserDraw",    "User draw",   "draw",     160, "",       false, false, true,  false, USERDRAW_EXTRAS, FD_N(USERDRAW_EXTRAS), false, false },
+        { "SuperColorPicker", "Color picker","picker",   200, "",       false, false, true,  true,  COLORPICKER_EXTRAS, FD_N(COLORPICKER_EXTRAS), false, false },
     };
     return T[t < 0 || t >= C_COUNT ? 0 : t];
 }
@@ -412,11 +433,12 @@ struct DForm {
     std::string name = "Form1";
     int w = DEFAULT_FORM_W, h = DEFAULT_FORM_H;
     uint16_t bg = DEF_FORM_BG;       // the form's back colour
+    std::vector<DMessageBox> boxes;                            // message boxes (not on the surface)
     mutable std::vector<std::pair<std::string, int>> groupIds;   // control group name -> number (1, 2, 3 by first use), kept stable in the JSON
     std::string outDir;              // where the generated code goes ("" until the designer fills in a folder that exists)
     std::vector<DControl> items;
 
-    void Clear() { name = "Form1"; w = DEFAULT_FORM_W; h = DEFAULT_FORM_H; bg = DEF_FORM_BG; items.clear(); }   // outDir is kept: it belongs to the project folder
+    void Clear() { name = "Form1"; w = DEFAULT_FORM_W; h = DEFAULT_FORM_H; bg = DEF_FORM_BG; items.clear(); boxes.clear(); }   // outDir is kept: it belongs to the project folder
     // A name is taken when a control (other than `except`) or a radio group already has it: both become C++ members of the generated class.
     // The form's own class names count too: the generated classes are <name>Base and <name>, and no member may be called like its class.
     // Menu item ids (itemId) are constants of the generated class too; `exceptMenu` = a menu whose own items are not counted (the one being edited).
@@ -440,8 +462,11 @@ struct DForm {
     int GroupId(const std::string& g) const { AssignGroupIds(); for (auto& kv : groupIds) if (kv.first == g) return kv.second; return 0; }
     // Would g be a usable control group name? (a safe C++ name that no control, radio group, menu item or form class already has; other CONTROLS may share it: that is the point)
     bool GroupNameTaken(const std::string& g) const { return NameTaken(g, -1, -1, false); }
-    bool NameTaken(const std::string& n, int except = -1, int exceptMenu = -1, bool ctlGroups = true) const {
+    std::string UniqueBoxName() const { for (int k = 1;; ++k) { std::string s = "msg" + std::to_string(k); if (!NameTaken(s)) return s; } }
+    // Message boxes (their member names and the names of their buttons' result constants) count too; exceptBox = a box whose own names are not counted (the one being edited).
+    bool NameTaken(const std::string& n, int except = -1, int exceptMenu = -1, bool ctlGroups = true, int exceptBox = -1) const {
         if (n == name || n == name + "Base") return true;
+        for (int b = 0; b < (int)boxes.size(); ++b) if (b != exceptBox) { if (boxes[b].name == n) return true; for (const MsgButton& mb : boxes[b].buttons) if (mb.itemId == n) return true; }
         if (ctlGroups && IsGroupName(n)) return true;
         for (int i = 0; i < (int)items.size(); ++i) {
             if (i != except && items[i].name == n) return true;
@@ -492,6 +517,60 @@ struct DForm {
         });
     }
     void NormalizeMenus() { for (int i = 0; i < (int)items.size(); ++i) NormalizeMenu(i); }
+    // The tag used in automatic button names: msgDelete -> DELETE (so MSG_DELETE_YES), a box not called msg... keeps its whole name upper-cased.
+    static std::string BoxTag(const std::string& boxName) {
+        std::string u = MenuUpper(boxName);
+        if (u.rfind("MSG_", 0) == 0 && u.size() > 4) u = u.substr(4); else if (u.rfind("MSG", 0) == 0 && u.size() > 3) u = u.substr(3);
+        return u.empty() ? "BOX" : u;
+    }
+    static std::string AutoButtonName(const std::string& boxName, const std::string& text, const std::function<bool(const std::string&)>& taken) {
+        return AutoItemId("MSG_" + BoxTag(boxName) + "_", text, taken);
+    }
+    // Bring the message boxes into a consistent state (also after loading a hand-edited file): names safe and unique (renamed otherwise), 1..3 buttons with text,
+    // button names (optional) safe and unique (cleared otherwise), limits kept, the default button a real one.
+    void NormalizeBoxes() {
+        std::vector<DMessageBox> src = boxes; boxes.clear();                              // rebuilt in order: each box sees the names of the earlier ones
+        for (DMessageBox b : src) {
+            if ((int)boxes.size() >= MAX_MSG_BOXES) break;
+            if (!ValidName(b.name) || NameTaken(b.name)) b.name = UniqueBoxName();
+            b.w = std::max(MIN_MSG_W, std::min(MAX_MSG_W, b.w)); if (FontIndex(b.font) < 0) b.font = DEFAULT_FONT;
+            b.title = Ascii(b.title); if (b.title.size() > (size_t)MAX_MSG_LINE) b.title.resize(MAX_MSG_LINE);
+            std::vector<std::string> ln;
+            for (std::string l : b.lines) { l = Ascii(l); if (l.size() > (size_t)MAX_MSG_LINE) l.resize(MAX_MSG_LINE); if ((int)ln.size() < MAX_MSG_LINES) ln.push_back(l); }
+            while (!ln.empty() && Trim(ln.back()).empty()) ln.pop_back();
+            b.lines = ln;
+            std::vector<MsgButton> bt;
+            for (MsgButton mb : b.buttons) {
+                mb.text = Trim(Ascii(mb.text)); if (mb.text.size() > (size_t)MAX_MSG_BTN_TEXT) mb.text.resize(MAX_MSG_BTN_TEXT);
+                if (!mb.text.empty() && bt.size() < 3) bt.push_back(mb);
+            }
+            if (bt.empty()) bt.push_back({ "OK", "" });
+            b.buttons = bt;
+            for (size_t i = 0; i < b.buttons.size(); ++i) {                                // optional button names: safe and unused, else cleared
+                std::string& id = b.buttons[i].itemId; if (id.empty()) continue;
+                bool dup = false; for (size_t j = 0; j < i; ++j) if (b.buttons[j].itemId == id) dup = true;
+                if (!ValidName(id) || dup || id == b.name || NameTaken(id)) id.clear();
+            }
+            b.defaultBtn = std::max(0, std::min(b.defaultBtn, (int)b.buttons.size() - 1));
+            b.x = std::max(0, std::min(b.x, 4000)); b.y = std::max(0, std::min(b.y, 4000));
+            boxes.push_back(b);
+        }
+    }
+    // The first thing wrong with the message boxes (for the export check), or "".
+    std::string BoxProblem() const {
+        for (int bi = 0; bi < (int)boxes.size(); ++bi) {
+            const DMessageBox& b = boxes[bi];
+            if (!ValidName(b.name)) return "the message box \"" + b.name + "\" is not a safe C++ name";
+            if (NameTaken(b.name, -1, -1, true, bi)) return "the message box " + b.name + " has the same name as a control, a group, a menu item, another box or the form's classes";
+            if (b.buttons.empty() || b.buttons.size() > 3) return b.name + ": a message box needs 1 to 3 buttons";
+            std::set<std::string> seen;
+            for (const MsgButton& mb : b.buttons) {
+                if (mb.text.empty()) return b.name + ": a button has no text";
+                if (!mb.itemId.empty() && (!ValidName(mb.itemId) || NameTaken(mb.itemId, -1, -1, true, bi) || !seen.insert(mb.itemId).second || mb.itemId == b.name)) return b.name + ": the button name " + mb.itemId + " is not a safe, unused C++ name";
+            }
+        }
+        return "";
+    }
     // The first thing wrong with the control groups (for the export check), or "".
     std::string GroupProblem() const {
         for (const std::string& g : UsedGroups()) {
@@ -526,6 +605,7 @@ struct DForm {
             if (withGroups && (c.ctlGroup == f || c.ctlGroup == f + "Base")) return true;
             if (withGroups && c.type == C_MENU) { bool hit = false; MenuForEach(c.menu, [&](const MenuNode& k) { if (k.itemId == f || k.itemId == f + "Base") hit = true; }); if (hit) return true; }
         }
+        if (withGroups) for (const DMessageBox& b : boxes) { if (b.name == f || b.name == f + "Base") return true; for (const MsgButton& mb : b.buttons) if (mb.itemId == f || mb.itemId == f + "Base") return true; }
         return false;
     }
     bool ControlNamed(const std::string& n) const { for (const DControl& c : items) if (c.name == n) return true; return false; }
@@ -576,6 +656,26 @@ struct DForm {
     }
     static std::string Hex(uint16_t c) { char b[8]; snprintf(b, sizeof b, "0x%04X", c); return b; }
 
+    static std::string BoxJson(const DMessageBox& b) {
+        std::string s = "{ \"name\": \"" + JsonEsc(b.name) + "\"";
+        if (b.w != 220) s += ", \"width\": " + std::to_string(b.w);
+        if (b.font != DEFAULT_FONT) s += ", \"font\": \"" + JsonEsc(b.font) + "\"";
+        if (!b.title.empty()) s += ", \"title\": \"" + JsonEsc(b.title) + "\"";
+        if (!b.centered) s += ", \"centered\": false, \"x\": " + std::to_string(b.x) + ", \"y\": " + std::to_string(b.y);
+        if (b.fg != 0xFFFF) s += ", \"textColor\": \"" + Hex(b.fg) + "\"";
+        if (b.bg != 0x0000) s += ", \"backColor\": \"" + Hex(b.bg) + "\"";
+        if (b.border != 0xFFFF) s += ", \"borderColor\": \"" + Hex(b.border) + "\"";
+        s += ",\n      \"message\": [";
+        for (size_t i = 0; i < b.lines.size(); ++i) s += (i ? ", \"" : "\"") + JsonEsc(b.lines[i]) + "\"";
+        s += "],\n      \"buttons\": [";
+        for (size_t i = 0; i < b.buttons.size(); ++i) {
+            const MsgButton& mb = b.buttons[i];
+            s += (i ? ", " : "") + (mb.itemId.empty() ? "\"" + JsonEsc(mb.text) + "\"" : "{ \"text\": \"" + JsonEsc(mb.text) + "\", \"itemId\": \"" + JsonEsc(mb.itemId) + "\" }");
+        }
+        s += "]";
+        if (b.defaultBtn != 0) s += ", \"default\": " + std::to_string(b.defaultBtn);
+        return s + " }";
+    }
     static std::string JsonEsc(const std::string& s) { std::string r; for (char c : s) { if (c == '"' || c == '\\') r += '\\'; r += c; } return r; }
     // A menu as nested, readable, hand-editable JSON:  [ { "text": "System", "items": [ { "text": "Reboot", "itemId": "MNU_REBOOT", "id": 7 } ] }, ... ]
     static std::string MenuJson(const std::vector<MenuNode>& v, int ind) {
@@ -607,7 +707,13 @@ struct DForm {
                  "\"" + Layout(c) + ", \"x\": " + std::to_string(c.x) + ", \"y\": " + std::to_string(c.y) + ", \"width\": " + std::to_string(c.w) +
                  (c.type == C_MENU ? ",\n      \"items\": " + MenuJson(c.menu, 6) + "\n    }" : " }");
         }
-        j += items.empty() ? "]\n}\n" : "\n  ]\n}\n";
+        j += items.empty() ? "]" : "\n  ]";
+        if (!boxes.empty()) {                                                          // "messageBoxes": [ { name, title, message: [lines], buttons: [...], default } ]
+            j += ",\n  \"messageBoxes\": [\n";
+            for (size_t i = 0; i < boxes.size(); ++i) j += "    " + BoxJson(boxes[i]) + (i + 1 < boxes.size() ? ",\n" : "\n");
+            j += "  ]";
+        }
+        j += "\n}\n";
         return j;
     }
 
@@ -704,6 +810,34 @@ struct DForm {
         for (DControl& c : n.items)                                   // a group name must not be a control name or the form's class (all are C++ names)
             if (c.type == C_RADIO && (n.ControlNamed(c.group) || c.group == n.name || c.group == n.name + "Base")) c.group = n.UniqueGroupName();
         n.NormalizeMenus();                                            // item ids: valid, unique, numbered (after the control names are final)
+        if (const JV* bv = root.Get("messageBoxes")) if (bv->t == JV::ARR) {         // message boxes: name, title, message lines, buttons, default, position, colours
+            auto colr = [&](const JV* v, uint16_t def) -> uint16_t { long x = def; if (v && v->t == JV::NUM) x = v->n; else if (v && v->t == JV::STR) x = strtol(v->s.c_str(), nullptr, 0); return (uint16_t)(x < 0 ? 0 : x > 0xFFFF ? 0xFFFF : x); };
+            for (const JV& bj : bv->a) if (bj.t == JV::OBJ && (int)n.boxes.size() < MAX_MSG_BOXES * 2) {
+                DMessageBox b;
+                if (const JV* v = bj.Get("name")) if (v->t == JV::STR) b.name = v->s;
+                if (const JV* v = bj.Get("width")) if (v->t == JV::NUM) b.w = (int)std::max(-1L, std::min(v->n, 100000L));
+                if (const JV* v = bj.Get("font")) if (v->t == JV::STR) b.font = v->s;
+                if (const JV* v = bj.Get("title")) if (v->t == JV::STR) b.title = v->s;
+                if (const JV* v = bj.Get("centered")) if (v->t == JV::NUM) b.centered = v->n != 0;
+                if (const JV* v = bj.Get("x")) if (v->t == JV::NUM) b.x = (int)std::max(-1L, std::min(v->n, 100000L));
+                if (const JV* v = bj.Get("y")) if (v->t == JV::NUM) b.y = (int)std::max(-1L, std::min(v->n, 100000L));
+                b.fg = colr(bj.Get("textColor"), 0xFFFF); b.bg = colr(bj.Get("backColor"), 0x0000); b.border = colr(bj.Get("borderColor"), 0xFFFF);
+                if (const JV* v = bj.Get("message")) {
+                    if (v->t == JV::ARR) { for (const JV& l : v->a) if (l.t == JV::STR) b.lines.push_back(l.s); }
+                    else if (v->t == JV::STR) { std::string cur; for (char ch : v->s) { if (ch == '\n') { b.lines.push_back(cur); cur.clear(); } else cur += ch; } b.lines.push_back(cur); }     // a plain string with \n is accepted too
+                }
+                if (const JV* v = bj.Get("buttons")) if (v->t == JV::ARR) for (const JV& k : v->a) {
+                    MsgButton mb;
+                    if (k.t == JV::STR) mb.text = k.s;
+                    else if (k.t == JV::OBJ) { if (const JV* t = k.Get("text")) if (t->t == JV::STR) mb.text = t->s; if (const JV* t = k.Get("itemId")) if (t->t == JV::STR) mb.itemId = t->s; }
+                    else continue;
+                    b.buttons.push_back(mb);
+                }
+                if (const JV* v = bj.Get("default")) if (v->t == JV::NUM) b.defaultBtn = (int)std::max(0L, std::min(v->n, 100L));
+                n.boxes.push_back(b);
+            }
+            n.NormalizeBoxes();
+        }
         for (DControl& c : n.items) {                                  // control groups: safe names that no control, radio group, menu item or form class has
             if (!c.ctlGroup.empty() && (!ValidName(c.ctlGroup) || n.GroupNameTaken(c.ctlGroup))) c.ctlGroup.clear();
             if (c.type == C_TABBAR) { c.pages.resize(c.list.size()); for (std::string& p : c.pages) if (!p.empty() && (!ValidName(p) || n.GroupNameTaken(p))) p.clear(); }

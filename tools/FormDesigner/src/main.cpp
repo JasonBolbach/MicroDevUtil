@@ -30,6 +30,7 @@
 #include "ItemsDialog.h"
 #include "MenuEditor.h"
 #include "ZonesDialog.h"
+#include "MessageBoxEditor.h"
 #include "AppSettings.h"
 #include <SuperSpinBox.h>
 #include <vector>
@@ -63,6 +64,7 @@ static DragMode drag = D_NONE; static int dragDX = 0, dragDY = 0, dragRight = 0;
 
 // ---- property fields ----
 enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN, P_CGROUP, P_VISIBLE, P_ENABLED,
+            P_MSGBOXES = 96,                       // the form's message boxes (opens the message box editor)
             P_ZONES = 97,                          // the colour zones of a gauge (opens the zones dialog)
             P_ITEMS = 98,                          // the items of a list box / combo box / tab bar (opens the items dialog)
             P_HINT = 99,                           // a row that only shows a hint (the template legend)
@@ -138,7 +140,7 @@ static int RowKindOf(int p) {
     }
     if (p == P_HINT) return RK_HINT;
     if (p == P_VISIBLE || p == P_ENABLED) return RK_SEG;
-    if (p == P_ITEMS || p == P_ZONES) return RK_ITEMS;
+    if (p == P_ITEMS || p == P_ZONES || p == P_MSGBOXES) return RK_ITEMS;
     if (p == P_FONT) return RK_FONT;
     if (p == P_BSTYLE || p == P_ALIGN) return RK_SEG;
     if (p >= P_FG && p <= P_FBG) return RK_COLOR;
@@ -150,6 +152,7 @@ static std::string PropLabel(int p) {
     if (const FD::ExtraDef* d = ExtraOf(p)) return d->label;
     static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align", "Control group", "Visible", "Enabled" };
     if (p == P_ZONES) return "Zones";
+    if (p == P_MSGBOXES) return "Message boxes";
     if (p == P_ITEMS) return Sel() && Sel()->type == FD::C_TABBAR ? "Tabs" : Sel() && Sel()->type == FD::C_MENU ? "Menu items" : "Items";
     return p >= 0 && p <= P_ENABLED ? L[p] : "";
 }
@@ -302,7 +305,7 @@ static void BuildFields() {
         add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (ti.hasAlign) add(P_ALIGN);
         if (ti.hasLabel) for (int i = 0; i < FD::N_LABEL_EXTRAS; ++i) add(P_EXTRA + ti.nExtras + i);   // the label group
     }
-    else       { add(P_FNAME); add(P_FW); add(P_FH); add(P_FBG); }
+    else       { add(P_FNAME); add(P_FW); add(P_FH); add(P_FBG); add(P_MSGBOXES); }
     focus = -1; drag = drag == D_TEXT ? D_NONE : drag; propScroll = 0;
     for (int i = 0; i < nFields; ++i) if (!IsPickRow(fieldProp[i])) fields[i].SetText(PropValue(fieldProp[i]));
     dirty = true;
@@ -358,13 +361,21 @@ static void CloseFontDialog() {
 static FD::PresetDialog* presetDlg = nullptr; static FD::TemplateBuilder* builderDlg = nullptr; static int templateProp = -1;
 static int TemplateRowProp() { for (int i = 0; i < nFields; ++i) if (const FD::ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == "template") return fieldProp[i]; return -1; }
 static bool AnyModal();
+static FD::MessageBoxEditor* boxDlg = nullptr;
 static FD::ItemsDialog* itemsDlg = nullptr; static FD::MenuEditor* menuDlg = nullptr; static FD::ZonesDialog* zonesDlg = nullptr;
 static void OpenItemsDialog() {
+    if (!Sel() && !AnyModal()) { boxDlg = new FD::MessageBoxEditor(&scr, "Message boxes of " + form.name, form, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     DControl* c = Sel(); if (!c || AnyModal()) return;
     if (c->type == FD::C_GAUGE) { zonesDlg = new FD::ZonesDialog(&scr, "Zones of " + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     if (c->type == FD::C_MENU) { menuDlg = new FD::MenuEditor(&scr, "Menu items of " + c->name, *c, form, sel, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     if (!FD::HasList(c->type)) return;
     itemsDlg = new FD::ItemsDialog(&scr, std::string(c->type == FD::C_TABBAR ? "Tabs of " : "Items of ") + c->name, *c, form, form.bg); focus = -1; drag = D_NONE; dirty = true;
+}
+static void CloseBoxDialog() {
+    bool ok = boxDlg->state == FD::MessageBoxEditor::OK; std::vector<FD::DMessageBox> r = boxDlg->Boxes();
+    delete boxDlg; boxDlg = nullptr; drag = D_NONE; dirty = true;
+    if (!ok) return;
+    form.boxes = r; form.NormalizeBoxes(); SyncFields(); Status("%d message box%s", (int)form.boxes.size(), form.boxes.size() == 1 ? "" : "es");
 }
 static void CloseZonesDialog() {
     bool ok = zonesDlg->state == FD::ZonesDialog::OK; std::vector<FD::GaugeZone> r = zonesDlg->zones;
@@ -407,7 +418,7 @@ static void FitSel() {                                // Fit: the control is exa
 static bool SaveForm(); static bool OpenForm(); static void ExportForm(const std::string& dir);
 enum FilePurpose { FP_OPEN, FP_SAVE, FP_EXPORT };
 static FD::FileDialog* fileDlg = nullptr; static int filePurpose = FP_OPEN;
-static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg || menuDlg || zonesDlg; }
+static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg || menuDlg || zonesDlg || boxDlg; }
 static bool DirOk(const std::string& d) { std::error_code ec; return !d.empty() && std::filesystem::is_directory(d, ec); }
 static void OpenFileDialog(int purpose) {
     if (AnyModal()) return;
@@ -680,7 +691,8 @@ static void Render() {
             else if (!optional) { scr.setTextColor(0x8410); scr.drawString("click to change", FIELD_X + FIELD_W - 100, fy + 6); }
         } else if (kind == RK_ITEMS) {                                                       // a summary of the list; the Edit button (or a click) opens the items dialog
             const DControl* ic = Sel(); std::string sm;
-            if (fieldProp[i] == P_ZONES) { sm = std::to_string(ic->zones.size()) + (ic->zones.size() == 1 ? " zone" : " zones"); for (size_t k = 0; k < ic->zones.size() && sm.size() < 60; ++k) sm += (k ? ", " : ": ") + FD::FloatText(ic->zones[k].from) + "-" + FD::FloatText(ic->zones[k].to); }
+            if (fieldProp[i] == P_MSGBOXES) { sm = std::to_string(form.boxes.size()) + (form.boxes.size() == 1 ? " box" : " boxes"); for (size_t k = 0; k < form.boxes.size() && sm.size() < 60; ++k) sm += (k ? ", " : ": ") + form.boxes[k].name; }
+            else if (fieldProp[i] == P_ZONES) { sm = std::to_string(ic->zones.size()) + (ic->zones.size() == 1 ? " zone" : " zones"); for (size_t k = 0; k < ic->zones.size() && sm.size() < 60; ++k) sm += (k ? ", " : ": ") + FD::FloatText(ic->zones[k].from) + "-" + FD::FloatText(ic->zones[k].to); }
             else if (ic->type == FD::C_MENU) { int cmds = 0; FD::MenuForEach(ic->menu, [&](const FD::MenuNode& k) { if (!k.itemId.empty()) ++cmds; }); sm = std::to_string(FD::MenuNodeCount(ic->menu)) + " items, " + std::to_string(cmds) + " ids: ";
                                           for (size_t k = 0; k < ic->menu.size() && sm.size() < 60; ++k) sm += (k ? ", " : "") + ic->menu[k].text; }
             else { sm = std::to_string(ic->list.size()) + (ic->type == FD::C_TABBAR ? " tabs: " : " items: ");
@@ -729,12 +741,14 @@ static void Render() {
     if (itemsDlg) itemsDlg->Draw(SDL_GetTicks());
     if (menuDlg) menuDlg->Draw(SDL_GetTicks());
     if (zonesDlg) zonesDlg->Draw(SDL_GetTicks());
+    if (boxDlg) boxDlg->Draw(SDL_GetTicks());
     scr.pushSprite(lcd, 0, 0);
     dirty = false;
 }
 
 // ---- input ----
 static void Handle(const InputEvent& e) {
+    if (boxDlg) { boxDlg->Event(e); dirty = true; if (boxDlg->state != FD::MessageBoxEditor::OPEN) CloseBoxDialog(); return; }
     if (zonesDlg) { zonesDlg->Event(e); dirty = true; if (zonesDlg->state != FD::ZonesDialog::OPEN) CloseZonesDialog(); return; }
     if (menuDlg) { menuDlg->Event(e); dirty = true; if (menuDlg->state != FD::MenuEditor::OPEN) CloseMenuDialog(); return; }
     if (itemsDlg) { itemsDlg->Event(e); dirty = true; if (itemsDlg->state != FD::ItemsDialog::OPEN) CloseItemsDialog(); return; }
@@ -1011,7 +1025,7 @@ static void SelfTest() {
         Key(SDLK_TAB); Check(sel == 0, "designer: Tab selects the next control (wraps)");
         Click(10, 700); Click(ox + 280, oy + 220); Check(sel == -1 && form.items.size() == 2, "designer: clicking empty form space deselects");
         // form properties
-        Check(nFields == 4 && fieldProp[1] == P_FW && fieldProp[3] == P_FBG, "designer: with nothing selected the property panel edits the form");
+        Check(nFields == 5 && fieldProp[1] == P_FW && fieldProp[3] == P_FBG && fieldProp[4] == P_MSGBOXES, "designer: with nothing selected the property panel edits the form");
         Click(FIELD_X + 20, FieldY(1) + 5); Key(SDLK_a, KMOD_LCTRL); Type("4000"); Key(SDLK_RETURN);
         Check(form.w == MAX_FORM_W, "designer: form width is limited to the maximum");
         Click(FIELD_X + 20, FieldY(1) + 5); Key(SDLK_a, KMOD_LCTRL); Type("2"); Key(SDLK_RETURN);
@@ -1454,7 +1468,7 @@ static void SelfTest() {
         }
         // ---- chunk 1: spin box and slider, the property schema, the label, the scrolling panel ----
         form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ctl";
-        Check(C_COUNT == 18 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
+        Check(C_COUNT == 19 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
         Check(ExtraCount(C_SPINBOX) == 8 + N_LABEL_EXTRAS && ExtraCount(C_SLIDER) == 5 + N_LABEL_EXTRAS && ExtraCount(C_LABEL) == 0 && ExtraCount(C_PROGRESS) == N_LABEL_EXTRAS, "chunk 1: a control has its own extras plus the label group (SuperLabel has none)");
         { DControl d; d.type = C_SPINBOX; const ExtraDef& mn = *FindExtra(C_SPINBOX, "min");
           Check(ExtraSet(d, mn, "-5") && XInt(d, "min") == -5 && d.extra.count("min") && ExtraSet(d, mn, "0") && !d.extra.count("min"), "extras: a value equal to the default is not stored");
@@ -2141,6 +2155,75 @@ static void SelfTest() {
           Check(g2.find("draw1_Draw") != std::string::npos && g2.find("draw1_Pointer") == std::string::npos && g2.find("draw1_Accept") == std::string::npos && g2.find("Form.Add(&draw1, false);") != std::string::npos, "codegen: without touch a user draw control has only the Draw handler and is not focusable");
           Check(UserFileMissing(form, GenerateUserFile(form)).empty() && HandlerNames(form) == std::vector<std::string>({ "draw1_Draw" }), "user file: the Draw handler counts as a handler"); }
         Check(!ValidName("x_Draw") && !ValidName("x_DrawThunk") && !ValidName("x_Pointer") && !ValidName("x_PointerThunk") && ValidName("drawing"), "names: _Draw and _Pointer handler names are reserved");
+        // ---- chunk 5: colour picker, message boxes ----
+        {
+            form.Clear(); Place(C_COLORPICKER, 8, 8); Check(form.items.size() == 1 && form.items[0].type == C_COLORPICKER && ControlHeight(&scr, form.items[0]) > 0, "chunk 5: a colour picker is placed and drawn");
+            ExtraSet(form.items[0], *FindExtra(C_COLORPICKER, "value"), "0x07E0");
+            { auto rc = MakeControl(&scr, form.items[0], 0, 0); Check(static_cast<SuperColorPicker*>(rc.get())->GetLive565() == 0x07E0, "chunk 5: the real colour picker shows the Value"); }
+            { std::string g = GenerateDesigner(form); Check(g.find("#include <SuperColorPicker.h>") != std::string::npos && g.find("SetColor565(0x07E0);") != std::string::npos, "codegen: colour picker header and initial colour"); }
+            form.Clear(); FD::DForm lf; std::string le;
+            const std::string js = "{\"form\":{\"name\":\"Ch5\"},\"controls\":[{\"type\":\"SuperPushButton\",\"name\":\"btnGo\",\"text\":\"Go\"}],\"messageBoxes\":[{\"name\":\"msgDelete\",\"title\":\"Careful\",\"message\":[\"Delete all?\",\"Cannot be undone.\"],\"buttons\":[{\"text\":\"Yes\",\"itemId\":\"MSG_DELETE_YES\"},\"No\"],\"default\":1},{\"name\":\"btnGo\",\"message\":\"x\\ny\",\"buttons\":[\"A\",{\"text\":\"B\",\"itemId\":\"MSG_DELETE_YES\"},\"\",\"C\",\"D\"]}]}";
+            Check(lf.FromJson(js, le), "message boxes: a file with boxes loads");
+            Check(lf.boxes.size() == 2 && lf.boxes[0].name == "msgDelete" && lf.boxes[0].lines.size() == 2 && lf.boxes[0].buttons.size() == 2 && lf.boxes[0].buttons[0].itemId == "MSG_DELETE_YES" && lf.boxes[0].defaultBtn == 1, "message boxes: name, lines, buttons, optional button names, default");
+            Check(lf.boxes[1].name != "btnGo" && ValidName(lf.boxes[1].name) && lf.boxes[1].lines == std::vector<std::string>({ "x", "y" }) && lf.boxes[1].buttons.size() == 3 && lf.boxes[1].buttons[1].itemId.empty(), "message boxes: a clashing name is repaired, a message string splits at \\n, at most 3 non-empty buttons, a repeated button name is cleared");
+            Check(lf.BoxProblem().empty(), "message boxes: after repair nothing is wrong");
+            FD::DForm rt; Check(rt.FromJson(lf.ToJson(), le) && rt.boxes.size() == 2 && rt.boxes[0].lines == lf.boxes[0].lines && rt.boxes[0].buttons[0].itemId == "MSG_DELETE_YES" && rt.ToJson() == lf.ToJson(), "message boxes: save and load round-trip");
+            Check(!ValidName("msgDelete_Ask") && !ValidName("x_Open") && !ValidName("x_Poll") && !ValidName("MSG_CANCELLED") && !ValidName("MSG_PENDING"), "names: the message box helper names are reserved");
+            std::string g = GenerateDesigner(lf); auto h = [&](const char* x) { return g.find(x) != std::string::npos; };
+            Check(h("#include <SuperMessageBox.h>") && h("static constexpr int MSG_CANCELLED = -1, MSG_PENDING = -2;") && h("static constexpr int MSG_DELETE_YES = 0;") && h("SuperMessageBox msgDelete;") && h("msgDelete(dst, 220, &lgfx::fonts::Font2, enc, btnA, btnB)"), "codegen: message box header, constants, member, constructor");
+            Check(h("msgDelete.SetMessage(\"Delete all?\\n\"") && h("\"Cannot be undone.\");") && h("msgDelete.AddButton(\"Yes\");") && h("msgDelete.SetDefault(1);") && h("msgDelete.SetLabel(\"Careful\");") && h("msgDelete.SetRestore(msgDelete_RestoreThunk, this);"), "codegen: message box set-up");
+            Check(h("int msgDelete_Ask()") && h("void msgDelete_Open()") && h("int msgDelete_Poll()") && h("static void msgDelete_RestoreThunk(void* u)") && h("s->Form.Redraw(s->msgDelete.GetX()"), "codegen: Ask / Open / Poll helpers and the restore thunk that redraws the form");
+            FD::DForm none; none.name = "Plain"; Check(GenerateDesigner(none).find("MSG_") == std::string::npos && GenerateDesigner(none).find("SuperMessageBox") == std::string::npos, "codegen: a form without boxes has no message box code");
+            lf.boxes[0].buttons[0].itemId = "class"; Check(!lf.BoxProblem().empty(), "export: an unsafe button name is refused (BoxProblem)");
+            lf.boxes[0].buttons[0].itemId.clear();
+            { auto mb = MakeMessageBox(&scr, lf.boxes[0]); Check(mb && mb->GetHeight() > 0, "designer: a message box can be built for the preview"); }
+        }
+        // ---- the message box editor ----
+        {
+            form.Clear(); Place(C_PUSHBUTTON, 8, 8); form.items[0].name = "btnGo"; form.boxes.clear(); sel = -1; BuildFields();
+            auto Key5 = [&](SDL_Keycode k, Uint16 m = 0) { InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = k; v.mod = m; Handle(v); };
+            auto Txt5 = [&](const char* tx) { InputEvent v; v.type = InputEvent::TEXT; strncpy(v.text, tx, sizeof v.text - 1); Handle(v); };
+            auto Click5 = [&](int x, int y) { Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); };
+            int br = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_MSGBOXES) br = i;
+            Check(br >= 0 && PropLabel(P_MSGBOXES) == "Message boxes", "message box editor: the form has a Message boxes row");
+            EnsureRowVisible(br); Click5(FIELD_X + FIELD_W - 30, FieldY(br) + 5);
+            Check(boxDlg != nullptr && boxDlg->Boxes().empty() && boxDlg->Selected() == -1, "message box editor: Edit opens it (empty list)");
+            { int g0 = grid; Key5(SDLK_g); Check(boxDlg != nullptr && grid == g0, "message box editor: modal"); }
+            Key5(SDLK_INSERT); Check(boxDlg->Boxes().size() == 1 && boxDlg->Boxes()[0].name == "msg1" && boxDlg->FocusedField() == MessageBoxEditor::F_NAME && boxDlg->FieldText(MessageBoxEditor::F_NAME) == "msg1", "message box editor: Insert adds a valid box and focuses its name");
+            auto SetF = [&](int k, const char* v) { Click5(boxDlg->FX(k) + 20, boxDlg->FY(k) + 5); Key5(SDLK_a, KMOD_LCTRL); if (*v) Txt5(v); else Key5(SDLK_BACKSPACE); };
+            SetF(MessageBoxEditor::F_NAME, "msgDelete"); Check(boxDlg->Boxes()[0].name == "msgDelete" && boxDlg->Message().empty(), "message box editor: the name is applied as typed");
+            SetF(MessageBoxEditor::F_NAME, "class");
+            Check(boxDlg->Boxes()[0].name != "class" && boxDlg->BadField() == MessageBoxEditor::F_NAME && boxDlg->Message().find("safe C++ name") != std::string::npos, "message box editor: a keyword name is refused (red, with the reason)");
+            SetF(MessageBoxEditor::F_NAME, "btnGo"); Check(boxDlg->Boxes()[0].name != "btnGo" && boxDlg->Message().find("already used") != std::string::npos, "message box editor: a control's name is refused");
+            SetF(MessageBoxEditor::F_NAME, "msgDelete");
+            SetF(MessageBoxEditor::F_TITLE, "Careful"); Check(boxDlg->Boxes()[0].title == "Careful", "message box editor: title");
+            SetF(MessageBoxEditor::F_W, "10"); Check(boxDlg->Boxes()[0].w == 220 && boxDlg->Message().find("60 to 1000") != std::string::npos, "message box editor: a width below 60 is refused");
+            SetF(MessageBoxEditor::F_W, "260"); Check(boxDlg->Boxes()[0].w == 260, "message box editor: width");
+            SetF(MessageBoxEditor::F_T0, "Yes"); SetF(MessageBoxEditor::F_T1, "No"); Check(boxDlg->Boxes()[0].buttons.size() == 2 && boxDlg->Boxes()[0].buttons[1].text == "No", "message box editor: typing a text in the next slot adds a button");
+            SetF(MessageBoxEditor::F_T2, "Maybe"); SetF(MessageBoxEditor::F_T2, ""); Check(boxDlg->Boxes()[0].buttons.size() == 2, "message box editor: emptying a text removes the button");
+            SetF(MessageBoxEditor::F_N0, "MSG_DELETE_YES"); Check(boxDlg->Boxes()[0].buttons[0].itemId == "MSG_DELETE_YES", "message box editor: an optional button name");
+            SetF(MessageBoxEditor::F_N1, "MSG_DELETE_YES"); Check(boxDlg->Boxes()[0].buttons[1].itemId.empty() && boxDlg->Message().find("already used") != std::string::npos, "message box editor: a repeated button name is refused");
+            SetF(MessageBoxEditor::F_N1, "int"); Check(boxDlg->Boxes()[0].buttons[1].itemId.empty() && boxDlg->BadField() == MessageBoxEditor::F_N1, "message box editor: a keyword as button name is refused");
+            SetF(MessageBoxEditor::F_DEF, "5"); Check(boxDlg->Boxes()[0].defaultBtn == 0 && boxDlg->Message().find("0 to 1") != std::string::npos, "message box editor: a default button past the last is refused");
+            SetF(MessageBoxEditor::F_DEF, "1"); Check(boxDlg->Boxes()[0].defaultBtn == 1, "message box editor: default button");
+            SetF(MessageBoxEditor::F_N2, "X"); Check(boxDlg->Message().find("text first") != std::string::npos, "message box editor: a name for a button that does not exist is refused");
+            Key5(SDLK_ESCAPE);
+            { int x = boxDlg->AutoX() + 5, y = boxDlg->AutoY() + 36 * 3 - 4 + 3; Click5(x, y); Check(boxDlg->Boxes()[0].buttons[1].itemId == "MSG_DELETE_NO", "message box editor: Auto names fills the empty button names"); }
+            Click5(boxDlg->CenterX() + 5, boxDlg->CenterY() + 3); Check(!boxDlg->Boxes()[0].centered, "message box editor: Centered toggles");
+            Click5(boxDlg->MsgBtnX() + 5, boxDlg->MsgBtnY() + 3); Check(boxDlg->Sub() != nullptr && boxDlg->Sub()->items == std::vector<std::string>({ "Message" }), "message box editor: Edit message opens the lines dialog on the box's lines");
+            Key5(SDLK_INSERT); Key5(SDLK_a, KMOD_LCTRL); Txt5("Second line"); Key5(SDLK_ESCAPE); Key5(SDLK_RETURN);
+            Check(boxDlg->Sub() == nullptr && boxDlg->Boxes()[0].lines.size() == 2 && boxDlg->Boxes()[0].lines[1] == "Second line", "message box editor: OK in the lines dialog stores the lines");
+            Key5(SDLK_INSERT); Check(boxDlg->Boxes().size() == 2 && boxDlg->Boxes()[1].name == "msg1" && boxDlg->Selected() == 1, "message box editor: a second box");
+            Key5(SDLK_ESCAPE); Key5(SDLK_UP); Check(boxDlg->Selected() == 0 && boxDlg->FieldText(MessageBoxEditor::F_NAME) == "msgDelete", "message box editor: the list selects a box and the fields follow");
+            { int x = boxDlg->LBX(3) + 5, y = boxDlg->LBY() + 3; Click5(x, y); Check(boxDlg->Boxes()[1].name == "msgDelete" && boxDlg->Selected() == 1, "message box editor: Down moves the box"); }
+            { int x = boxDlg->LBX(1) + 5, y = boxDlg->LBY() + 3; Click5(x, y); Check(boxDlg->Boxes().size() == 1, "message box editor: Delete"); }
+            Key5(SDLK_ESCAPE); Check(boxDlg == nullptr && form.boxes.empty(), "message box editor: Esc cancels (the form keeps its boxes)");
+            Click5(FIELD_X + FIELD_W - 30, FieldY(br) + 5); Key5(SDLK_INSERT); SetF(MessageBoxEditor::F_NAME, "msgAsk"); SetF(MessageBoxEditor::F_T0, "Go"); Key5(SDLK_ESCAPE);
+            { int x = boxDlg->OkX() + 5, y = boxDlg->BtnY() + 3; Click5(x, y); }
+            Check(boxDlg == nullptr && form.boxes.size() == 1 && form.boxes[0].name == "msgAsk" && form.boxes[0].buttons[0].text == "Go", "message box editor: OK stores the boxes in the form");
+            { std::string g = GenerateDesigner(form); Check(g.find("int msgAsk_Ask()") != std::string::npos, "message box editor: the generated code has the box"); }
+            form.boxes.clear(); sel = -1; BuildFields();
+        }
         form.Clear(); FixOutDir(); sel = -1; BuildFields();
         // delete
         form.Clear(); Place(C_LABEL, 8, 8); Place(C_CHECKBOX, 8, 40); sel = -1; Key(SDLK_TAB); Key(SDLK_DELETE); Check(form.items.size() == 1 && sel == -1, "designer: Delete removes the selected control");

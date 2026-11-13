@@ -141,6 +141,16 @@ The input layer also hosts the reusable text field (`src/DesignerTextField.h`, u
 select, Alt/Ctrl+arrows by word, Cmd+Left/Right line start/end, Backspace/Delete (+Alt = word), Ctrl/Cmd+A/C/X/V, undo/redo (Ctrl/Cmd+Z,
 Shift+Z, Ctrl+Y), mouse click / drag / double-click word / triple-click all, scrolling. US-ASCII only (0x20..0x7E): other characters are dropped.
 
+**Chunk 5: colour picker and message boxes.** `SuperColorPicker` is a normal control (property: Color). Message boxes are not on the design surface: they live in a form-level list, stored as readable JSON
+(hand-editable, or use the **message box editor**: select nothing, then Edit... on the form's Message boxes row; it has the list of boxes, Name / Title / Width / Default / X / Y, Centered, an Edit message... lines dialog, three button text + optional name rows, Auto names and a live preview; fonts and colours stay JSON-only):
+```json
+"messageBoxes": [ { "name": "msgDelete", "title": "Careful", "message": ["Delete all data?", "Cannot be undone."],
+                    "buttons": [ { "text": "Yes", "itemId": "MSG_DELETE_YES" }, "No" ], "default": 1 } ]
+```
+A button may have an optional name (`itemId`): it becomes `static constexpr int MSG_DELETE_YES = 0;` (the button's index) in the generated class. The generated class also gets
+`int msgDelete_Ask()` (blocking: the chosen button's index, or `MSG_CANCELLED`) and the non-blocking `msgDelete_Open()` / `msgDelete_Poll()` (`MSG_PENDING` while open). After a box closes the form is redrawn
+over the area it covered (generated restore thunk). Library: `SuperMessageBox::EditIO()`. Export refuses unsafe or clashing box and button names.
+
 ## Build and run
 ```
 brew install sdl2 cmake            # macOS (Linux: your package manager's SDL2 + cmake)

@@ -42,7 +42,7 @@ inline std::string HexColor(uint16_t c) { char b[8]; snprintf(b, sizeof b, "0x%0
 inline std::string DesignerFileName(const DForm& f) { return f.name + ".designer.h"; }
 
 inline const char* HeaderOf(int type) {
-    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h", "SuperMenu.h", "SuperGauge.h", "SuperGraph.h", "SuperUserDraw.h" };
+    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h", "SuperMenu.h", "SuperGauge.h", "SuperGraph.h", "SuperUserDraw.h", "SuperColorPicker.h" };
     return h[type];
 }
 // The events a control raises: the handler is <control>_<Name>() and it is connected with control.<setter>(thunk, this).
@@ -66,6 +66,8 @@ inline std::vector<EventDef> EventsOf(int type) {
                                 { "Accept", "SetOnAccept", "%s: a tab was chosen: %s.GetSelected() is its index (show that page)." } };
     case C_MENU:       return { { "Change", "SetOnChange", "%s: the cursor moved, or the menu level changed." },
                                 { "Choose", "SetOnAccept", "%s: a command was chosen: id is its constant (switch on it).", true } };
+    case C_COLORPICKER: return { { "Change", "SetOnChange", "%s is being edited: %s.GetLive565() is the colour so far (RGB565)." },
+                                 { "Accept", "SetOnAccept", "%s was accepted: %s.GetColor565() is the new colour (RGB565)." } };
     case C_USERDRAW:   return { { "Draw", "SetOnDraw", "%s: draw your picture here. spr is the sprite and body the rectangle to draw in (everything is clipped to it), e.g. spr->drawCircle(body.x + body.w / 2, body.y + body.h / 2, 20, 0x07E0);", false,
                                   "lgfx::LGFX_Sprite* spr, const SuperRect& body", "SuperUserDraw&, lgfx::LGFX_Sprite* s, const SuperRect& r, void* u", "s, r" },
                                 { "Pointer", "SetOnPointer", "%s: touch. e.Type is PRESS, MOVE, RELEASE, TAP or LONG_PRESS; e.X / e.Y are relative to the body. Call %s.Repaint() to redraw.", false,
@@ -154,6 +156,7 @@ inline void EmitExtras(std::ostringstream& o, const DControl& c) {
         if (XSet(c, "lineColor")) o << "        " << n << ".ColLine = " << HexColor((uint16_t)XInt(c, "lineColor")) << ";\n";
         if (XSet(c, "gridColor")) o << "        " << n << ".ColGrid = " << HexColor((uint16_t)XInt(c, "gridColor")) << ";\n";
     }
+    if (c.type == C_COLORPICKER && XSet(c, "value")) o << "        " << n << ".SetColor565(" << HexColor((uint16_t)XInt(c, "value")) << ");\n";
     if (c.type == C_USERDRAW) {
         if (XBool(c, "persistent")) o << "        " << n << ".SetPersistent(true);\n";
         if (XSet(c, "autoRedraw")) o << "        " << n << ".SetAutoRedraw(" << XInt(c, "autoRedraw") << ");\n";
@@ -203,6 +206,7 @@ inline std::string GenerateDesigner(const DForm& f) {
       << "#pragma once\n#include <LovyanGFX.hpp>\n#include <SuperForm.h>\n";
     std::set<std::string> inc;
     for (const DControl& c : f.items) inc.insert(HeaderOf(c.type));
+    if (!f.boxes.empty()) inc.insert("SuperMessageBox.h");
     for (const std::string& h : inc) o << "#include <" << h << ">\n";
 
     std::vector<std::string> groups;                           // radio groups, in order of first use
@@ -217,9 +221,18 @@ inline std::string GenerateDesigner(const DForm& f) {
     }
     { auto groups = f.UsedGroups();                                                                      // control groups: SetGroup(GRP_X), Form.SetGroupVisible(GRP_X, ...)
       if (!groups.empty()) { o << "\n    // control groups (SuperControl::SetGroup; use them with Form.SetGroupVisible / SetGroupEnabled / ShowPage)\n"; for (const std::string& g : groups) o << "    static constexpr uint16_t " << g << " = " << f.GroupId(g) << ";\n"; } }
+    if (!f.boxes.empty()) {                                                                              // message box answers: the index of the chosen button
+        o << "\n    // message boxes: <box>_Ask() returns the index of the chosen button, or MSG_CANCELLED (<box>_Poll() returns MSG_PENDING while the box is open)\n"
+          << "    static constexpr int MSG_CANCELLED = -1, MSG_PENDING = -2;\n";
+        for (const DMessageBox& b : f.boxes) {
+            bool any = false;
+            for (size_t i = 0; i < b.buttons.size(); ++i) if (!b.buttons[i].itemId.empty()) { if (!any) o << "    // " << b.name << ": button results\n"; any = true; o << "    static constexpr int " << b.buttons[i].itemId << " = " << i << ";\n"; }
+        }
+    }
     o << "\n";
     for (const DControl& c : f.items) o << "    " << Info(c.type).key << " " << c.name << ";\n";
     for (const std::string& g : groups) o << "    SuperRadioGroup " << g << ";\n";
+    for (const DMessageBox& b : f.boxes) o << "    SuperMessageBox " << b.name << ";\n";
     o << "    SuperForm Form;\n\n";
 
     // constructor: every control is built with its position, width and font
@@ -240,6 +253,7 @@ inline std::string GenerateDesigner(const DForm& f) {
         if (c.type == C_DATEBOX && XInt(c, "style") == 1) o << ", SuperDateBox::DATE_MDY";
         o << ")";
     }
+    for (const DMessageBox& b : f.boxes) { sep(); o << b.name << "(dst, " << b.w << ", &lgfx::fonts::" << FindFont(b.font).id << ", enc, btnA, btnB)"; }
     sep(); o << "Form(enc, btnA)"; sep(); o << "Dst(dst)";
     o << " {\n        InitializeComponent();\n";
     for (const DControl& c : f.items) if (HasPages(c)) o << "        " << c.name << "_ShowPage(" << c.name << ".GetSelected(), false);       // the first tab's page is shown, the others are hidden\n";
@@ -255,6 +269,17 @@ inline std::string GenerateDesigner(const DForm& f) {
           << "    void " << c.name << "_ShowPage(int index, bool draw = true) {\n        static const uint16_t pages[] = { ";
         for (size_t i = 0; i < c.list.size(); ++i) o << (i ? ", " : "") << (i < c.pages.size() && !c.pages[i].empty() ? c.pages[i] : "0");
         o << " };\n        Form.ShowPage(pages, " << c.list.size() << ", (index >= 0 && index < " << c.list.size() << ") ? pages[index] : 0, draw);\n    }\n\n";
+    }
+
+    for (const DMessageBox& b : f.boxes) {                                                                  // show a message box: blocking, or open + poll in your own loop
+        o << "    // " << b.name << ": shows the message box and waits for the answer: the index of the chosen button";
+        for (size_t i = 0; i < b.buttons.size(); ++i) if (!b.buttons[i].itemId.empty()) o << (i ? ", " : " (") << b.buttons[i].itemId;
+        { bool anyId = false; for (const MsgButton& mb : b.buttons) if (!mb.itemId.empty()) anyId = true; if (anyId) o << ")"; }
+        o << ", or MSG_CANCELLED. The form is redrawn afterwards.\n"
+          << "    int " << b.name << "_Ask() { return " << b.name << ".BeginEdit() ? " << b.name << ".GetResult() : MSG_CANCELLED; }\n"
+          << "    // The same without waiting: call " << b.name << "_Open(), then " << b.name << "_Poll() every loop pass (MSG_PENDING while the box is open).\n"
+          << "    void " << b.name << "_Open() { " << b.name << ".StartEdit(); }\n"
+          << "    int " << b.name << "_Poll() { SuperEditState st = " << b.name << ".Service(); if (st == EDIT_ACTIVE) return MSG_PENDING; return st == EDIT_ACCEPTED ? " << b.name << ".GetResult() : MSG_CANCELLED; }\n\n";
     }
 
     if (!HandlerNames(f).empty()) {
@@ -289,6 +314,25 @@ inline std::string GenerateDesigner(const DForm& f) {
         if (c.type == C_RADIO) o << "        " << c.group << ".Add(&" << n << ");\n";
         o << "        Form.Add(&" << n << (Focusable(c) ? "" : ", false") << ");\n";
     }
+    for (const DMessageBox& b : f.boxes) {                                                                  // the message boxes' set-up
+        const std::string n = b.name; std::string msg;                                                      // one literal per line, each but the last ending in \n
+        for (size_t i = 0; i < b.lines.size(); ++i) {
+            std::string lit = CppString(b.lines[i]); if (i + 1 < b.lines.size()) lit.insert(lit.size() - 1, "\\n");
+            msg += (i ? "\n            " : "") + lit;
+        }
+        if (msg.empty()) msg = "\"\"";
+        o << "        // " << n << " (message box)\n";
+        if (!b.title.empty()) o << "        " << n << ".SetLabel(" << CppString(b.title) << ");\n";
+        o << "        " << n << ".SetMessage(" << msg << ");\n";
+        for (const MsgButton& mb : b.buttons) o << "        " << n << ".AddButton(" << CppString(mb.text) << ");\n";
+        if (b.defaultBtn != 0) o << "        " << n << ".SetDefault(" << b.defaultBtn << ");\n";
+        if (!b.centered) o << "        " << n << ".SetCentered(false);\n        " << n << ".SetDisplayPos(" << b.x << ", " << b.y << ");\n";
+        if (b.border != 0xFFFF) o << "        " << n << ".SetBorder(2, " << HexColor(b.border) << ");\n";
+        if (b.fg != 0xFFFF) o << "        " << n << ".ColFg = " << HexColor(b.fg) << ";\n";
+        if (b.bg != 0x0000) o << "        " << n << ".ColBg = " << HexColor(b.bg) << ";\n";
+        if (f.bg != DEF_FORM_BG) o << "        " << n << ".ColHighlightClear = FormBackColor;\n";
+        o << "        " << n << ".SetRestore(" << n << "_RestoreThunk, this);      // the form redraws what the box covered\n";
+    }
     o << "    }\n";
     for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c)) {
         if (ev.idArg) o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { auto* s = static_cast<" << base << "*>(u); s->" << c.name << "_" << ev.name << "((uint16_t)s->" << c.name << ".GetResultId()); }\n";
@@ -300,6 +344,9 @@ inline std::string GenerateDesigner(const DForm& f) {
     for (const DControl& c : f.items) if (c.type == C_COMBOBOX && XInt(c, "restore") == 0)
         o << "    static void " << c.name << "_RestoreThunk(void* u) {\n        auto* s = static_cast<" << base << "*>(u);\n"
           << "        s->Form.Redraw(s->" << c.name << ".GetPopupX(), s->" << c.name << ".GetPopupY(), s->" << c.name << ".GetPopupWidth(), s->" << c.name << ".GetPopupHeight(), FormBackColor);\n    }\n";
+    for (const DMessageBox& b : f.boxes)
+        o << "    static void " << b.name << "_RestoreThunk(void* u) {\n        auto* s = static_cast<" << base << "*>(u);\n"
+          << "        s->Form.Redraw(s->" << b.name << ".GetX(), s->" << b.name << ".GetY(), s->" << b.name << ".GetWidth(), s->" << b.name << ".GetHeight(), FormBackColor);\n    }\n";
     o << "};\n";
     return o.str();
 }
@@ -354,7 +401,7 @@ struct GenResult { bool ok = false, unchanged = false; std::string path, error; 
 inline GenResult WriteDesigner(DForm& f, const std::string& dir) {
     namespace fs = std::filesystem;
     GenResult r; std::error_code ec;
-    { std::string problem = f.MenuProblem(); if (problem.empty()) problem = f.GroupProblem(); if (!problem.empty()) { r.error = problem; return r; } }          // never write code that would not compile
+    { std::string problem = f.MenuProblem(); if (problem.empty()) problem = f.GroupProblem(); if (problem.empty()) problem = f.BoxProblem(); if (!problem.empty()) { r.error = problem; return r; } }          // never write code that would not compile
     if (dir.empty() || !fs::is_directory(dir, ec)) { r.error = "folder \"" + dir + "\" does not exist"; return r; }
     fs::path p = fs::path(dir) / DesignerFileName(f);
     r.path = p.string();
