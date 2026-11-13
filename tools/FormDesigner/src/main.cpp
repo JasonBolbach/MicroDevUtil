@@ -25,6 +25,7 @@
 #include "FileDialog.h"
 #include "PresetDialog.h"
 #include "TemplateBuilder.h"
+#include "ItemsDialog.h"
 #include "AppSettings.h"
 #include <SuperSpinBox.h>
 #include <vector>
@@ -57,6 +58,7 @@ static DragMode drag = D_NONE; static int dragDX = 0, dragDY = 0, dragRight = 0;
 
 // ---- property fields ----
 enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN,
+            P_ITEMS = 98,                          // the items of a list box / combo box / tab bar (opens the items dialog)
             P_HINT = 99,                           // a row that only shows a hint (the template legend)
             P_EXTRA = 100 };                       // P_EXTRA + i = the selected control's i-th extra property (FD::ExtraAt), see FormModel.h
 static const int MAX_FIELDS = 40;
@@ -122,13 +124,14 @@ static const FD::ExtraDef* ExtraOf(int p) {           // the schema entry behind
     DControl* c = Sel(); if (!c || !IsExtra(p)) return nullptr;
     int i = p - P_EXTRA; return i < FD::ExtraCount(c->type) ? &FD::ExtraAt(c->type, i) : nullptr;
 }
-enum RowKind { RK_TEXT, RK_COLOR, RK_FONT, RK_SEG, RK_HINT };   // text field / swatch (colour dialog) / font dialog / segments to click
+enum RowKind { RK_TEXT, RK_COLOR, RK_FONT, RK_SEG, RK_HINT, RK_ITEMS };   // text field / swatch (colour dialog) / font dialog / segments to click
 static int RowKindOf(int p) {
     if (IsExtra(p)) {
         const FD::ExtraDef* d = ExtraOf(p); if (!d) return RK_TEXT;
         switch (d->kind) { case FD::PK_COLOR: return RK_COLOR; case FD::PK_FONT: return RK_FONT; case FD::PK_BOOL: case FD::PK_ENUM: return RK_SEG; default: return RK_TEXT; }
     }
     if (p == P_HINT) return RK_HINT;
+    if (p == P_ITEMS) return RK_ITEMS;
     if (p == P_FONT) return RK_FONT;
     if (p == P_BSTYLE || p == P_ALIGN) return RK_SEG;
     if (p >= P_FG && p <= P_FBG) return RK_COLOR;
@@ -139,6 +142,7 @@ static bool IsPickRow(int p) { return RowKindOf(p) != RK_TEXT; }                
 static std::string PropLabel(int p) {
     if (const FD::ExtraDef* d = ExtraOf(p)) return d->label;
     static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align" };
+    if (p == P_ITEMS) return Sel() && Sel()->type == FD::C_TABBAR ? "Tabs" : "Items";
     return p >= 0 && p <= P_ALIGN ? L[p] : "";
 }
 // segments of a RK_SEG row
@@ -273,6 +277,7 @@ static void BuildFields() {
     if (Sel()) {
         const FD::TypeInfo& ti = FD::Info(Sel()->type);
         add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W);
+        if (FD::HasList(Sel()->type)) add(P_ITEMS);
         for (int i = 0; i < ti.nExtras; ++i) { add(P_EXTRA + i); if (std::string(ti.extras[i].key) == "template") add(P_HINT); }   // the type's own properties (+ the template legend)
         add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (ti.hasAlign) add(P_ALIGN);
         if (ti.hasLabel) for (int i = 0; i < FD::N_LABEL_EXTRAS; ++i) add(P_EXTRA + ti.nExtras + i);   // the label group
@@ -329,6 +334,17 @@ static void CloseFontDialog() {
 static FD::PresetDialog* presetDlg = nullptr; static FD::TemplateBuilder* builderDlg = nullptr; static int templateProp = -1;
 static int TemplateRowProp() { for (int i = 0; i < nFields; ++i) if (const FD::ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == "template") return fieldProp[i]; return -1; }
 static bool AnyModal();
+static FD::ItemsDialog* itemsDlg = nullptr;
+static void OpenItemsDialog() {
+    DControl* c = Sel(); if (!c || !FD::HasList(c->type) || AnyModal()) return;
+    itemsDlg = new FD::ItemsDialog(&scr, std::string(c->type == FD::C_TABBAR ? "Tabs of " : "Items of ") + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true;
+}
+static void CloseItemsDialog() {
+    bool ok = itemsDlg->state == FD::ItemsDialog::OK; std::vector<std::string> r = itemsDlg->items;
+    delete itemsDlg; itemsDlg = nullptr; drag = D_NONE; dirty = true;
+    if (!ok) return;
+    if (DControl* c = Sel()) { c->list = r; FD::ClampSelected(*c); RefreshGeometry(); ClampPos(*c); SyncFields(); Status("%s: %d %s", c->name.c_str(), (int)r.size(), c->type == FD::C_TABBAR ? "tabs" : "items"); }
+}
 static void OpenPresetDialog() {
     DControl* c = Sel(); templateProp = TemplateRowProp(); if (!c || templateProp < 0 || AnyModal()) return;
     presetDlg = new FD::PresetDialog(&scr, "Template presets for " + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true;
@@ -352,7 +368,7 @@ static void FitSel() {                                // Fit: the control is exa
 static bool SaveForm(); static bool OpenForm(); static void ExportForm(const std::string& dir);
 enum FilePurpose { FP_OPEN, FP_SAVE, FP_EXPORT };
 static FD::FileDialog* fileDlg = nullptr; static int filePurpose = FP_OPEN;
-static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg; }
+static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg; }
 static bool DirOk(const std::string& d) { std::error_code ec; return !d.empty() && std::filesystem::is_directory(d, ec); }
 static void OpenFileDialog(int purpose) {
     if (AnyModal()) return;
@@ -398,6 +414,7 @@ static void Place(int type, int fx, int fy) {        // fx, fy in form coordinat
     DControl c; c.type = type; c.name = form.UniqueName(FD::Info(type).prefix); c.text = FD::Info(type).defText;
     c.w = FD::Info(type).defW; c.x = Snap(fx); c.y = Snap(fy);
     if (type == FD::C_RADIO) { c.group = form.UniqueGroupName(); for (const DControl& o : form.items) if (o.type == FD::C_RADIO) { c.group = o.group; break; } }   // joins the form's first group
+    if (FD::HasList(type)) for (int i = 1; i <= 3; ++i) c.list.push_back(std::string(type == FD::C_TABBAR ? "Tab " : "Item ") + std::to_string(i));      // a few sample items
     FD::Measure(&scr, c);
     if (type == FD::C_INPUTBOX || type == FD::C_TIMEBOX || type == FD::C_DATEBOX) c.w = std::max(FD::MIN_CONTROL_W, FD::FitWidth(&scr, c));      // exactly as wide as its text
     FD::Measure(&scr, c); ClampPos(c);
@@ -606,6 +623,13 @@ static void Render() {
             scr.drawString(id.empty() ? "(same as the control)" : FD::FindFont(id).label, FIELD_X + 6, fy + 6);
             if (optional && !id.empty()) { scr.setTextColor(0xF800); scr.drawString("x", FIELD_X + FIELD_W - 16, fy + 6); }
             else if (!optional) { scr.setTextColor(0x8410); scr.drawString("click to change", FIELD_X + FIELD_W - 100, fy + 6); }
+        } else if (kind == RK_ITEMS) {                                                       // a summary of the list; the Edit button (or a click) opens the items dialog
+            const DControl* ic = Sel(); std::string sm = std::to_string(ic->list.size()) + (ic->type == FD::C_TABBAR ? " tabs: " : " items: ");
+            for (size_t k = 0; k < ic->list.size() && sm.size() < 60; ++k) sm += (k ? ", " : "") + ic->list[k];
+            scr.fillRect(FIELD_X, fy, FIELD_W - 80, FIELD_H, 0x0000); scr.drawRect(FIELD_X, fy, FIELD_W - 80, FIELD_H, 0x7BEF);
+            scr.setClipRect(FIELD_X + 2, fy + 2, FIELD_W - 84, FIELD_H - 4); scr.setTextColor(0xC618); scr.drawString(sm.c_str(), FIELD_X + 6, fy + 6);
+            scr.setClipRect(1002, PANEL_TOP, 386, PANEL_BOT - PANEL_TOP);
+            SuperPushButton eb(&scr, FIELD_X + FIELD_W - 74, fy, 74, &lgfx::fonts::Font2, "Edit..."); eb.Push();
         } else if (kind == RK_HINT) {                                                        // the template legend
             scr.setTextColor(0x8410); scr.drawString("# digit  A upper  a lower  B letter", 1010, fy - 2); scr.drawString("* any   other characters are literals", 1010, fy + 14);
         } else if (kind == RK_COLOR) {                                                       // a swatch: click opens the colour dialog
@@ -643,12 +667,14 @@ static void Render() {
     if (fileDlg) fileDlg->Draw(SDL_GetTicks());
     if (presetDlg) presetDlg->Draw();
     if (builderDlg) builderDlg->Draw();
+    if (itemsDlg) itemsDlg->Draw(SDL_GetTicks());
     scr.pushSprite(lcd, 0, 0);
     dirty = false;
 }
 
 // ---- input ----
 static void Handle(const InputEvent& e) {
+    if (itemsDlg) { itemsDlg->Event(e); dirty = true; if (itemsDlg->state != FD::ItemsDialog::OPEN) CloseItemsDialog(); return; }
     if (presetDlg) { presetDlg->Event(e); dirty = true; if (presetDlg->state != FD::PresetDialog::OPEN) ClosePresetDialog(); return; }
     if (builderDlg) { builderDlg->Event(e); dirty = true; if (builderDlg->state != FD::TemplateBuilder::OPEN) CloseBuilderDialog(); return; }
     if (fileDlg) {
@@ -697,6 +723,7 @@ static void Handle(const InputEvent& e) {
             }
             if (hit) break;
         }
+        if (fi >= 0 && RowKindOf(fieldProp[fi]) == RK_ITEMS) { SetFocus(-1); OpenItemsDialog(); break; }
         if (fi >= 0 && RowKindOf(fieldProp[fi]) == RK_SEG) { int n = SegCount(fieldProp[fi]); SetFocus(-1); SetEnumProp(fieldProp[fi], std::min(n - 1, (e.x - FIELD_X) * n / FIELD_W)); break; }
         if (fi >= 0 && RowKindOf(fieldProp[fi]) == RK_FONT) {
             SetFocus(-1);
@@ -1353,7 +1380,7 @@ static void SelfTest() {
         }
         // ---- chunk 1: spin box and slider, the property schema, the label, the scrolling panel ----
         form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ctl";
-        Check(C_COUNT == 11 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
+        Check(C_COUNT == 14 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
         Check(ExtraCount(C_SPINBOX) == 8 + N_LABEL_EXTRAS && ExtraCount(C_SLIDER) == 5 + N_LABEL_EXTRAS && ExtraCount(C_LABEL) == 0 && ExtraCount(C_PROGRESS) == N_LABEL_EXTRAS, "chunk 1: a control has its own extras plus the label group (SuperLabel has none)");
         { DControl d; d.type = C_SPINBOX; const ExtraDef& mn = *FindExtra(C_SPINBOX, "min");
           Check(ExtraSet(d, mn, "-5") && XInt(d, "min") == -5 && d.extra.count("min") && ExtraSet(d, mn, "0") && !d.extra.count("min"), "extras: a value equal to the default is not stored");
@@ -1567,6 +1594,122 @@ static void SelfTest() {
                 && XBool(cf.items[0], "checked") && !XBool(cf.items[1], "checked") && XBool(cf.items[2], "checked"), "model: two selected radio buttons in one group in a file: the first wins, other groups are untouched");
           Check(cf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperCheckBox\",\"name\":\"k\",\"label\":\"old\",\"labelColor\":\"0xF800\",\"checked\":true}]}", ce) && XBool(cf.items[0], "checked") && !cf.items[0].extra.count("label") && !cf.items[0].extra.count("labelColor"), "model: label settings on a check box in an older file are ignored"); }
         form.Clear(); FixOutDir(); sel = -1; BuildFields();
+        // ---- the list controls' run-time API (library additions) ----
+        {
+            SuperListBox lb(&scr, 0, 0, 100, &lgfx::fonts::Font2, 3, nullptr, nullptr, nullptr); lb.SetVisible(false, false);
+            lb.InsertItem(0, "a"); Check(lb.Count() == 1 && lb.GetSelected() == 0 && lb.GetItem(0) == "a", "library ListBox: InsertItem into an empty list selects the new item");
+            lb.AddItem("b"); lb.AddItem("c"); lb.SetSelected(1);
+            lb.InsertItem(0, "z"); Check(lb.Count() == 4 && lb.GetItem(0) == "z" && lb.GetSelectedText() == "b" && lb.GetSelected() == 2, "library ListBox: inserting before the selection keeps the selection on its item");
+            lb.InsertItem(99, "end"); Check(lb.GetItem(4) == "end" && lb.GetSelectedText() == "b", "library ListBox: an index past the end appends");
+            lb.InsertItem(-5, "first"); Check(lb.GetItem(0) == "first" && lb.GetSelectedText() == "b", "library ListBox: a negative index inserts at the start");
+            lb.RemoveItem(0); Check(lb.GetSelectedText() == "b" && lb.Count() == 5, "library ListBox: removing an item before the selection keeps it");
+            lb.SetSelected(2); lb.RemoveItem(2); Check(lb.GetSelected() == 2 && lb.GetSelectedText() == "c", "library ListBox: removing the selected item selects the one that moved into its place");
+            lb.SetSelected(lb.Count() - 1); lb.RemoveItem(lb.Count() - 1); Check(lb.GetSelected() == lb.Count() - 1, "library ListBox: removing the selected last item selects the new last one");
+            lb.RemoveItem(77); lb.RemoveItem(-1); lb.SetItem(77, "x"); Check(lb.Count() == 3, "library ListBox: bad indexes are ignored");
+            lb.SetItem(1, "renamed"); Check(lb.GetItem(1) == "renamed", "library ListBox: SetItem renames");
+            while (lb.Count()) lb.RemoveItem(0); Check(lb.GetSelected() == -1 && lb.GetSelectedText() == "" && lb.GetCursor() == -1, "library ListBox: removing every item leaves no selection");
+            SuperComboBox cb(&scr, 0, 0, 120, &lgfx::fonts::Font2, nullptr, nullptr, nullptr); cb.SetVisible(false, false);
+            cb.SetItems({ "Small", "Medium", "Large" }); cb.SetSelected(1);
+            Check(cb.GetItem(2) == "Large" && cb.GetItem(9) == "" && cb.GetText() == "Medium", "library ComboBox: GetItem(i), and the box shows the selected item");
+            cb.InsertItem(0, "Tiny"); Check(cb.GetValue() == "Medium" && cb.GetText() == "Medium" && cb.GetSelected() == 2, "library ComboBox: InsertItem keeps the selection (and the shown text)");
+            cb.SetItem(2, "Mid"); Check(cb.GetValue() == "Mid" && cb.GetText() == "Mid", "library ComboBox: SetItem on the selected item updates the shown text");
+            cb.RemoveItem(2); Check(cb.GetValue() == "Large" && cb.GetText() == "Large" && cb.Count() == 3, "library ComboBox: RemoveItem of the selected item shows the next one");
+            SuperTabBar tb(&scr, 0, 0, 200, &lgfx::fonts::Font2, nullptr, nullptr, nullptr); tb.SetVisible(false, false);
+            tb.SetItems({ "A", "B", "C" }); tb.SetSelected(1); Check(tb.Count() == 3 && tb.GetItem(1) == "B" && tb.GetTab(1) == "B" && tb.GetSelected() == 1, "library TabBar: SetItems / GetItem (GetTab is the same)");
+            tb.InsertItem(0, "Z"); Check(tb.GetSelected() == 2 && tb.GetItem(2) == "B", "library TabBar: InsertItem keeps the selected tab");
+            tb.RemoveItem(2); Check(tb.GetSelected() == 2 && tb.GetItem(2) == "C", "library TabBar: removing the selected tab selects the one that took its place");
+            tb.SetItem(0, "Zed"); tb.SetItems({ "only" }); Check(tb.Count() == 1 && tb.GetSelected() == 0, "library TabBar: SetItems keeps a valid selection");
+            tb.SetItems({}); Check(tb.GetSelected() == -1, "library TabBar: an empty list has no selection");
+            SuperMenu mn(&scr, 0, 0, 160, &lgfx::fonts::Font2, 4, nullptr, nullptr, nullptr); mn.SetVisible(false, false);
+            auto* sys = mn.AddItem("System", 0); auto* reb = mn.AddItem("Reboot", 7, sys); auto* off = mn.AddItem("Power off", 8, sys); auto* about = mn.AddItem("About", 20);
+            Check(mn.Root()->Kids.size() == 2 && mn.Root()->Kids[0] == sys && sys->Kids.size() == 2, "library Menu: Root() gives the top level");
+            Check(mn.FindById(8) == off && mn.FindById(20) == about && mn.FindById(99) == nullptr && mn.FindById(7)->Text == "Reboot", "library Menu: FindById searches the whole tree");
+            Check(mn.RemoveItem(reb) && sys->Kids.size() == 1 && mn.FindById(7) == nullptr, "library Menu: RemoveItem removes a leaf");
+            Check(mn.RemoveItem(sys) && mn.Root()->Kids.size() == 1 && mn.FindById(8) == nullptr && mn.Root()->Kids[0] == about, "library Menu: RemoveItem removes an item with everything below it");
+            Check(!mn.RemoveItem(sys) && !mn.RemoveItem(nullptr) && !mn.RemoveItem(const_cast<SuperMenu::Item*>(mn.Root())), "library Menu: removing twice, nothing, or the root is refused");
+            auto* again = mn.AddItem("New", 30); Check(mn.FindById(30) == again && (again == sys || again == reb || again == off), "library Menu: AddItem reuses the memory of removed items");
+            mn.Clear(); Check(mn.Root()->Kids.empty() && mn.FindById(20) == nullptr, "library Menu: Clear empties it");
+        }
+        // ---- chunk 3a: list box, combo box, tab bar ----
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ch3";
+        Check(std::string(Info(C_LISTBOX).key) == "SuperListBox" && std::string(Info(C_COMBOBOX).key) == "SuperComboBox" && std::string(Info(C_TABBAR).key) == "SuperTabBar" && HasList(C_LISTBOX) && HasList(C_COMBOBOX) && HasList(C_TABBAR) && !HasList(C_SPINBOX), "chunk 3a: the three list types exist");
+        Place(C_LISTBOX, 8, 8); Place(C_COMBOBOX, 8, 120); Place(C_TABBAR, 8, 160);
+        Check(form.items[0].list == std::vector<std::string>({ "Item 1", "Item 2", "Item 3" }) && form.items[2].list == std::vector<std::string>({ "Tab 1", "Tab 2", "Tab 3" }), "chunk 3a: new lists start with a few sample items (tabs are Tab 1, 2, 3)");
+        auto L3 = [&](int prop) { for (int i = 0; i < nFields; ++i) if (fieldProp[i] == prop) return i; return -1; };
+        auto X3 = [&](const char* key) { for (int i = 0; i < nFields; ++i) if (const ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == key) return i; return -1; };
+        auto XT3 = [&](const char* key, const char* text) { int r = X3(key); EnsureRowVisible(r); Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); Type(text); Key(SDLK_RETURN); };
+        auto OpenItems = [&]() { int r = L3(P_ITEMS); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 30, FieldY(r) + 5); };
+        Select(0); Check(L3(P_ITEMS) >= 0 && X3("selected") >= 0 && X3("rows") >= 0 && X3("wrap") >= 0 && X3("rowPad") >= 0 && PropLabel(P_ITEMS) == "Items" && X3("label") >= 0, "chunk 3a: list box rows: Items, Selected, Visible rows, Wrap around, Row padding (+ label group)");
+        Select(1); Check(X3("maxRows") >= 0 && X3("restore") >= 0 && X3("selected") >= 0, "chunk 3a: combo box rows: Selected, Popup rows, Popup restore");
+        Select(2); Check(PropLabel(P_ITEMS) == "Tabs" && X3("tabPad") >= 0, "chunk 3a: tab bar rows: Tabs, Selected, Tab padding");
+        Select(0);
+        { auto lc = MakeControl(&scr, form.items[0], 0, 0); auto* l = static_cast<SuperListBox*>(lc.get()); Check(l->Count() == 3 && l->GetItem(1) == "Item 2" && l->GetRows() == 5, "chunk 3a: the real list box is built from the model (items, rows)"); }
+        XT3("selected", "2"); Check(XInt(form.items[0], "selected") == 2, "chunk 3a: Selected is applied");
+        XT3("selected", "3"); Check(XInt(form.items[0], "selected") == 2 && status.find("3 items") != std::string::npos, "chunk 3a: a Selected beyond the last item is refused, with the reason");
+        XT3("rows", "3"); XT3("rowPad", "2"); { int r = X3("wrap"); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 20, FieldY(r) + 5); }
+        Check(XInt(form.items[0], "rows") == 3 && XInt(form.items[0], "rowPad") == 2 && XBool(form.items[0], "wrap"), "chunk 3a: rows, row padding and wrap");
+        // ---- the items dialog ----
+        OpenItems(); Check(itemsDlg != nullptr && itemsDlg->items.size() == 3 && itemsDlg->Selected() == 2, "items dialog: the Edit button opens it on the control's items, with the selected item highlighted");
+        { int g0 = grid; Key(SDLK_g); Check(itemsDlg != nullptr && grid == g0 && itemsDlg->items.size() == 3, "items dialog: modal (keys do not reach the form)"); }
+        auto IK = [&](SDL_Keycode k, Uint16 m = 0) { InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = k; v.mod = m; Handle(v); };
+        auto IT = [&](const char* tx) { InputEvent v; v.type = InputEvent::TEXT; strncpy(v.text, tx, sizeof v.text - 1); Handle(v); };
+        auto IB = [&](int row, int k) { int x = itemsDlg->BtnX(row, k) + 6, y = (row == 1 ? itemsDlg->Row1Y() : itemsDlg->Row2Y()) + 3; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); };
+        { SuperListBox* lb = itemsDlg->Lb(); int rx = lb->GetX() + lb->GetBorder() + lb->GetPadding() + 8, ry = lb->GetBoxTop() + lb->GetBorder() + lb->GetPadding() + 2;
+          Handle(ev(InputEvent::DOWN, rx, ry)); Handle(ev(InputEvent::UP, rx, ry)); Check(itemsDlg->Selected() == 0 && itemsDlg->FieldText() == "Item 1", "items dialog: clicking an item selects it and shows its text"); }
+        IK(SDLK_TAB); Check(itemsDlg->FieldFocused(), "items dialog: Tab goes to the text field");
+        IK(SDLK_a, KMOD_LCTRL); IT("Red"); Check(itemsDlg->items[0] == "Red" && itemsDlg->Lb()->GetItem(0) == "Red", "items dialog: typing changes the item live (and the list)");
+        IK(SDLK_a, KMOD_LCTRL); IK(SDLK_BACKSPACE); Check(itemsDlg->items[0] == "Red" && !itemsDlg->Message().empty(), "items dialog: an empty item is refused: the old text stays, with a reason");
+        IT("Red!"); Check(itemsDlg->items[0] == "Red!", "items dialog: typing again is accepted"); IK(SDLK_BACKSPACE);
+        IK(SDLK_RETURN); Check(itemsDlg->items.size() == 4 && itemsDlg->Selected() == 1 && itemsDlg->FieldFocused() && itemsDlg->items[1].substr(0, 5) == "Item ", "items dialog: Enter in the field adds the next item (fast entry) and selects it");
+        IK(SDLK_a, KMOD_LCTRL); IT("Green"); IK(SDLK_RETURN); IK(SDLK_a, KMOD_LCTRL); IT("Blue"); Check(itemsDlg->items.size() == 5 && itemsDlg->items[2] == "Blue", "items dialog: typing a list with Enter between the items");
+        IK(SDLK_ESCAPE); Check(!itemsDlg->FieldFocused() && itemsDlg != nullptr, "items dialog: Esc in the field goes back to the list");
+        IB(1, 1); Check(itemsDlg->items.size() == 6 && itemsDlg->Selected() == 2, "items dialog: Insert adds before the selected item");
+        IB(1, 2); Check(itemsDlg->items.size() == 5 && itemsDlg->items[2] == "Blue", "items dialog: Delete removes the selected item");
+        IB(1, 3); Check(itemsDlg->items[1] == "Blue" && itemsDlg->items[2] == "Green" && itemsDlg->Selected() == 1, "items dialog: Move up swaps with the item above");
+        IB(1, 4); Check(itemsDlg->items[2] == "Blue" && itemsDlg->Selected() == 2, "items dialog: Move down");
+        IB(2, 0); { bool sorted = true; for (size_t i = 1; i < itemsDlg->items.size(); ++i) { std::string a = itemsDlg->items[i - 1], b = itemsDlg->items[i]; for (char& c : a) c = (char)tolower((unsigned char)c); for (char& c : b) c = (char)tolower((unsigned char)c); if (a > b) sorted = false; } Check(sorted && itemsDlg->items[itemsDlg->Selected()] == "Blue", "items dialog: Sort A-Z (ignoring case) keeps the selected item selected"); }
+        { char* oldClip = SDL_GetClipboardText(); SDL_SetClipboardText("Cyan\r\n\r\n  Magenta  \nYellow\n\tx\xC3\xA9y\n");
+          size_t n0 = itemsDlg->items.size(); IB(2, 1);
+          Check(itemsDlg->items.size() == n0 + 4, "items dialog: Paste lines adds every non-empty line of the clipboard");
+          bool found = false; for (auto& it : itemsDlg->items) if (it == "Magenta") found = true; bool ascii = true; for (auto& it : itemsDlg->items) for (char c : it) if ((unsigned char)c < 0x20 || (unsigned char)c > 0x7E) ascii = false;
+          Check(found && ascii, "items dialog: pasted lines are trimmed and non-ASCII characters are dropped");
+          SDL_SetClipboardText(""); size_t n1 = itemsDlg->items.size(); IB(2, 1); Check(itemsDlg->items.size() == n1 && !itemsDlg->Message().empty(), "items dialog: an empty clipboard adds nothing and says so");
+          if (oldClip) { SDL_SetClipboardText(oldClip); SDL_free(oldClip); } }
+        IB(2, 2); Check(itemsDlg->items.empty() && itemsDlg->Selected() == -1, "items dialog: Clear all");
+        for (int i = 0; i < 205; ++i) IB(1, 0);
+        Check((int)itemsDlg->items.size() == MAX_LIST_ITEMS && itemsDlg->Message().find("200") != std::string::npos, "items dialog: at most 200 items");
+        IB(2, 2); IB(1, 0); IK(SDLK_a, KMOD_LCTRL); IT("A"); IK(SDLK_RETURN); IK(SDLK_a, KMOD_LCTRL); IT("B"); IK(SDLK_ESCAPE); IK(SDLK_ESCAPE);
+        Check(itemsDlg == nullptr && form.items[0].list.size() == 3 && form.items[0].list[0] == "Item 1", "items dialog: Esc (in the list) cancels: the control keeps its items");
+        OpenItems(); IB(2, 2); IB(1, 0); IK(SDLK_a, KMOD_LCTRL); IT("Red"); IK(SDLK_RETURN); IK(SDLK_a, KMOD_LCTRL); IT("Green"); IK(SDLK_RETURN); IK(SDLK_a, KMOD_LCTRL); IT("Blue"); IK(SDLK_ESCAPE);
+        { int x = itemsDlg->OkX() + 5, y = itemsDlg->BtnY() + 3; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); }
+        Check(itemsDlg == nullptr && form.items[0].list == std::vector<std::string>({ "Red", "Green", "Blue" }), "items dialog: OK applies the new items");
+        Check(XInt(form.items[0], "selected") == 2, "items dialog: (the selection stays on a valid item)");
+        OpenItems(); IB(2, 2); IB(1, 0); IK(SDLK_a, KMOD_LCTRL); IT("Only"); IK(SDLK_ESCAPE); IK(SDLK_RETURN);
+        Check(form.items[0].list.size() == 1 && !XSet(form.items[0], "selected"), "items dialog: after shrinking the list the selection is pulled back to a valid item (here: the default 0)");
+        OpenItems(); IB(2, 2); IK(SDLK_RETURN); Check(form.items[0].list.empty() && !XSet(form.items[0], "selected") && ControlHeight(&scr, form.items[0]) > 0, "items dialog: an empty list is allowed");
+        // ---- JSON and generated code ----
+        form.items[0].list = { "Red", "Gr\"een", "Bl\\ue" }; ExtraSet(form.items[0], *FindExtra(C_LISTBOX, "selected"), "2"); form.items[1].list = { "Small", "Large" }; form.items[2].list = { "Home", "Settings" };
+        ExtraSet(form.items[2], *FindExtra(C_TABBAR, "selected"), "1");
+        { std::string lj = form.ToJson(), le; DForm lf; Check(lf.FromJson(lj, le) && lf.items[0].list == form.items[0].list && lf.items[1].list == form.items[1].list && lf.ToJson() == lj && lj.find("\"items\": [\"Red\", \"Gr\\\"een\", \"Bl\\\\ue\"]") != std::string::npos, "model: the items survive the JSON round trip, readable and escaped");
+          std::string longItem(80, 'x');
+          Check(lf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperListBox\",\"items\":[\"ok\",\"\",\"caf\\u00e9\",\"" + longItem + "\",5,\"last\"],\"selected\":9}]}", le), "model: (a file with odd items)");
+          Check(lf.items[0].list == std::vector<std::string>({ "ok", "caf", std::string(MAX_ITEM_LEN, 'x'), "last" }) && XInt(lf.items[0], "selected") == 3, "model: empty and non-string items are dropped, \\u escapes above ASCII are dropped, long items cut, and a Selected past the end is pulled back");
+          std::string many = "{\"form\":{},\"controls\":[{\"type\":\"SuperTabBar\",\"items\":["; for (int i = 0; i < 300; ++i) many += (i ? ",\"t" : "\"t") + std::to_string(i) + "\""; many += "]}]}";
+          Check(lf.FromJson(many, le) && (int)lf.items[0].list.size() == MAX_LIST_ITEMS, "model: at most 200 items are read"); }
+        { std::string g = GenerateDesigner(form); auto h4 = [&](const char* x) { return g.find(x) != std::string::npos; };
+          Check(h4("#include <SuperListBox.h>") && h4("#include <SuperComboBox.h>") && h4("#include <SuperTabBar.h>"), "codegen: headers of the list controls");
+          Check(h4(("list1(dst, 8, " + std::to_string(form.items[0].y) + ", ").c_str()) && h4(", &lgfx::fonts::Font2, 3, enc, btnA, btnB)"), "codegen: the list box takes its visible rows before the encoder and buttons");
+          Check(h4("list1.SetItems({ \"Red\", \"Gr\\\"een\", \"Bl\\\\ue\" });") && h4("list1.SetSelected(2);") && g.find("list1.SetItems") < g.find("list1.SetSelected"), "codegen: the items (escaped for C++), then the selection");
+          Check(h4("list1.Wrap = true;") && h4("list1.RowPad = 2;"), "codegen: Wrap and Row padding when they differ from the defaults");
+          Check(h4("combo1.SetItems({ \"Small\", \"Large\" });") && h4("combo1.SetRestore(combo1_RestoreThunk, this);") && h4("static void combo1_RestoreThunk(void* u)") && h4("s->Form.Redraw(s->combo1.GetPopupX(), s->combo1.GetPopupY(), s->combo1.GetPopupWidth(), s->combo1.GetPopupHeight(), FormBackColor);"), "codegen: the combo box popup is restored by redrawing the form (default)");
+          Check(h4("tabs1.SetItems({ \"Home\", \"Settings\" });") && h4("tabs1.SetSelected(1);"), "codegen: the tab bar");
+          Check(h4("virtual void list1_Change() {}") && h4("virtual void combo1_Accept() {}") && h4("virtual void tabs1_Accept() {}") && h4("list1.SetOnChange(list1_ChangeThunk, this);"), "codegen: Change and Accept handlers for all three");
+          ExtraSet(form.items[1], *FindExtra(C_COMBOBOX, "restore"), "1"); ExtraSet(form.items[1], *FindExtra(C_COMBOBOX, "maxRows"), "8"); std::string g2 = GenerateDesigner(form);
+          Check(g2.find("SetRestore") == std::string::npos && g2.find("combo1_RestoreThunk") == std::string::npos && g2.find("combo1.MaxRows = 8;") != std::string::npos, "codegen: 'Read back' writes no restore code; Popup rows becomes MaxRows");
+          std::string u = GenerateUserFile(form);
+          Check(u.find("list1.GetSelectedText()") != std::string::npos && u.find("combo1.GetValue()") != std::string::npos && u.find("tabs1.GetSelected()") != std::string::npos, "user file: handler hints for the list controls"); }
+        Check(!ValidName("combo1_RestoreThunk") && !ValidName("x_Accept"), "names: _RestoreThunk is reserved too");
+        form.Clear(); FixOutDir(); sel = -1; BuildFields();
         // delete
         form.Clear(); Place(C_LABEL, 8, 8); Place(C_CHECKBOX, 8, 40); sel = -1; Key(SDLK_TAB); Key(SDLK_DELETE); Check(form.items.size() == 1 && sel == -1, "designer: Delete removes the selected control");
         form.Clear(); sel = -1; BuildFields(); unsetenv("FD_FORM");
@@ -1601,6 +1744,7 @@ void setup() {
     if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'p') OpenPresetDialog();            // FD_SHOW=presets | builder: the template dialogs (select an input box with FD_SELECT)
     else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'b') OpenBuilderDialog();
     else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'o') OpenFileDialog(FP_OPEN);          // FD_SHOW=open: the Open dialog
+    else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'i') OpenItemsDialog();                // FD_SHOW=items
     else if (getenv("FD_SHOW")) { if (!form.items.empty()) { sel = 0; BuildFields(); } for (int i = 0; i < nFields; ++i) if (fieldProp[i] == (getenv("FD_SHOW")[0] == 'f' ? P_FONT : Sel() ? P_FG : P_FBG)) { if (fieldProp[i] == P_FONT) OpenFontDialog(P_FONT); else OpenColorDialog(fieldProp[i]); break; } }   // FD_SHOW=color | font: open a dialog at start (for screenshots)
     if (getenv("FD_SELFTEST")) SelfTest();
 }

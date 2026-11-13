@@ -14,6 +14,10 @@
 #include <SuperTextBox.h>
 #include <SuperInputBox.h>
 #include <SuperTimeBox.h>
+#include <SuperListBox.h>
+#include <SuperComboBox.h>
+#include <SuperTabBar.h>
+#include <SuperMenu.h>
 #include "FormModel.h"
 #include "FontTable.h"
 
@@ -33,6 +37,9 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     case C_TEXTBOX:    p.reset(new SuperTextBox(dst, x, y, c.w, font)); break;
     case C_INPUTBOX:   p.reset(new SuperInputBox(dst, x, y, c.w, font, XStr(c, "template").c_str(), nullptr, nullptr, nullptr)); break;      // (the template is copied)
     case C_TIMEBOX:    p.reset(new SuperTimeBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr, XBool(c, "seconds"))); break;
+    case C_LISTBOX:    p.reset(new SuperListBox(dst, x, y, c.w, font, (int)XInt(c, "rows"), nullptr, nullptr, nullptr)); break;
+    case C_COMBOBOX:   p.reset(new SuperComboBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr)); break;
+    case C_TABBAR:     p.reset(new SuperTabBar(dst, x, y, c.w, font, nullptr, nullptr, nullptr)); break;
     case C_DATEBOX:    p.reset(new SuperDateBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr, (SuperDateBox::DateStyle)XInt(c, "style"))); break;
     default:           p.reset(new SuperLabel(dst, x, y, c.w, font, c.text)); break;
     }
@@ -65,6 +72,18 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
         break; }
     case C_CHECKBOX:
     case C_RADIO:   static_cast<SuperCheckBox*>(p.get())->SetChecked(XBool(c, "checked")); break;           // (silent)
+    case C_LISTBOX: {
+        auto* b = static_cast<SuperListBox*>(p.get());
+        b->Wrap = XBool(c, "wrap"); b->RowPad = (int)XInt(c, "rowPad"); b->SetItems(c.list); if (!c.list.empty()) b->SetSelected((int)XInt(c, "selected"));
+        break; }
+    case C_COMBOBOX: {
+        auto* b = static_cast<SuperComboBox*>(p.get());
+        b->MaxRows = (int)XInt(c, "maxRows"); b->SetItems(c.list); if (!c.list.empty()) b->SetSelected((int)XInt(c, "selected"));
+        break; }
+    case C_TABBAR: {
+        auto* b = static_cast<SuperTabBar*>(p.get());
+        b->TabPad = (int)XInt(c, "tabPad"); b->SetItems(c.list); if (!c.list.empty()) b->SetSelected((int)XInt(c, "selected"));
+        break; }
     case C_TEXTBOX: static_cast<SuperTextBox*>(p.get())->SetText(c.text); break;
     case C_INPUTBOX: {
         auto* b = static_cast<SuperInputBox*>(p.get());
@@ -113,6 +132,9 @@ inline std::string Validate(lgfx::LovyanGFX* dst, const DControl& c) {
         t.SetYearRange((int)XInt(c, "yearMin"), (int)XInt(c, "yearMax"));
         if (!t.SetValue(XStr(c, "value"))) return "not a valid date inside the year range: YYYY-MM-DD, e.g. 2026-12-31 (2026-02-30 does not exist)";
         return ""; }
+    case C_LISTBOX: case C_COMBOBOX: case C_TABBAR:
+        if (!c.list.empty() && XInt(c, "selected") >= (long)c.list.size()) return "the list has " + std::to_string(c.list.size()) + " items: Selected can be 0 to " + std::to_string(c.list.size() - 1);
+        return "";
     default: return "";
     }
 }

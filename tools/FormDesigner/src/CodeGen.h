@@ -41,7 +41,7 @@ inline std::string HexColor(uint16_t c) { char b[8]; snprintf(b, sizeof b, "0x%0
 inline std::string DesignerFileName(const DForm& f) { return f.name + ".designer.h"; }
 
 inline const char* HeaderOf(int type) {
-    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h" };
+    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h" };
     return h[type];
 }
 // The events a control raises: the handler is <control>_<Name>() and it is connected with control.<setter>(thunk, this).
@@ -57,6 +57,12 @@ inline std::vector<EventDef> EventsOf(int type) {
     case C_TIMEBOX:
     case C_DATEBOX:    return { { "Change", "SetOnChange", "%s is being edited: %s.GetLiveValue() is the value so far." },
                                 { "Accept", "SetOnAccept", "%s was accepted: %s.GetValue() is the new value." } };
+    case C_LISTBOX:    return { { "Change", "SetOnChange", "%s: the highlight moved: %s.GetCursor() is the row under the cursor." },
+                                { "Accept", "SetOnAccept", "%s: a row was chosen: %s.GetSelected() is its index, %s.GetSelectedText() its text." } };
+    case C_COMBOBOX:   return { { "Change", "SetOnChange", "%s: the item under the cursor changed: %s.ListBox().GetCursor() is its index." },
+                                { "Accept", "SetOnAccept", "%s: an item was chosen: %s.GetValue() is its text, %s.GetSelected() its index." } };
+    case C_TABBAR:     return { { "Change", "SetOnChange", "%s: the cursor moved to another tab: %s.GetCursor() is its index." },
+                                { "Accept", "SetOnAccept", "%s: a tab was chosen: %s.GetSelected() is its index (show that page)." } };
     default:           return {};
     }
 }
@@ -94,6 +100,18 @@ inline void EmitExtras(std::ostringstream& o, const DControl& c) {
         if (XSet(c, "suffix")) o << "        " << n << ".SetSuffix(" << CppString(XStr(c, "suffix")) << ");\n";
     }
     if ((c.type == C_CHECKBOX || c.type == C_RADIO) && XBool(c, "checked")) o << "        " << n << ".SetChecked(true);\n";          // silent: no event
+    if (HasList(c.type)) {
+        if (c.type == C_LISTBOX) { if (XBool(c, "wrap")) o << "        " << n << ".Wrap = true;\n"; if (XSet(c, "rowPad")) o << "        " << n << ".RowPad = " << XInt(c, "rowPad") << ";\n"; }
+        if (c.type == C_COMBOBOX && XSet(c, "maxRows")) o << "        " << n << ".MaxRows = " << XInt(c, "maxRows") << ";\n";
+        if (c.type == C_TABBAR && XSet(c, "tabPad")) o << "        " << n << ".TabPad = " << XInt(c, "tabPad") << ";\n";
+        if (!c.list.empty()) {
+            o << "        " << n << ".SetItems({ ";
+            for (size_t i = 0; i < c.list.size(); ++i) o << (i ? ", " : "") << CppString(c.list[i]);
+            o << " });\n";
+            if (XSet(c, "selected")) o << "        " << n << ".SetSelected(" << XInt(c, "selected") << ");\n";                    // after the items
+        }
+        if (c.type == C_COMBOBOX && XInt(c, "restore") == 0) o << "        " << n << ".SetRestore(" << n << "_RestoreThunk, this);      // the form redraws what the popup covered\n";
+    }
     if (c.type == C_TEXTBOX && !c.text.empty()) o << "        " << n << ".SetText(" << CppString(c.text) << ");\n";
     if (c.type == C_INPUTBOX) {
         if (XSet(c, "literalColor")) o << "        " << n << ".ColLiteral = " << HexColor((uint16_t)XInt(c, "literalColor")) << ";\n";
@@ -140,6 +158,7 @@ inline std::string GenerateDesigner(const DForm& f) {
         sep();
         o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", &lgfx::fonts::" << FindFont(c.font).id;
         if (Info(c.type).ctorText) o << ", " << CppString(c.text);
+        if (c.type == C_LISTBOX) o << ", " << XInt(c, "rows");                                    // the number of visible rows is a constructor argument
         if (c.type == C_INPUTBOX) o << ", " << CppString(XStr(c, "template"));                      // the template comes before the encoder and buttons
         if (Info(c.type).editable) o << ", enc, btnA, btnB";                  // editable controls take the encoder and the two buttons
         if (c.type == C_TIMEBOX && !XBool(c, "seconds")) o << ", false";                           // (seconds = true is the default)
@@ -187,6 +206,9 @@ inline std::string GenerateDesigner(const DForm& f) {
     o << "    }\n";
     for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type))
         o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { static_cast<" << base << "*>(u)->" << c.name << "_" << ev.name << "(); }\n";
+    for (const DControl& c : f.items) if (c.type == C_COMBOBOX && XInt(c, "restore") == 0)
+        o << "    static void " << c.name << "_RestoreThunk(void* u) {\n        auto* s = static_cast<" << base << "*>(u);\n"
+          << "        s->Form.Redraw(s->" << c.name << ".GetPopupX(), s->" << c.name << ".GetPopupY(), s->" << c.name << ".GetPopupWidth(), s->" << c.name << ".GetPopupHeight(), FormBackColor);\n    }\n";
     o << "};\n";
     return o.str();
 }

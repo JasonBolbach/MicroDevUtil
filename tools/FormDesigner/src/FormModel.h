@@ -26,7 +26,9 @@
 
 namespace FD {
 
-enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_COUNT };
+enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_COUNT };
+inline bool HasList(int type) { return type == C_LISTBOX || type == C_COMBOBOX || type == C_TABBAR; }      // the control has a list of items (rows / choices / tabs)
+constexpr int MAX_LIST_ITEMS = 200, MAX_ITEM_LEN = 60;
 
 // ---- per-type properties beyond the common ones ("extras"): a table drives the property panel, the JSON and the code generator ----
 enum PKind { PK_INT, PK_TEXT, PK_BOOL, PK_ENUM, PK_COLOR, PK_FONT };
@@ -99,6 +101,23 @@ static const ExtraDef DATE_EXTRAS[] = {
     { "wrap",      "Wrap around", PK_BOOL, "false",      0, 1, "No|Yes" },
 };
 
+// Lists: the items themselves are DControl::list (edited in the items dialog); these are the other settings. "selected" = the initially selected index.
+static const ExtraDef LISTBOX_EXTRAS[] = {
+    { "selected", "Selected",   PK_INT,  "0",     0, 9999, "" },
+    { "rows",     "Visible rows", PK_INT, "5",    1, 30, "" },
+    { "wrap",     "Wrap around", PK_BOOL, "false", 0, 1, "No|Yes" },
+    { "rowPad",   "Row padding", PK_INT,  "1",    0, 8, "" },
+};
+static const ExtraDef COMBOBOX_EXTRAS[] = {
+    { "selected", "Selected",     PK_INT,  "0", 0, 9999, "" },
+    { "maxRows",  "Popup rows",   PK_INT,  "5", 1, 30, "" },
+    { "restore",  "Popup restore", PK_ENUM, "0", 0, 1, "Redraw form|Read back" },     // how the screen under the popup comes back (see SuperComboBox)
+};
+static const ExtraDef TABBAR_EXTRAS[] = {
+    { "selected", "Selected",    PK_INT, "0", 0, 9999, "" },
+    { "tabPad",   "Tab padding", PK_INT, "6", 0, 30, "" },
+};
+
 struct TypeInfo {
     const char* key;       // the SuperGUI class name (also the "type" in the JSON)
     const char* title;     // shown in the toolbox
@@ -129,6 +148,9 @@ inline const TypeInfo& Info(int t) {
         { "SuperInputBox",    "Input box",   "input",    120, "",       false, true,  true,  true,  INPUT_EXTRAS,  FD_N(INPUT_EXTRAS),  false, true  },
         { "SuperTimeBox",     "Time box",    "time",      90, "",       false, true,  true,  true,  TIME_EXTRAS,   FD_N(TIME_EXTRAS),   false, true  },
         { "SuperDateBox",     "Date box",    "date",     110, "",       false, true,  true,  true,  DATE_EXTRAS,   FD_N(DATE_EXTRAS),   false, true  },
+        { "SuperListBox",     "List box",    "list",     140, "",       false, true,  true,  true,  LISTBOX_EXTRAS, FD_N(LISTBOX_EXTRAS), false, false },
+        { "SuperComboBox",    "Combo box",   "combo",    140, "",       false, true,  true,  true,  COMBOBOX_EXTRAS, FD_N(COMBOBOX_EXTRAS), false, false },
+        { "SuperTabBar",      "Tab bar",     "tabs",     220, "",       false, false, true,  true,  TABBAR_EXTRAS, FD_N(TABBAR_EXTRAS), false, false },
     };
     return T[t < 0 || t >= C_COUNT ? 0 : t];
 }
@@ -159,6 +181,7 @@ struct DControl {
     int borderStyle = -1, borderSize = -1, padding = -1, align = -1;
     int defStyle = 0, defSize = 1, defPad = 2, defAlign = 0;    // derived: the control's own defaults (not saved)
     int h = 16;                      // derived from the real control (not saved)
+    std::vector<std::string> list;                              // the items of a list box / combo box / tab bar (printable ASCII, non-empty)
     std::map<std::string, std::string> extra;                   // type-specific properties (ExtraDef): only values that differ from the default are stored
 };
 
@@ -176,10 +199,20 @@ inline bool ExtraSet(DControl& c, const ExtraDef& d, const std::string& v) {    
     if (n == d.def) c.extra.erase(d.key); else c.extra[d.key] = n;
     return true;
 }
+inline long XInt(const DControl& c, const char* key);
+inline void ClampSelected(DControl& c);
 inline long XInt(const DControl& c, const char* key) { const ExtraDef* d = FindExtra(c.type, key); return d ? strtol(ExtraGet(c, *d).c_str(), nullptr, 0) : 0; }
 inline bool XBool(const DControl& c, const char* key) { const ExtraDef* d = FindExtra(c.type, key); return d && ExtraGet(c, *d) == "true"; }
 inline std::string XStr(const DControl& c, const char* key) { const ExtraDef* d = FindExtra(c.type, key); return d ? ExtraGet(c, *d) : ""; }
 inline bool XSet(const DControl& c, const char* key) { return c.extra.count(key) > 0; }     // explicitly set (differs from the default)
+// The initial selection of a list must be one of its items (an empty list has none): pulled back to the last item.
+inline void ClampSelected(DControl& c) {
+    const ExtraDef* d = FindExtra(c.type, "selected"); if (!d) return;
+    long n = (long)c.list.size(), v = strtol(ExtraGet(c, *d).c_str(), nullptr, 10);
+    if (n == 0) c.extra.erase("selected"); else if (v >= n) ExtraSet(c, *d, std::to_string(n - 1));
+}
+
+inline std::string Ascii(const std::string& s) { std::string r; for (char c : s) if (c >= 0x20 && c < 0x7F) r += c; return r; }     // printable ASCII only (the designer's character set)
 
 // a valid name for a control, a radio group or the form: a plain identifier that is safe in the generated C++ (see ReservedNames.h)
 inline bool ValidName(const std::string& s) {
@@ -216,7 +249,13 @@ private:
             if (c == '\\') {
                 if (P >= S.size()) return Fail("bad escape");
                 char e = S[P++];
-                if (e == 'n') c = '\n'; else if (e == 't') c = '\t'; else if (e == '"' || e == '\\' || e == '/') c = e; else return Fail("unsupported escape");
+                if (e == 'n') c = '\n'; else if (e == 't') c = '\t'; else if (e == '"' || e == '\\' || e == '/') c = e;
+                else if (e == 'u') {                                  // \uXXXX: the designer is ASCII only, so anything above 0x7F is dropped
+                    if (P + 4 > S.size()) return Fail("bad \\u escape");
+                    long code = strtol(S.substr(P, 4).c_str(), nullptr, 16); P += 4;
+                    if (code >= 0x20 && code < 0x7F) out += (char)code;
+                    continue;
+                } else return Fail("unsupported escape");
             }
             out += c;
         }
@@ -298,6 +337,11 @@ struct DForm {
 
     static std::string Layout(const DControl& c) {              // only the overrides, e.g. , "borderStyle": "sleek", "padding": 4
         std::string s;
+        if (HasList(c.type) && !c.list.empty()) {                         // "items": ["Red", "Green"]
+            s += ", \"items\": [";
+            for (size_t i = 0; i < c.list.size(); ++i) { std::string v; for (char ch : c.list[i]) { if (ch == '"' || ch == '\\') v += '\\'; v += ch; } s += (i ? ", \"" : "\"") + v + "\""; }
+            s += "]";
+        }
         if (c.type == C_RADIO) s += ", \"group\": \"" + c.group + "\"";
         if (c.borderStyle >= 0) s += std::string(", \"borderStyle\": \"") + StyleName(c.borderStyle) + "\"";
         if (c.borderSize >= 0)  s += ", \"borderSize\": " + std::to_string(c.borderSize);
@@ -357,7 +401,7 @@ struct DForm {
             DControl d; d.type = t;
             const JV* nm = c.Get("name"); const JV* tx = c.Get("text");
             d.name = nm && nm->t == JV::STR && ValidName(nm->s) && !n.ControlNamed(nm->s) ? nm->s : n.UniqueName(Info(t).prefix);   // groups are repaired after the loop
-            d.text = tx && tx->t == JV::STR ? tx->s : Info(t).defText;
+            d.text = tx && tx->t == JV::STR ? Ascii(tx->s) : Info(t).defText;
             if (const JV* fv = c.Get("font")) if (fv->t == JV::STR && FontIndex(fv->s) >= 0) d.font = fv->s;       // unknown fonts fall back to the default
             d.fg = col(c.Get("textColor"), DEF_FG); d.bg = col(c.Get("backColor"), DEF_BG); d.border = col(c.Get("borderColor"), DEF_BORDER);
             if (const JV* v = c.Get("borderStyle")) if (v->t == JV::STR) d.borderStyle = NameIndex(v->s, StyleName);
@@ -375,9 +419,15 @@ struct DForm {
                                break;
                 case PK_COLOR: if (v->t == JV::STR) ExtraSet(d, ed, v->s); else if (v->t == JV::NUM) ExtraSet(d, ed, std::to_string(v->n)); break;
                 case PK_FONT:  if (v->t == JV::STR && (v->s.empty() || FontIndex(v->s) >= 0)) ExtraSet(d, ed, v->s); break;
-                default:       if (v->t == JV::STR) ExtraSet(d, ed, v->s); break;
+                default:       if (v->t == JV::STR) ExtraSet(d, ed, Ascii(v->s)); break;                    // (text: printable ASCII only)
                 }
             }
+            if (HasList(t)) if (const JV* lv = c.Get("items")) if (lv->t == JV::ARR)                  // items: printable ASCII, non-empty, a sensible number and length
+                for (const JV& it : lv->a) if (it.t == JV::STR && (int)d.list.size() < MAX_LIST_ITEMS) {
+                    std::string v; for (char ch : it.s) if (ch >= 0x20 && ch < 0x7F) v += ch;
+                    if (v.size() > (size_t)MAX_ITEM_LEN) v.resize(MAX_ITEM_LEN);
+                    if (!v.empty()) d.list.push_back(v);
+                }
             d.x = num(c.Get("x"), 0, 0, MAX_FORM_W); d.y = num(c.Get("y"), 0, 0, MAX_FORM_H);
             d.w = num(c.Get("width"), Info(t).defW, MIN_CONTROL_W, MAX_FORM_W);
             n.items.push_back(d);
@@ -385,6 +435,7 @@ struct DForm {
         for (int k = 1; n.FormNameClashes(n.name, false); ++k) n.name = "Form" + std::to_string(k);   // the form's class names must not clash with a control (a group gives way to the form, below)
         for (DControl& c : n.items)                                   // a group name must not be a control name or the form's class (all are C++ names)
             if (c.type == C_RADIO && (n.ControlNamed(c.group) || c.group == n.name || c.group == n.name + "Base")) c.group = n.UniqueGroupName();
+        for (DControl& c : n.items) if (HasList(c.type)) ClampSelected(c);                 // the initial selection must be an item
         { std::set<std::string> seen;                                 // only one radio button per group can be selected: the first one wins
           for (DControl& c : n.items) if (c.type == C_RADIO && XBool(c, "checked") && !seen.insert(c.group).second) c.extra.erase("checked"); }
         *this = n; err.clear(); return true;

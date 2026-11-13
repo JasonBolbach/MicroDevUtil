@@ -76,8 +76,18 @@ at most 40 cells; OK needs at least one slot). Time box: Seconds, Value `HH:MM[:
 a template without a slot) is refused: the model keeps the old value, the field turns red, and the reason is shown under the rows and in the status line. Valid values are stored the way the box prints them
 (`7:5` becomes `07:05:00`). A new template that the old value no longer fits clears the value (and says so). **Fit** (on the Width row of text-like controls) sets the exact width that shows the whole text;
 new input / time / date boxes are placed that wide. They raise `<name>_Change()` / `<name>_Accept()` like the spin box (`GetLiveValue()` / `GetValue()`). Library additions: `GetLiveValue()` on the input,
-time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: chunk 3 lists (ListBox, ComboBox, TabBar, Menu), chunk 4 display (Gauge, Graph, UserDraw),
+time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: chunk 3b Menu, chunk 4 display (Gauge, Graph, UserDraw),
 chunk 5 MessageBox and ColorPicker.
+
+**Chunk 3a: lists.** **List box**, **Combo box**, **Tab bar**. Their items are edited in a modal **items dialog** (the **Edit...** button on the Items / Tabs row): the real `SuperListBox` of items, a text
+field for the selected item (changes apply live; an empty item is refused), Add / Insert / Delete / Move up / Move down / Sort A-Z / **Paste lines** (each non-empty clipboard line becomes an item) / Clear all,
+and a live preview of the real control. Enter in the field adds the next item (fast entry). Items are printable ASCII, 1-60 characters, at most 200; non-ASCII characters (also `\u00e9` escapes in a file)
+are dropped. The JSON stores them as a readable array: `"items": ["Red", "Green", "Blue"]`. Other settings: Selected (the initial item; must be an item, pulled back when the list shrinks), list box Visible rows /
+Wrap around / Row padding, combo box Popup rows and **Popup restore** (default *Redraw form*: the generated code gives the popup a `SetRestore` thunk that calls `Form.Redraw(...)`, which works on every panel and
+saves the read-back sprite; *Read back* leaves the library default), tab bar Tab padding. Events `<name>_Change()` (the cursor moved) and `<name>_Accept()` (a row / item / tab was chosen). Library additions
+(all additive): `InsertItem` / `RemoveItem` / `SetItem` / `GetItem` on the list box, combo box and tab bar (the tab bar also gets `SetItems`; `GetTab` stays), and on `SuperMenu` `RemoveItem(item)` (with everything
+below it; the memory is reused by `AddItem`), `FindById(id)` and `Root()`. Next: chunk 3b, the **Menu**: a nested, readable, hand-editable JSON layout where every item has an `itemId` (a C++-safe name that becomes a
+`static constexpr uint16_t` in the generated class) and a numeric `id` (next free number, duplicates refused), and a `<menu>_Choose(uint16_t id)` handler with a `switch` stub in your file.
 
 **Names** (`src/ReservedNames.h`, `FD::ValidName`): a control, radio group or form name must be a plain identifier that is safe in the generated C++ for Arduino, ESP32, Pico and the desktop.
 Refused: every C++ keyword (C++23, incl. `wchar_t`, `static_assert`, `bitand`, `co_await`, contextual `final` / `override`), the generated class's own names (`Form`, `Show`, `Service`, ...),
