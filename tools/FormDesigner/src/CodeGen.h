@@ -22,6 +22,7 @@
 // changes it afterwards (it is the user's code). When the form later gets new controls, UserFileMissing() lists the handlers the file does not
 // mention yet, so the designer can tell the user to add them.
 #include <algorithm>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -42,7 +43,7 @@ inline std::string HexColor(uint16_t c) { char b[8]; snprintf(b, sizeof b, "0x%0
 inline std::string DesignerFileName(const DForm& f) { return f.name + ".designer.h"; }
 
 inline const char* HeaderOf(int type) {
-    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h", "SuperMenu.h", "SuperGauge.h", "SuperGraph.h", "SuperUserDraw.h", "SuperColorPicker.h" };
+    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h", "SuperMenu.h", "SuperGauge.h", "SuperGraph.h", "SuperUserDraw.h", "SuperColorPicker.h", "SuperRichText.h" };
     return h[type];
 }
 // The events a control raises: the handler is <control>_<Name>() and it is connected with control.<setter>(thunk, this).
@@ -68,6 +69,7 @@ inline std::vector<EventDef> EventsOf(int type) {
                                 { "Choose", "SetOnAccept", "%s: a command was chosen: id is its constant (switch on it).", true } };
     case C_COLORPICKER: return { { "Change", "SetOnChange", "%s is being edited: %s.GetLive565() is the colour so far (RGB565)." },
                                  { "Accept", "SetOnAccept", "%s was accepted: %s.GetColor565() is the new colour (RGB565)." } };
+    case C_RICHTEXT:   return { { "Accept", "SetOnAccept", "%s: the user closed the text with ButtonA (it was being read / scrolled)." } };
     case C_USERDRAW:   return { { "Draw", "SetOnDraw", "%s: draw your picture here. spr is the sprite and body the rectangle to draw in (everything is clipped to it), e.g. spr->drawCircle(body.x + body.w / 2, body.y + body.h / 2, 20, 0x07E0);", false,
                                   "lgfx::LGFX_Sprite* spr, const SuperRect& body", "SuperUserDraw&, lgfx::LGFX_Sprite* s, const SuperRect& r, void* u", "s, r" },
                                 { "Pointer", "SetOnPointer", "%s: touch. e.Type is PRESS, MOVE, RELEASE, TAP or LONG_PRESS; e.X / e.Y are relative to the body. Call %s.Repaint() to redraw.", false,
@@ -157,6 +159,19 @@ inline void EmitExtras(std::ostringstream& o, const DControl& c) {
         if (XSet(c, "gridColor")) o << "        " << n << ".ColGrid = " << HexColor((uint16_t)XInt(c, "gridColor")) << ";\n";
     }
     if (c.type == C_COLORPICKER && XSet(c, "value")) o << "        " << n << ".SetColor565(" << HexColor((uint16_t)XInt(c, "value")) << ");\n";
+    if (c.type == C_RICHTEXT) {
+        if (XSet(c, "tabChars")) o << "        " << n << ".SetTabChars(" << XInt(c, "tabChars") << ");\n";
+        if (XSet(c, "lineGap")) o << "        " << n << ".SetLineGap(" << XInt(c, "lineGap") << ");\n";
+        if (XBool(c, "showSource")) o << "        " << n << ".SetShowSource(true);\n";
+        if (!c.list.empty()) {                                                                      // the text: one literal per line (in flash, not copied)
+            o << "        " << n << ".SetTextStatic(";
+            for (size_t i = 0; i < c.list.size(); ++i) {
+                std::string lit = CppString(c.list[i]); if (i + 1 < c.list.size()) lit.insert(lit.size() - 1, "\\n");
+                o << (i ? "\n            " : "") << lit;
+            }
+            o << ");\n";
+        }
+    }
     if (c.type == C_USERDRAW) {
         if (XBool(c, "persistent")) o << "        " << n << ".SetPersistent(true);\n";
         if (XSet(c, "autoRedraw")) o << "        " << n << ".SetAutoRedraw(" << XInt(c, "autoRedraw") << ");\n";
@@ -242,6 +257,7 @@ inline std::string GenerateDesigner(const DForm& f) {
     for (const DControl& c : f.items) {
         sep();
         const std::string fontArg = std::string("&lgfx::fonts::") + FindFont(c.font).id;
+        if (c.type == C_RICHTEXT) { o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", " << XInt(c, "bodyHeight") << ", " << fontArg << ", enc, btnA, btnB)"; continue; }       // (dst, x, y, w, bodyHeight, font, enc, btnA, btnB)
         if (c.type == C_GAUGE || c.type == C_USERDRAW) { o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", " << XInt(c, "bodyHeight") << ", " << fontArg << ")"; continue; }       // (dst, x, y, w, bodyHeight, font)
         if (c.type == C_GRAPH) { o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", " << fontArg << ", " << XInt(c, "bodyHeight") << ")"; continue; }                        // (dst, x, y, w, font, bodyHeight)
         o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", " << fontArg;
@@ -414,7 +430,7 @@ inline GenResult WriteDesigner(DForm& f, const std::string& dir) {
     f.outDir = dir; r.ok = true; return r;
 }
 
-struct UserResult { bool ok = false, created = false; std::string path, error; std::vector<std::string> missing; };
+struct UserResult { bool ok = false, created = false; std::string path, error, backup; std::vector<std::string> missing; };
 
 // Writes <dir>/<FormName>.h only when it does not exist yet. An existing file is never touched: it is read, and the handlers it does not
 // mention yet are returned in `missing`.
@@ -427,7 +443,13 @@ inline UserResult WriteUserFile(const DForm& f, const std::string& dir) {
     if (fs::exists(p, ec)) {
         if (!fs::is_regular_file(p, ec)) { r.error = p.string() + " is not a file"; return r; }
         std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf();
-        r.missing = UserFileMissing(f, ss.str()); r.ok = true; return r;
+        r.missing = UserFileMissing(f, ss.str()); r.ok = true;
+        // every export keeps a snapshot of your file next to it: <Form>.yyyy_mm_dd_hh_mm_ss.h.txt (a .txt so nothing ever includes it); a failure here never fails the export
+        { std::time_t now = std::time(nullptr); char stamp[32]; std::strftime(stamp, sizeof stamp, "%Y_%m_%d_%H_%M_%S", std::localtime(&now));
+          std::string stem = p.stem().string(), ext = p.extension().string();                            // Form1 + .h
+          fs::path bk = fs::path(dir) / (stem + "." + stamp + ext + ".txt");
+          std::error_code cec; fs::copy_file(p, bk, fs::copy_options::overwrite_existing, cec); if (!cec) r.backup = bk.string(); }
+        return r;
     }
     fs::path tmp = p; tmp += ".tmp";
     { std::ofstream out(tmp, std::ios::binary | std::ios::trunc); if (!out) { r.error = "cannot write " + tmp.string(); return r; } out << GenerateUserFile(f); if (!out) { r.error = "write failed: " + tmp.string(); return r; } }

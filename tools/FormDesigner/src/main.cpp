@@ -31,6 +31,8 @@
 #include "MenuEditor.h"
 #include "ZonesDialog.h"
 #include "MessageBoxEditor.h"
+#include "HelpDialog.h"
+#include "RichTextEditor.h"
 #include "AppSettings.h"
 #include <SuperSpinBox.h>
 #include <vector>
@@ -44,7 +46,7 @@ static bool dirty = true;
 static int winW = 0, winH = 0;
 
 // ---- layout (logical pixels) ----
-static const int TOOL_Y0 = 84, TOOL_H = 28;                              // toolbox rows
+static const int TOOL_Y0 = 84, TOOL_H = 25;                              // toolbox rows
 static const int TREE_Y0 = TOOL_Y0 + FD::C_COUNT * TOOL_H + 40, TREE_H = 20;   // "controls on form" list
 static const int VX = 320, VY = 84, VW = 660, VH = 716;                  // the design surface's viewport
 static const int PAD = 20;                                               // space around the form inside the viewport
@@ -64,6 +66,7 @@ static DragMode drag = D_NONE; static int dragDX = 0, dragDY = 0, dragRight = 0;
 
 // ---- property fields ----
 enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN, P_CGROUP, P_VISIBLE, P_ENABLED,
+            P_RICH = 95,                           // the text of a rich text control (opens the rich text editor)
             P_MSGBOXES = 96,                       // the form's message boxes (opens the message box editor)
             P_ZONES = 97,                          // the colour zones of a gauge (opens the zones dialog)
             P_ITEMS = 98,                          // the items of a list box / combo box / tab bar (opens the items dialog)
@@ -140,7 +143,7 @@ static int RowKindOf(int p) {
     }
     if (p == P_HINT) return RK_HINT;
     if (p == P_VISIBLE || p == P_ENABLED) return RK_SEG;
-    if (p == P_ITEMS || p == P_ZONES || p == P_MSGBOXES) return RK_ITEMS;
+    if (p == P_ITEMS || p == P_ZONES || p == P_MSGBOXES || p == P_RICH) return RK_ITEMS;
     if (p == P_FONT) return RK_FONT;
     if (p == P_BSTYLE || p == P_ALIGN) return RK_SEG;
     if (p >= P_FG && p <= P_FBG) return RK_COLOR;
@@ -153,6 +156,7 @@ static std::string PropLabel(int p) {
     static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align", "Control group", "Visible", "Enabled" };
     if (p == P_ZONES) return "Zones";
     if (p == P_MSGBOXES) return "Message boxes";
+    if (p == P_RICH) return "Text";
     if (p == P_ITEMS) return Sel() && Sel()->type == FD::C_TABBAR ? "Tabs" : Sel() && Sel()->type == FD::C_MENU ? "Menu items" : "Items";
     return p >= 0 && p <= P_ENABLED ? L[p] : "";
 }
@@ -307,6 +311,7 @@ static void BuildFields() {
         add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W); add(P_CGROUP); add(P_VISIBLE); add(P_ENABLED);
         if (FD::HasList(Sel()->type) || Sel()->type == FD::C_MENU) add(P_ITEMS);
         if (Sel()->type == FD::C_GAUGE) add(P_ZONES);
+        if (Sel()->type == FD::C_RICHTEXT) add(P_RICH);
         for (int i = 0; i < ti.nExtras; ++i) { add(P_EXTRA + i); if (std::string(ti.extras[i].key) == "template") add(P_HINT); }   // the type's own properties (+ the template legend)
         add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (ti.hasAlign) add(P_ALIGN);
         if (ti.hasLabel) for (int i = 0; i < FD::N_LABEL_EXTRAS; ++i) add(P_EXTRA + ti.nExtras + i);   // the label group
@@ -368,14 +373,29 @@ static FD::PresetDialog* presetDlg = nullptr; static FD::TemplateBuilder* builde
 static int TemplateRowProp() { for (int i = 0; i < nFields; ++i) if (const FD::ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == "template") return fieldProp[i]; return -1; }
 static bool AnyModal();
 static FD::MessageBoxEditor* boxDlg = nullptr;
+static FD::HelpDialog* helpDlg = nullptr;
+static FD::RichTextEditor* richDlg = nullptr;
+static constexpr bool HELP_SOURCE_TOGGLE = true;        // the help window has a "Show source" check box (debugging the rich text control); set false to remove it
 static FD::ItemsDialog* itemsDlg = nullptr; static FD::MenuEditor* menuDlg = nullptr; static FD::ZonesDialog* zonesDlg = nullptr;
 static void OpenItemsDialog() {
     if (!Sel() && !AnyModal()) { boxDlg = new FD::MessageBoxEditor(&scr, "Message boxes of " + form.name, form, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     DControl* c = Sel(); if (!c || AnyModal()) return;
+    if (c->type == FD::C_RICHTEXT) { richDlg = new FD::RichTextEditor(&scr, "Text of " + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     if (c->type == FD::C_GAUGE) { zonesDlg = new FD::ZonesDialog(&scr, "Zones of " + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     if (c->type == FD::C_MENU) { menuDlg = new FD::MenuEditor(&scr, "Menu items of " + c->name, *c, form, sel, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     if (!FD::HasList(c->type)) return;
     itemsDlg = new FD::ItemsDialog(&scr, std::string(c->type == FD::C_TABBAR ? "Tabs of " : "Items of ") + c->name, *c, form, form.bg); focus = -1; drag = D_NONE; dirty = true;
+}
+static void CloseRichDialog() {
+    bool ok = richDlg->state == FD::RichTextEditor::OK; std::vector<std::string> r = richDlg->Lines();
+    delete richDlg; richDlg = nullptr; drag = D_NONE; dirty = true;
+    if (!ok) return;
+    if (DControl* c = Sel()) {
+        std::vector<std::string> v; int chars = 0;                                         // the same bounds as a file load
+        for (std::string l : r) { if ((int)v.size() >= FD::MAX_RICH_LINES || chars + (int)l.size() > FD::MAX_RICH_CHARS) break; chars += (int)l.size() + 1; v.push_back(l); }
+        while (!v.empty() && v.back().empty()) v.pop_back();
+        c->list = v; RefreshGeometry(); SyncFields(); Status("%s: %d lines", c->name.c_str(), (int)v.size());
+    }
 }
 static void CloseBoxDialog() {
     bool ok = boxDlg->state == FD::MessageBoxEditor::OK; std::vector<FD::DMessageBox> r = boxDlg->Boxes();
@@ -424,7 +444,7 @@ static void FitSel() {                                // Fit: the control is exa
 static bool SaveForm(); static bool OpenForm(); static void ExportForm(const std::string& dir);
 enum FilePurpose { FP_OPEN, FP_SAVE, FP_EXPORT };
 static FD::FileDialog* fileDlg = nullptr; static int filePurpose = FP_OPEN;
-static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg || menuDlg || zonesDlg || boxDlg; }
+static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg || menuDlg || zonesDlg || boxDlg || helpDlg || richDlg; }
 static bool DirOk(const std::string& d) { std::error_code ec; return !d.empty() && std::filesystem::is_directory(d, ec); }
 static void OpenFileDialog(int purpose) {
     if (AnyModal()) return;
@@ -472,6 +492,7 @@ static void Place(int type, int fx, int fy) {        // fx, fy in form coordinat
     DControl c; c.type = type; c.name = form.UniqueName(FD::Info(type).prefix); c.text = FD::Info(type).defText;
     c.w = FD::Info(type).defW; c.x = Snap(fx); c.y = Snap(fy);
     if (type == FD::C_RADIO) { c.group = form.UniqueGroupName(); for (const DControl& o : form.items) if (o.type == FD::C_RADIO) { c.group = o.group; break; } }   // joins the form's first group
+    if (type == FD::C_RICHTEXT) c.list = { "<center><color=yellow><big>Rich</big> text</color></center>", "<hr>", "Plain, <u>underlined</u>, <color=#0F0>green</color>." };
     if (FD::HasList(type)) for (int i = 1; i <= 3; ++i) c.list.push_back(std::string(type == FD::C_TABBAR ? "Tab " : "Item ") + std::to_string(i));      // a few sample items
     if (type == FD::C_MENU) {                                                    // a small sample menu; ids and names are filled in below
         FD::MenuNode sys; sys.text = "System"; FD::MenuNode a, b, about; a.text = "Reboot"; b.text = "Power off"; about.text = "About"; sys.kids = { a, b }; c.menu = { sys, about };
@@ -520,7 +541,7 @@ static void ExportForm(const std::string& dir) {
     if (!r.ok) { Status("not exported: %s", r.error.c_str()); return; }
     FD::UserResult u = FD::WriteUserFile(form, form.outDir);                    // <Form>.h: created once, never overwritten
     if (!SaveForm()) return;
-    std::string note = !u.ok ? "  (" + u.error + ")" : u.created ? "  + created " + FD::UserFileName(form) : "  (" + FD::UserFileName(form) + " kept)";
+    std::string note = !u.ok ? "  (" + u.error + ")" : u.created ? "  + created " + FD::UserFileName(form) : "  (" + FD::UserFileName(form) + " kept" + (u.backup.empty() ? "" : ", copy " + std::filesystem::path(u.backup).filename().string()) + ")";
     if (u.ok && !u.missing.empty()) { note += "; add to it: " + u.missing[0]; if (u.missing.size() > 1) note += " +" + std::to_string(u.missing.size() - 1) + " more"; }
     Status("%s %s%s", r.unchanged ? "up to date:" : "exported", r.path.c_str(), note.c_str());
 }
@@ -697,7 +718,8 @@ static void Render() {
             else if (!optional) { scr.setTextColor(0x8410); scr.drawString("click to change", FIELD_X + FIELD_W - 100, fy + 6); }
         } else if (kind == RK_ITEMS) {                                                       // a summary of the list; the Edit button (or a click) opens the items dialog
             const DControl* ic = Sel(); std::string sm;
-            if (fieldProp[i] == P_MSGBOXES) { sm = std::to_string(form.boxes.size()) + (form.boxes.size() == 1 ? " box" : " boxes"); for (size_t k = 0; k < form.boxes.size() && sm.size() < 60; ++k) sm += (k ? ", " : ": ") + form.boxes[k].name; }
+            if (fieldProp[i] == P_RICH) { sm = std::to_string(ic->list.size()) + (ic->list.size() == 1 ? " line" : " lines"); for (size_t k = 0; k < ic->list.size() && sm.size() < 60; ++k) sm += (k ? " / " : ": ") + ic->list[k]; }
+            else if (fieldProp[i] == P_MSGBOXES) { sm = std::to_string(form.boxes.size()) + (form.boxes.size() == 1 ? " box" : " boxes"); for (size_t k = 0; k < form.boxes.size() && sm.size() < 60; ++k) sm += (k ? ", " : ": ") + form.boxes[k].name; }
             else if (fieldProp[i] == P_ZONES) { sm = std::to_string(ic->zones.size()) + (ic->zones.size() == 1 ? " zone" : " zones"); for (size_t k = 0; k < ic->zones.size() && sm.size() < 60; ++k) sm += (k ? ", " : ": ") + FD::FloatText(ic->zones[k].from) + "-" + FD::FloatText(ic->zones[k].to); }
             else if (ic->type == FD::C_MENU) { int cmds = 0; FD::MenuForEach(ic->menu, [&](const FD::MenuNode& k) { if (!k.itemId.empty()) ++cmds; }); sm = std::to_string(FD::MenuNodeCount(ic->menu)) + " items, " + std::to_string(cmds) + " ids: ";
                                           for (size_t k = 0; k < ic->menu.size() && sm.size() < 60; ++k) sm += (k ? ", " : "") + ic->menu[k].text; }
@@ -748,12 +770,16 @@ static void Render() {
     if (menuDlg) menuDlg->Draw(SDL_GetTicks());
     if (zonesDlg) zonesDlg->Draw(SDL_GetTicks());
     if (boxDlg) boxDlg->Draw(SDL_GetTicks());
+    if (helpDlg) helpDlg->Draw(SDL_GetTicks());
+    if (richDlg) richDlg->Draw(SDL_GetTicks());
     scr.pushSprite(lcd, 0, 0);
     dirty = false;
 }
 
 // ---- input ----
 static void Handle(const InputEvent& e) {
+    if (richDlg) { richDlg->Event(e); dirty = true; if (richDlg->state != FD::RichTextEditor::OPEN) CloseRichDialog(); return; }
+    if (helpDlg) { helpDlg->Event(e); dirty = true; if (!helpDlg->open) { delete helpDlg; helpDlg = nullptr; } return; }
     if (boxDlg) { boxDlg->Event(e); dirty = true; if (boxDlg->state != FD::MessageBoxEditor::OPEN) CloseBoxDialog(); return; }
     if (zonesDlg) { zonesDlg->Event(e); dirty = true; if (zonesDlg->state != FD::ZonesDialog::OPEN) CloseZonesDialog(); return; }
     if (menuDlg) { menuDlg->Event(e); dirty = true; if (menuDlg->state != FD::MenuEditor::OPEN) CloseMenuDialog(); return; }
@@ -862,6 +888,7 @@ static void Handle(const InputEvent& e) {
             if (e.key == SDLK_RETURN || e.key == SDLK_KP_ENTER || e.key == SDLK_ESCAPE) { SetFocus(-1); break; }
             break;
         }
+        if (!cmd && (e.key == SDLK_QUESTION || e.key == SDLK_F1 || (e.key == SDLK_SLASH && shift))) { if (!AnyModal()) { helpDlg = new FD::HelpDialog(&scr, HELP_SOURCE_TOGGLE); drag = D_NONE; dirty = true; } break; }       // ? = the keyboard help
         if (cmd && e.key == SDLK_s) { OpenFileDialog(FP_SAVE); break; }          // Save always shows the dialog (a new name becomes the form's file)
         if (cmd && e.key == SDLK_o) { OpenFileDialog(FP_OPEN); break; }          // Open always shows the dialog, where it was last looking
         if (cmd && e.key == SDLK_x) { OpenFileDialog(FP_EXPORT); break; }   // Export: always asks for the folder (starting at the one saved in the form), then writes the code
@@ -1348,6 +1375,11 @@ static void SelfTest() {
         ur = WriteUserFile(form, udir);
         { std::ifstream in(udir + "/Demo.h", std::ios::binary); std::stringstream ss; ss << in.rdbuf();
           Check(ur.ok && !ur.created && ss.str() == uf + "// MY OWN CODE\n", "user file: an existing file is never touched (the user's edits stay)"); }
+        { std::string bn = std::filesystem::path(ur.backup).filename().string(); std::ifstream in(ur.backup, std::ios::binary); std::stringstream ss; ss << in.rdbuf();
+          bool shape = bn.size() == std::string("Demo.2026_11_13_09_30_00.h.txt").size() && bn.substr(0, 5) == "Demo." && bn.substr(bn.size() - 6) == ".h.txt" && bn[9] == '_' && bn[12] == '_' && bn[15] == '_' && bn[18] == '_' && bn[21] == '_';
+          Check(!ur.backup.empty() && shape && ss.str() == uf + "// MY OWN CODE\n", "export: an existing user file is copied to <Form>.yyyy_mm_dd_hh_mm_ss.h.txt (identical copy)");
+          Check(ur.backup.find(udir) == 0 && std::filesystem::exists(udir + "/Demo.h", ufe), "export: the backup is next to the file and the file itself stays"); }
+        { std::filesystem::remove_all(udir + "_new", ufe); std::filesystem::create_directories(udir + "_new", ufe); UserResult fresh = WriteUserFile(form, udir + "_new"); Check(fresh.created && fresh.backup.empty(), "export: a file that was just created needs no copy"); std::filesystem::remove_all(udir + "_new", ufe); }
         { DControl c; c.type = C_RADIO; c.name = "modeA"; form.items.push_back(c); }
         { DControl c; c.type = C_PUSHBUTTON; c.name = "cancelBtn"; form.items.push_back(c); }
         ur = WriteUserFile(form, udir);
@@ -1476,7 +1508,7 @@ static void SelfTest() {
         }
         // ---- chunk 1: spin box and slider, the property schema, the label, the scrolling panel ----
         form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ctl";
-        Check(C_COUNT == 19 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
+        Check(C_COUNT == 20 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
         Check(ExtraCount(C_SPINBOX) == 8 + N_LABEL_EXTRAS && ExtraCount(C_SLIDER) == 5 + N_LABEL_EXTRAS && ExtraCount(C_LABEL) == 0 && ExtraCount(C_PROGRESS) == N_LABEL_EXTRAS, "chunk 1: a control has its own extras plus the label group (SuperLabel has none)");
         { DControl d; d.type = C_SPINBOX; const ExtraDef& mn = *FindExtra(C_SPINBOX, "min");
           Check(ExtraSet(d, mn, "-5") && XInt(d, "min") == -5 && d.extra.count("min") && ExtraSet(d, mn, "0") && !d.extra.count("min"), "extras: a value equal to the default is not stored");
@@ -2235,6 +2267,77 @@ static void SelfTest() {
             { std::string g = GenerateDesigner(form); Check(g.find("int msgAsk_Ask()") != std::string::npos, "message box editor: the generated code has the box"); }
             form.boxes.clear(); sel = -1; BuildFields();
         }
+        // ---- the ? help window ----
+        {
+            form.Clear(); Place(C_LABEL, 8, 8); sel = -1; BuildFields();
+            auto K6 = [&](SDL_Keycode k, Uint16 m = 0) { InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = k; v.mod = m; Handle(v); };
+            K6(SDLK_SLASH, KMOD_LSHIFT); Check(helpDlg != nullptr && helpDlg->open, "help: ? opens the keyboard help");
+            Check(helpDlg->BodyCtl()->GetLineCount() > 20 && helpDlg->BodyCtl()->NeedsScroll() && helpDlg->HeadCtl()->GetText().find("SuperGUI Form Designer") != std::string::npos && helpDlg->HeadCtl()->GetText().find("With Assistance from Claude") != std::string::npos, "help: the header and a scrolling key list");
+            { int g0 = grid; K6(SDLK_g); Check(helpDlg != nullptr && grid == g0, "help: modal (keys do not reach the form)"); }
+            K6(SDLK_DOWN); K6(SDLK_DOWN); Check(helpDlg->BodyCtl()->GetFirstLine() == 2, "help: Down scrolls the text");
+            K6(SDLK_END); int endLine = helpDlg->BodyCtl()->GetFirstLine(); Check(endLine > 2 && endLine < helpDlg->BodyCtl()->GetLineCount(), "help: End scrolls to the last page");
+            K6(SDLK_HOME); K6(SDLK_PAGEDOWN); Check(helpDlg->BodyCtl()->GetFirstLine() == std::min(12, endLine), "help: Page Down"); K6(SDLK_HOME); Check(helpDlg->BodyCtl()->GetFirstLine() == 0, "help: Home");
+            { InputEvent v; v.type = InputEvent::WHEEL; v.x = 700; v.y = 400; v.wheel = -3; Handle(v); Check(helpDlg->BodyCtl()->GetFirstLine() == std::min(6, endLine), "help: the wheel scrolls"); }
+            Check(!helpDlg->Source(), "help: starts rendered");
+            Handle(ev(InputEvent::DOWN, helpDlg->ToggleX() + 5, helpDlg->BtnY() + 5)); Handle(ev(InputEvent::UP, 0, 0));
+            Check(helpDlg->Source() && helpDlg->BodyCtl()->GetShowSource(), "help: the Show source check box switches to the markup"); Handle(ev(InputEvent::DOWN, helpDlg->ToggleX() + 5, helpDlg->BtnY() + 5)); Handle(ev(InputEvent::UP, 0, 0));
+            K6(SDLK_ESCAPE); Check(helpDlg == nullptr, "help: Esc closes it");
+            K6(SDLK_F1); Check(helpDlg != nullptr, "help: F1 opens it too"); K6(SDLK_RETURN); Check(helpDlg == nullptr, "help: Enter closes it");
+            K6(SDLK_SLASH, KMOD_LSHIFT); { int x = helpDlg->OkX() + 5, y = helpDlg->BtnY() + 3; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); } Check(helpDlg == nullptr, "help: the OK button closes it");
+            Select(0); { int r = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_TEXT) r = i; EnsureRowVisible(r); Click(FIELD_X + 20, FieldY(r) + 5); }
+            { InputEvent v; v.type = InputEvent::TEXT; strncpy(v.text, "?", sizeof v.text - 1); Handle(v); } K6(SDLK_SLASH, KMOD_LSHIFT);
+            Check(helpDlg == nullptr, "help: ? typed into a text field does not open the help");
+            K6(SDLK_ESCAPE); form.Clear(); sel = -1; BuildFields();
+        }
+        // ---- the multi-line field, the rich text editor and the Rich text control ----
+        {
+            RichTextField f; f.SetText("one\ntwo words\n\nfour");
+            Check(f.LineCount() == 4 && f.LineText(1) == "two words" && f.LineText(2).empty() && f.LineStart(3) == 15 && f.LineOf(15) == 3 && f.Lines().size() == 4, "multi-line field: lines");
+            f.caret = f.anchor = 6; f.MoveLine(1, false); Check(f.LineOf(f.caret) == 2 && f.caret == f.LineStart(2), "multi-line field: Down onto a shorter (empty) line goes to its end");
+            f.MoveLine(1, false); Check(f.LineOf(f.caret) == 3 && f.caret == 17, "multi-line field: Down again returns to the remembered column");
+            f.caret = f.anchor = 4 + 6; f.MoveLine(-1, false); Check(f.caret == 3, "multi-line field: Up onto a shorter line goes to its end");
+            f.SetText("abcdef\nxy\nabcdef"); f.caret = f.anchor = 5; f.MoveLine(1, false); Check(f.caret == 9, "multi-line field: Down onto a shorter line stops at its end");
+            f.MoveLine(1, false); Check(f.LineOf(f.caret) == 2 && f.ColOf(f.caret) == 5, "multi-line field: the column is remembered across the short line");
+            f.MoveLine(1, false); Check(f.caret == (int)f.text.size(), "multi-line field: Down on the last line goes to its end");
+            f.SetText("ab"); f.caret = f.anchor = 1; f.Insert("\n"); Check(f.text == "a\nb" && f.LineCount() == 2 && f.caret == 2, "multi-line field: Enter / a pasted new line splits the line");
+            f.Insert("x\ty\r\nz\xC3\xA9"); Check(f.text == "a\nx y\nzb", "multi-line field: tab becomes a space, \\r is dropped, non-ASCII is dropped");
+            f.SetText("a\nb"); f.SelectAll(); f.Insert("q"); Check(f.text == "q", "multi-line field: typing over a selection across lines");
+            f.Undo(); Check(f.text == "a\nb", "multi-line field: undo");
+            TextField single; single.SetText(""); single.Insert("a\nb"); Check(single.text == "a b", "single-line field: still turns a new line into a space");
+            f.SetText("l1\nl2\nl3"); f.caret = f.anchor = 4; InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = SDLK_HOME; f.Key(v); Check(f.caret == 3, "multi-line field: Home goes to the start of the line");
+            v.key = SDLK_END; f.Key(v); Check(f.caret == 5, "multi-line field: End goes to the end of the line");
+            v.key = SDLK_DOWN; v.mod = KMOD_LSHIFT; f.Key(v); Check(f.HasSel() && f.LineOf(f.caret) == 2, "multi-line field: Shift + Down selects");
+            { RichTextField g; g.SetText("a\nb\nc\nd\ne\nf"); g.caret = g.anchor = 11; g.EnsureVisibleXY([](const std::string& t) { return (int)t.size() * 6; }, 100, 3); Check(g.firstLine == 3, "multi-line field: scrolls to keep the caret in view"); }
+        }
+        {
+            form.Clear(); Place(C_RICHTEXT, 8, 8); form.items[0].name = "rich1"; sel = 0; BuildFields();
+            Check(form.items[0].type == C_RICHTEXT && !form.items[0].list.empty() && ControlHeight(&scr, form.items[0]) > 100, "rich text: placed with sample text, as tall as its body");
+            int rr = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_RICH) rr = i; Check(rr >= 0 && PropLabel(P_RICH) == "Text", "rich text: a Text row");
+            auto Key7 = [&](SDL_Keycode k, Uint16 m = 0) { InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = k; v.mod = m; Handle(v); };
+            auto Txt7 = [&](const char* tx) { InputEvent v; v.type = InputEvent::TEXT; strncpy(v.text, tx, sizeof v.text - 1); Handle(v); };
+            EnsureRowVisible(rr); Click(FIELD_X + FIELD_W - 30, FieldY(rr) + 5);
+            Check(richDlg != nullptr && richDlg->Lines() == form.items[0].list && !richDlg->Rendered(), "rich text editor: Edit opens it on the control's lines, in source mode");
+            { int g0 = grid; Key7(SDLK_g, 0); Check(richDlg != nullptr && grid == g0, "rich text editor: typing goes to the text, not the form"); }
+            Key7(SDLK_a, KMOD_LCTRL); Key7(SDLK_BACKSPACE); Txt7("<color=red>Hi</color>"); Key7(SDLK_RETURN); Txt7("second &lt;line&gt;");
+            Check(richDlg->Lines() == std::vector<std::string>({ "<color=red>Hi</color>", "second &lt;line&gt;" }), "rich text editor: typing and Enter make lines");
+            Key7(SDLK_UP); Key7(SDLK_END); Txt7("!"); Check(richDlg->Lines()[0] == "<color=red>Hi</color>!", "rich text editor: Up, End and typing");
+            Key7(SDLK_r, KMOD_LCTRL); Check(richDlg->Rendered(), "rich text editor: Ctrl+R switches to the rendered view"); Key7(SDLK_r, KMOD_LCTRL); Check(!richDlg->Rendered(), "rich text editor: and back to source");
+            Handle(ev(InputEvent::DOWN, richDlg->RenderedX() + 10, richDlg->ModeY() + 5)); Handle(ev(InputEvent::UP, 0, 0)); Check(richDlg->Rendered(), "rich text editor: the Rendered button");
+            Handle(ev(InputEvent::DOWN, richDlg->SourceX() + 10, richDlg->ModeY() + 5)); Handle(ev(InputEvent::UP, 0, 0)); Check(!richDlg->Rendered(), "rich text editor: the Source button");
+            Key7(SDLK_ESCAPE); Check(richDlg == nullptr && form.items[0].list.size() == 3, "rich text editor: Esc cancels (the control keeps its text)");
+            Click(FIELD_X + FIELD_W - 30, FieldY(rr) + 5); Key7(SDLK_a, KMOD_LCTRL); Txt7("<big>Big</big>"); Key7(SDLK_RETURN); Txt7("x"); Key7(SDLK_RETURN, KMOD_LCTRL);
+            Check(richDlg == nullptr && form.items[0].list == std::vector<std::string>({ "<big>Big</big>", "x" }), "rich text editor: Ctrl+Enter stores the lines");
+            { std::string g = GenerateDesigner(form); auto h = [&](const char* x) { return g.find(x) != std::string::npos; };
+              Check(h("#include <SuperRichText.h>") && h("rich1(dst, 8, 8, 240, 120, &lgfx::fonts::Font2, enc, btnA, btnB)") && h("rich1.SetTextStatic(\"<big>Big</big>\\n\"") && h("\"x\");") && h("virtual void rich1_Accept()") && !h("SetShowSource") && !h("SetTabChars"), "codegen: rich text: header, constructor, the text as literals, an Accept handler, defaults not written");
+              ExtraSet(form.items[0], *FindExtra(C_RICHTEXT, "tabChars"), "12"); ExtraSet(form.items[0], *FindExtra(C_RICHTEXT, "showSource"), "true"); ExtraSet(form.items[0], *FindExtra(C_RICHTEXT, "lineGap"), "2");
+              std::string g2 = GenerateDesigner(form); Check(g2.find("rich1.SetTabChars(12);") != std::string::npos && g2.find("rich1.SetShowSource(true);") != std::string::npos && g2.find("rich1.SetLineGap(2);") != std::string::npos, "codegen: rich text settings that differ from the defaults"); }
+            { std::string j = form.ToJson(); DForm lf; std::string le; Check(j.find("\"richText\": [\"<big>Big</big>\", \"x\"]") != std::string::npos && lf.FromJson(j, le) && lf.items[0].list == form.items[0].list && lf.ToJson() == j, "rich text: saved as a readable array of lines and loaded back"); }
+            { DForm lf; std::string le; std::string many = "["; for (int i = 0; i < 500; ++i) many += (i ? ",\"l\"" : "\"l\""); many += "]";
+              Check(lf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperRichText\",\"name\":\"r\",\"richText\":" + many + "}]}", le) && (int)lf.items[0].list.size() == MAX_RICH_LINES, "rich text: a file with too many lines is cut");
+              Check(lf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperRichText\",\"name\":\"r\",\"richText\":\"a\\nb\\u00e9\"}]}", le) && lf.items[0].list == std::vector<std::string>({ "a", "b" }), "rich text: a single string with \\n is split, non-ASCII dropped"); }
+            { DForm lf; lf.name = "T"; DControl c; c.type = C_RICHTEXT; c.name = "r"; c.list = { "x" }; lf.items.push_back(c); std::string u = GenerateUserFile(lf); Check(u.find("r_Accept() override") != std::string::npos, "user file: a stub for the rich text's Accept"); }
+            form.Clear(); sel = -1; BuildFields();
+        }
         form.Clear(); FixOutDir(); sel = -1; BuildFields();
         // delete
         form.Clear(); Place(C_LABEL, 8, 8); Place(C_CHECKBOX, 8, 40); sel = -1; Key(SDLK_TAB); Key(SDLK_DELETE); Check(form.items.size() == 1 && sel == -1, "designer: Delete removes the selected control");
@@ -2272,6 +2375,7 @@ void setup() {
     if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'p') OpenPresetDialog();            // FD_SHOW=presets | builder: the template dialogs (select an input box with FD_SELECT)
     else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'b') OpenBuilderDialog();
     else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'o') OpenFileDialog(FP_OPEN);          // FD_SHOW=open: the Open dialog
+    else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'h') helpDlg = new FD::HelpDialog(&scr, HELP_SOURCE_TOGGLE);        // FD_SHOW=help
     else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'i') OpenItemsDialog();                // (also the menu editor for a selected menu)                // FD_SHOW=items
     else if (getenv("FD_SHOW")) { if (!form.items.empty()) { sel = 0; BuildFields(); } for (int i = 0; i < nFields; ++i) if (fieldProp[i] == (getenv("FD_SHOW")[0] == 'f' ? P_FONT : Sel() ? P_FG : P_FBG)) { if (fieldProp[i] == P_FONT) OpenFontDialog(P_FONT); else OpenColorDialog(fieldProp[i]); break; } }   // FD_SHOW=color | font: open a dialog at start (for screenshots)
     if (getenv("FD_SELFTEST")) SelfTest();

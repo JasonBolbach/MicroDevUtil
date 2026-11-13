@@ -17,6 +17,7 @@
 //  * OnChange = the highlighted button changed, OnAccept = a button was chosen.
 #include "SuperControl.h"
 #include "SuperEditIO.h"
+#include "SuperRichCore.h"
 
 class SuperMessageBox : public SuperControl {
 public:
@@ -34,6 +35,9 @@ public:
     void SetCentered(bool c) { Centered = c; }
 
     void SetMessage(const std::string& m) { Msg = m; LinesOk = false; Dirty = true; }
+    // SetRich(true): the message may contain the tags of SuperRichCore.h (<color=red>, <u>, <big>, <br>, ...); lines are centred unless you say otherwise
+    // with <left> / <right>. Default off: every character is shown as it is.
+    void SetRich(bool on) { if (on != Rich) { Rich = on; LinesOk = false; Dirty = true; } }
     void ClearButtons() { Btns.clear(); Dirty = true; }
     void AddButton(const std::string& s) { if (Btns.size() < 3) Btns.push_back(s); Dirty = true; }
     void SetDefault(int i) { Default = i; }
@@ -106,7 +110,7 @@ public:
 
 protected:
     int BtnH() { return FontH() + 6; }
-    int BodyHeight() override { BuildLines(); return (int)Lines.size() * FontH() + 8 + BtnH(); }
+    int BodyHeight() override { BuildLines(); return (Rich ? MsgHeight() : (int)Lines.size() * FontH()) + 8 + BtnH(); }
 
     void RenderBody(int x, int y, int w, int h) override {
         BuildLines();
@@ -114,7 +118,8 @@ protected:
         Spr.setTextColor(ColFg);
         Spr.setTextDatum(lgfx::textdatum_t::top_center);
         int fh = FontH(), ty = y;
-        for (auto& l : Lines) { Spr.drawString(l.c_str(), x + w / 2, ty); ty += fh; }
+        if (Rich) { SuperRich::Options o = RichOpts(); for (const SuperRich::Line& l : RichLines) { SuperRich::DrawLine(Spr, Msg.c_str(), Msg.size(), l, o, x, ty, w); ty += l.H; } Spr.setTextDatum(lgfx::textdatum_t::top_center); }
+        else for (auto& l : Lines) { Spr.drawString(l.c_str(), x + w / 2, ty); ty += fh; }
         int n = (int)Btns.size(), gap = 6, bw = (w - (n - 1) * gap) / n, by = y + h - BtnH();
         Spr.setTextDatum(lgfx::textdatum_t::middle_center);
         for (int i = 0; i < n; ++i) {
@@ -134,7 +139,8 @@ private:
     lgfx::LGFX_Sprite Under;
     lgfx::LovyanGFX* Backdrop = nullptr;
     void (*RestoreFn)(void*) = nullptr; void* RestoreUser = nullptr;
-    bool Backed = false, Centered = true, LinesOk = false;
+    bool Backed = false, Centered = true, LinesOk = false, Rich = false;
+    std::vector<SuperRich::Line> RichLines;
     int  Cursor = 0, Default = 0, Result = -1;
     uint32_t OpenedAt = 0;
     bool PressSeen = false;
@@ -142,8 +148,11 @@ private:
     std::vector<std::string> Btns, Lines;
     SuperEditState State = EDIT_IDLE;
 
+    SuperRich::Options RichOpts() { SuperRich::Options o; o.Def.Fg = ColFg; o.Def.Bg = ColBg; o.Def.Align = SuperRich::A_CENTER; Spr.setFont(Font); o.TabPx = std::max(1, 8 * (int)Spr.textWidth(" ")); return o; }
+    int MsgHeight() { return SuperRich::ContentHeight(RichLines); }
     void BuildLines() {                                  // word-wrap Msg to the inner width
         if (LinesOk) return;
+        if (Rich) { Spr.setFont(Font); SuperRich::Options o = RichOpts(); SuperRich::Layout(Spr, Msg.c_str(), Msg.size(), InnerW(), o, RichLines); LinesOk = true; return; }
         Lines.clear();
         Spr.setFont(Font);
         int maxw = InnerW();

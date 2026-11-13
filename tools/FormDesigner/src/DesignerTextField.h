@@ -22,6 +22,7 @@ namespace FD {
 class TextField {
 public:
     using Measure = std::function<int(const std::string&)>;      // pixel width of a string in the field's font
+    virtual ~TextField() = default;
 
     std::string text;
     int caret = 0, anchor = 0;       // character positions (0..text.size()); selection = [min, max)
@@ -38,7 +39,7 @@ public:
 
     // ---- editing ----
     void Insert(const std::string& s0, bool paste = false) {
-        std::string s = Clean(s0, filter);
+        std::string s = Sanitize(s0);
         if (s.empty()) return;
         Remember(paste ? OTHER : TYPING);
         EraseSel();
@@ -90,7 +91,7 @@ public:
     }
 
     // Keyboard. Returns true when the key was used (Tab / Return / Escape are left to the owner).
-    bool Key(const InputEvent& e) {
+    virtual bool Key(const InputEvent& e) {
         bool shift = e.mod & KMOD_SHIFT, cmd = e.mod & (KMOD_CTRL | KMOD_GUI), word = e.mod & (KMOD_CTRL | KMOD_ALT), gui = e.mod & KMOD_GUI;
         switch (e.key) {
         case SDLK_LEFT:  if (gui) MoveTo(0, shift); else Left(shift, word); return true;
@@ -128,14 +129,17 @@ public:
     int WordStart(int i) const { int c = i < (int)text.size() ? Cls(i) : (i > 0 ? Cls(Prev(i)) : 0); while (i > 0 && Cls(Prev(i)) == c) i = Prev(i); return i; }
     int WordEnd(int i) const { int n = (int)text.size(); if (i >= n) return n; int c = Cls(i); while (i < n && Cls(i) == c) i = Next(i); return i; }
 
-private:
+    // what Insert() lets through (a multi-line field overrides this to keep new lines)
+    virtual std::string Sanitize(const std::string& s) const { return Clean(s, filter); }
+
+protected:
     struct Snap { std::string t; int c, a; };
     enum Kind { NONE, TYPING, OTHER } last = NONE;
     std::vector<Snap> undo, redo;
 
     int Cls(int i) const {                 // 0 space, 1 letter / digit / underscore, 2 punctuation
         unsigned char c = (unsigned char)text[i];
-        if (c == ' ' || c == '\t') return 0;
+        if (c == ' ' || c == '\t' || c == '\n') return 0;
         if (isalnum(c) || c == '_') return 1;
         return 2;
     }

@@ -149,6 +149,12 @@ A button may have an optional name (`itemId`): it becomes `static constexpr int 
 `int msgDelete_Ask()` (blocking: the chosen button's index, or `MSG_CANCELLED`) and the non-blocking `msgDelete_Open()` / `msgDelete_Poll()` (`MSG_PENDING` while open). After a box closes the form is redrawn
 over the area it covered (generated restore thunk). Library: `SuperMessageBox::EditIO()`. Export refuses unsafe or clashing box and button names.
 
+**Help, backups and rich text.** Press **?** (or F1) for a keyboard help window (a `SuperRichText`; `src/HelpDialog.h`). Every Export of an existing user file also copies it to
+`<Form>.yyyy_mm_dd_hh_mm_ss.h.txt` next to it. New control type **Rich text** (`SuperRichText`: scrollable text with basic HTML-like tags, see `src/SuperRichCore.h`): its Text row opens the
+**rich text editor** (`src/RichTextEditor.h`): Source mode edits the markup in a multi-line field (`src/DesignerRichTextField.h`, which extends `TextField`: lines, Up / Down keep the column, Home / End, Enter),
+Rendered mode shows the real control; Ctrl/Cmd+R switches, Ctrl/Cmd+Enter = OK. JSON: `"richText": ["line", ...]`; generated: `SetTextStatic("..." "...")` (a literal in flash). Library: `SuperRichText`, and
+`SetRich(true)` on `SuperLabel` and `SuperMessageBox` (off by default).
+
 ## Build and run
 ```
 brew install sdl2 cmake            # macOS (Linux: your package manager's SDL2 + cmake)

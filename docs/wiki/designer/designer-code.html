@@ -48,6 +48,7 @@
 <a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
 <a class="item" href="../controls/graph.html">SuperGraph</a>
 <a class="item" href="../controls/gauge.html">SuperGauge</a>
+<a class="item" href="../controls/richtext.html">SuperRichText</a>
 <h4>Custom</h4>
 <a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
 </nav><main>
@@ -56,6 +57,7 @@
 <table><tr><th>File</th><th>Who owns it</th><th>What is in it</th></tr>
 <tr><td><code>Form1.designer.h</code></td><td>The designer. Regenerated on every export: <b>never edit it</b>.</td><td>Class <code>Form1Base</code>: every control as a public member, the <code>SuperForm</code>, constants, <code>InitializeComponent()</code>, <code>Show()</code>, <code>Service()</code>, and one empty virtual handler per event.</td></tr>
 <tr><td><code>Form1.h</code></td><td>You. Written once, never changed again.</td><td>Class <code>Form1 : Form1Base</code> with a constructor for your start-up code and an <code>override</code> stub per handler.</td></tr></table>
+<p>Every export of an existing <code>Form1.h</code> also keeps a snapshot of it next to it, named <code>Form1.yyyy_mm_dd_hh_mm_ss.h.txt</code> (a <code>.txt</code> so nothing ever includes it). If you ever overwrite your file by accident, the last export's copy has it. The snapshots are never deleted: tidy them up when you like.</p>
 <h2>Using it in a sketch</h2>
 <pre><code>#include "Form1.h"
 Form1 ui(&amp;lcd, &amp;Enc, &amp;BtnA, &amp;BtnB);   // display, encoder, two buttons
@@ -70,6 +72,7 @@ void loop()  { ui.Service(); }              // focus, editing, touch, handlers</
 <tr><td>List box, combo box, tab bar</td><td><code>name_Change()</code> (cursor moved) and <code>name_Accept()</code> (item chosen)</td></tr>
 <tr><td>Menu</td><td><code>menu1_Choose(uint16_t id)</code> with one <code>case</code> per command, plus <code>menu1_Change()</code></td></tr>
 <tr><td>User draw</td><td><code>scope_Draw(spr, body)</code>, and with Touch input <code>scope_Pointer(e)</code> and <code>scope_Accept()</code></td></tr>
+<tr><td>Rich text</td><td><code>name_Accept()</code> (the user closed the text with ButtonA)</td></tr>
 <tr><td>Gauge, graph, text box, label, progress bar</td><td>none (display only). Update them from your code: <code>load.SetValue(v)</code>, <code>trace.AddSample(v)</code>.</td></tr></table>
 <p>To react to an event, write the <code>override</code> in <code>Form1.h</code>:</p>
 <pre><code>protected:

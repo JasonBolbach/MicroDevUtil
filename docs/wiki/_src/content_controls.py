@@ -3,7 +3,7 @@ CONTROL_GROUPS = [
  ('Choosing', ['listbox','combobox','menu','tabbar','colorpicker']),
  ('Buttons', ['checkbox','radiobutton','pushbutton']),
  ('Dialogs', ['messagebox']),
- ('Display only', ['progressbar','graph','gauge']),
+ ('Display only', ['progressbar','graph','gauge','richtext']),
  ('Custom', ['userdraw']),
 ]
 CONTROLS = []
@@ -24,7 +24,8 @@ value.SetTextf("%d.%d C", t / 10, t % 10);           // live value''',
   '<code>\\n</code> starts a new line; <code>SetWrap(true)</code> also breaks at spaces (a word wider than the control is broken inside). The height follows the number of lines.',
   'Without wrapping a line that is too wide is cut and ends in "..." (<code>SetEllipsis(false)</code> just clips). <code>SetMaxLines(n)</code> limits the lines and puts "..." on the last one.',
   '<code>SetTextf(fmt, ...)</code> is printf style and redraws only when the text really changed, so it is cheap to call every loop pass.',
-  '<code>SetLineGap</code>, <code>SetUnderline</code>, <code>SetTextColor</code>. It is still a <code>SuperControl</code>, so a border or label is available if you want one.'],
+  '<code>SetLineGap</code>, <code>SetUnderline</code>, <code>SetTextColor</code>. It is still a <code>SuperControl</code>, so a border or label is available if you want one.',
+  '<b>Rich text (opt-in):</b> <code>SetRich(true)</code> makes the label understand the tags of <a href="richtext.html">SuperRichText</a> (<code>&lt;color=red&gt;</code>, <code>&lt;bg=..&gt;</code>, <code>&lt;u&gt;</code>, <code>&lt;big&gt;</code>, <code>&lt;center&gt;</code>, <code>&lt;br&gt;</code> ...). Off by default, so a plain label shows every character as it is. In rich mode <code>SetMaxLines</code>, <code>SetEllipsis</code> and <code>SetUnderline</code> do not apply (use the tags).'],
  gui='<p>Display only: nothing to operate, it never takes focus. Add it with <code>form.Add(&amp;label, false)</code>.</p>',
  events='<p>None. Change the text with <code>SetText</code> / <code>SetTextf</code>; the label redraws itself when the text changed.</p>',
  api=[('SetText(s) / SetTextf(fmt,...)','Text; redraws on change'),('SetAlign(a)','Horizontal alignment'),('SetVAlign(v) + SetBodyHeight(h)','Fixed height, vertical alignment'),('SetWrap(b)','Word wrap'),('SetMaxLines(n)','Limit lines'),('SetTextColor(c)','Text colour (ColBg = background)'),('GetLineCount()','Lines after wrapping')],
@@ -233,7 +234,8 @@ add(slug='messagebox', cls='SuperMessageBox', header='SuperMessageBox.h', kind='
 box.SetMessage("Delete all data?\\nThis cannot be undone.");
 box.AddButton("Yes"); box.AddButton("No"); box.SetDefault(1);
 if (box.BeginEdit()) { int which = box.GetResult(); }''',
- features=['Centred on the destination (<code>SetCentered(false)</code> + <code>SetDisplayPos</code> to place it). Word-wrapped; <code>\\n</code> starts a new line.','<code>SetLabel()</code> adds a title.','Puts back the covered pixels like the combo popup: <code>SetBackdrop</code> or <code>SetRestore</code> on SPI panels.'],
+ features=['Centred on the destination (<code>SetCentered(false)</code> + <code>SetDisplayPos</code> to place it). Word-wrapped; <code>\\n</code> starts a new line.','<code>SetLabel()</code> adds a title.','Puts back the covered pixels like the combo popup: <code>SetBackdrop</code> or <code>SetRestore</code> on SPI panels.',
+  '<b>Rich text (opt-in):</b> <code>SetRich(true)</code> lets the message use the tags of <a href="richtext.html">SuperRichText</a> (colour, underline, big text, <code>&lt;br&gt;</code> ...); lines are centred unless you say <code>&lt;left&gt;</code> / <code>&lt;right&gt;</code>. Off by default.'],
  gui='<p>Encoder moves between buttons (stops at the ends). A short/long chooses the highlighted one. B short cancels (returns false, result -1). B long moves back to the default button. Touch: tap a button to choose it.</p>',
  events='<p>' + EV + '. <code>OnChange</code> = highlighted button changed; <code>OnAccept</code> = a button was chosen; <code>GetResult()</code> is its index.</p>',
  api=[('SetMessage(text)','Message'),('AddButton(text)','Up to 3'),('SetDefault(i)','Initially highlighted'),('GetResult()','Chosen index or -1'),('SetBackdrop / SetRestore','Background restore')],
@@ -309,3 +311,24 @@ pointer event: void fn(SuperUserDraw&amp; ctl, const SuperUserPointer&amp; e, vo
  tips=['Use persistent mode for anything incremental; use normal mode for things that are cheap to redraw (it needs no extra RAM).','Draw in the <code>r</code> rectangle you are given, not at fixed (0,0).'],
  pitfalls=['Do not keep the sprite pointer in normal mode, block in the callback or draw other controls from it.','The sprite is 16-bit byte-swapped RGB565: use LovyanGFX drawing calls, not the raw buffer. Avoid colour 0x0001 (transparent key when labels are not opaque).','Resizing the body recreates the persistent canvas: the picture is lost and the draw event runs again.'],
  see=['<a href="gauge.html">SuperGauge</a>','<a href="../concepts/new-control.html">Writing your own control</a>'])
+
+add(slug='richtext', cls='SuperRichText', header='SuperRichText.h', kind='edit', short='Scrollable text with basic HTML-like tags',
+ tag='A scrollable, read-only text area that understands a few HTML-like tags: colours, background, underline, strike, big text, alignment, tab stops, rules. One font, no syntax checking.',
+ code='''SuperRichText help(&lcd, 10, 10, 220, 200, &lgfx::fonts::Font2, &Enc, &BtnA, &BtnB);
+help.SetTextStatic("<center><color=yellow><big>Help</big></color></center>\\n"
+                   "<hr>\\n"
+                   "Turn the <u>encoder</u> to scroll.<br>Press A to close.");
+help.BeginEdit();                    // the user scrolls; A closes (accepted), B closes (cancelled)''',
+ features=['<b>Tags:</b> <code>&lt;br&gt;</code> <code>&lt;tab&gt;</code> <code>&lt;hr&gt;</code> <code>&lt;color=red&gt;..&lt;/color&gt;</code> (<code>#RGB</code>, <code>#RRGGBB</code> or a name) <code>&lt;bg=#003366&gt;..&lt;/bg&gt;</code> <code>&lt;font color=.. bg=..&gt;</code> <code>&lt;u&gt;</code> <code>&lt;s&gt;</code> <code>&lt;big&gt;</code> (double size) <code>&lt;left&gt;</code> <code>&lt;center&gt;</code> <code>&lt;right&gt;</code>, and the entities <code>&amp;lt; &amp;gt; &amp;amp; &amp;quot; &amp;apos; &amp;nbsp; &amp;#65;</code>.',
+  '<b>Lenient on purpose:</b> unknown tags (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;p&gt;</code> ...) are ignored, a <code>&lt;</code> that does not start a tag is shown as it is, an unclosed tag stays in effect to the end. Nothing is ever reported: bad text shows as bad text. A closing tag returns to the control\'s default (there is no nesting stack).',
+  '<b>One font.</b> Only what LovyanGFX does natively is supported: colours, filled backgrounds, lines (underline / strike / rule) and text scaling. Bold and italic would need different font files, so they are ignored.',
+  'A plain new line in the text is a line break (like an editor), <code>&lt;br&gt;</code> too. Words wrap at the width, a word wider than the control is broken inside. Tab stops: <code>SetTabChars(n)</code>.',
+  '<b>Memory:</b> <code>SetTextStatic(const char*)</code> does not copy: a string literal stays in flash. The layout is a table of 16 bytes per visual line (200 lines = 3 KB); the text is read again when drawn, never parsed into a tree. <code>SetText(std::string)</code> copies.',
+  '<code>SetShowSource(true)</code> draws the text with every tag visible: handy to debug your markup.',
+  'The same tags work in <a href="label.html">SuperLabel</a> and <a href="messagebox.html">SuperMessageBox</a> after <code>SetRich(true)</code> (off by default: plain text stays plain).'],
+ gui='<p>' + KEYS + ' Like the list box it is edited by scrolling: the <b>encoder</b> scrolls a line, <b>ButtonA</b> (short or long) closes it (accepted), <b>ButtonB</b> short closes it (cancelled), <b>ButtonB long</b> jumps back to the top. Touch: drag to scroll. A thin bar at the right edge shows the position when the text is longer than the area. In code: <code>ScrollTo</code>, <code>ScrollBy</code>.</p>',
+ events='<p>The ' + EV + ': <code>SetOnAccept</code> when the user closes the text with ButtonA. Use it to leave the help screen.</p>',
+ api=[('SetText(s) / SetTextStatic(p)','Copy the text / point at a text that stays valid (flash)'),('SetShowSource(b)','Show the markup instead of interpreting it'),('SetTabChars(n)','Tab stop distance in spaces'),('SetLineGap(px)','Extra space between lines'),('ScrollTo(line) / ScrollBy(n)','Scroll in code'),('GetLineCount() / GetFirstLine() / NeedsScroll()','Layout information'),('SetTextColor(c) / SetAlign(a)','Default colour and alignment (what closing tags return to)'),('StartEdit() / Service() / BeginEdit()','Scrolling, the usual contract')],
+ tips=['Author the text in the Form Designer: the Rich text control has a source editor with a Rendered view (see <a href="../designer/designer-usage.html">Using the designer</a>).','The Form Designer\'s own <b>?</b> help window is a SuperRichText: <code>tools/FormDesigner/src/HelpDialog.h</code> is a complete example.','Use <code>&lt;tab&gt;</code> for two-column lists (key, description): set the stop with <code>SetTabChars</code>.'],
+ pitfalls=['Alignment applies to a whole line and is taken where the line\'s first text starts: <code>&lt;center&gt;Title&lt;/center&gt;</code> centres that line, <code>text &lt;center&gt;more</code> does not.','There is no HTML whitespace collapsing: spaces and new lines are kept as written.','A text longer than the area needs the encoder (or touch) to scroll: add the control to a form so it can take focus, or scroll it with <code>ScrollBy</code>.'],
+ see=['<a href="label.html">SuperLabel</a>','<a href="messagebox.html">SuperMessageBox</a>','<a href="listbox.html">SuperListBox</a>'])

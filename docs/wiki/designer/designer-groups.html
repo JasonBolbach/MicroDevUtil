@@ -48,6 +48,7 @@
 <a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
 <a class="item" href="../controls/graph.html">SuperGraph</a>
 <a class="item" href="../controls/gauge.html">SuperGauge</a>
+<a class="item" href="../controls/richtext.html">SuperRichText</a>
 <h4>Custom</h4>
 <a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
 </nav><main>
@@ -75,6 +76,16 @@
 <pre><code>void menu1_Choose(uint16_t id) override {
   switch (id) { case MNU_REBOOT: Reboot(); break; case MNU_ABOUT: ShowAbout(); break; }
 }</code></pre>
+<h2>Rich text</h2>
+<p>The <b>Rich text</b> control shows scrollable text with a few HTML-like tags (colours, background, underline, strike, big text, alignment, <code>&lt;tab&gt;</code>, <code>&lt;hr&gt;</code>; see <a href="../controls/richtext.html">SuperRichText</a>). Its <b>Text</b> row has an <b>Edit...</b> button that opens the rich text editor.</p>
+<figure><img src="../img/designer_richtext.png" alt="The rich text editor in Source mode" style="max-width:100%"><figcaption>The rich text editor in Source mode</figcaption></figure>
+<ul>
+<li><b>Source</b> mode edits the markup as text: arrows, Up / Down keep the column, Home / End, Shift selects, Enter makes a new line, Ctrl/Cmd + A C X V Z, mouse click / drag, double-click = word, triple-click = line, wheel scrolls. The tags you may use are listed under the text.</li>
+<li><b>Rendered</b> mode shows the real control with your text (read-only; the wheel scrolls). Switch with the buttons or <code>Ctrl/Cmd + R</code>.</li>
+<li><code>Ctrl/Cmd + Enter</code> = OK, Esc = Cancel. Nothing is checked: what you type is what the control gets.</li>
+<li>In the JSON the text is a readable array of lines: <code>"richText": ["&lt;center&gt;Title&lt;/center&gt;", "Some text"]</code>. The generated code uses <code>SetTextStatic(...)</code>: a string literal that stays in flash.</li>
+<li>Other rows: Body height, Tab stops, Line gap, <i>Show source</i> (draws the markup itself, for debugging).</li>
+</ul>
 <h2>Control groups</h2>
 <p>Every control has a <b>Control group</b> row: a name (empty = no group). Controls with the same name are a group, and each group becomes a constant <code>GRP_X</code>. Do not confuse it with the radio button's <i>Group</i>, which only says which radio buttons exclude each other.</p>
 <pre><code>Form.SetGroupVisible(GRP_ADVANCED, false);   // hide a whole set

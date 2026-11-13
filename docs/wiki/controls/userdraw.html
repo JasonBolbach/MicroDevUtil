@@ -48,6 +48,7 @@
 <a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
 <a class="item" href="../controls/graph.html">SuperGraph</a>
 <a class="item" href="../controls/gauge.html">SuperGauge</a>
+<a class="item" href="../controls/richtext.html">SuperRichText</a>
 <h4>Custom</h4>
 <a class="item cur" href="../controls/userdraw.html">SuperUserDraw</a>
 </nav><main>
@@ -70,5 +71,5 @@ pointer event: void fn(SuperUserDraw&amp; ctl, const SuperUserPointer&amp; e, vo
 <h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Use persistent mode for anything incremental; use normal mode for things that are cheap to redraw (it needs no extra RAM).</div><div class="box tip"><b class="h">Tip</b>Draw in the <code>r</code> rectangle you are given, not at fixed (0,0).</div>
 <h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>Do not keep the sprite pointer in normal mode, block in the callback or draw other controls from it.</div><div class="box warn"><b class="h">Watch out</b>The sprite is 16-bit byte-swapped RGB565: use LovyanGFX drawing calls, not the raw buffer. Avoid colour 0x0001 (transparent key when labels are not opaque).</div><div class="box warn"><b class="h">Watch out</b>Resizing the body recreates the persistent canvas: the picture is lost and the draw event runs again.</div>
 <h2>See also</h2><p><a href="gauge.html">SuperGauge</a> &middot; <a href="../concepts/new-control.html">Writing your own control</a></p>
-<div class="pn"><span>&larr; <a href="../controls/gauge.html">SuperGauge</a></span><span></span></div>
+<div class="pn"><span>&larr; <a href="../controls/richtext.html">SuperRichText</a></span><span></span></div>
 </main><script src="../assets/wiki.js"></script></body></html>

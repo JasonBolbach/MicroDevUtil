@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SuperRichText - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Form Designer</h4>
+<a class="item" href="../designer/designer-start.html">Form Designer: your first form</a>
+<a class="item" href="../designer/designer-usage.html">Using the designer</a>
+<a class="item" href="../designer/designer-code.html">Generated code and your file</a>
+<a class="item" href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a>
+<a class="item" href="../designer/designer-boxes.html">Message boxes</a>
+<a class="item" href="../designer/designer-json.html">The form file (JSON)</a>
+<a class="item" href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<a class="item cur" href="../controls/richtext.html">SuperRichText</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>SuperRichText</h1>
+<p class="tag">A scrollable, read-only text area that understands a few HTML-like tags: colours, background, underline, strike, big text, alignment, tab stops, rules. One font, no syntax checking.</p>
+<div class="badges"><span>Editable (modal edit)</span><span>src/SuperRichText.h</span></div>
+<h2>What it looks like</h2><div style="display:flex;flex-wrap:wrap;gap:20px"><figure><img src="../img/richtext.png" alt="SuperRichText Rendered by the library" style="image-rendering:pixelated;max-width:100%"><figcaption>Rendered by the library</figcaption></figure></div><p class="tag" style="font-size:13px">Real renders from the library (headless, dark theme, Font2, shown at 2x).</p>
+<h2>Quick start</h2><pre><code>SuperRichText help(&amp;lcd, 10, 10, 220, 200, &amp;lgfx::fonts::Font2, &amp;Enc, &amp;BtnA, &amp;BtnB);
+help.SetTextStatic("&lt;center&gt;&lt;color=yellow&gt;&lt;big&gt;Help&lt;/big&gt;&lt;/color&gt;&lt;/center&gt;\n"
+                   "&lt;hr&gt;\n"
+                   "Turn the &lt;u&gt;encoder&lt;/u&gt; to scroll.&lt;br&gt;Press A to close.");
+help.BeginEdit();                    // the user scrolls; A closes (accepted), B closes (cancelled)</code></pre>
+<h2>Unique features</h2><ul><li><b>Tags:</b> <code>&lt;br&gt;</code> <code>&lt;tab&gt;</code> <code>&lt;hr&gt;</code> <code>&lt;color=red&gt;..&lt;/color&gt;</code> (<code>#RGB</code>, <code>#RRGGBB</code> or a name) <code>&lt;bg=#003366&gt;..&lt;/bg&gt;</code> <code>&lt;font color=.. bg=..&gt;</code> <code>&lt;u&gt;</code> <code>&lt;s&gt;</code> <code>&lt;big&gt;</code> (double size) <code>&lt;left&gt;</code> <code>&lt;center&gt;</code> <code>&lt;right&gt;</code>, and the entities <code>&amp;lt; &amp;gt; &amp;amp; &amp;quot; &amp;apos; &amp;nbsp; &amp;#65;</code>.</li><li><b>Lenient on purpose:</b> unknown tags (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;p&gt;</code> ...) are ignored, a <code>&lt;</code> that does not start a tag is shown as it is, an unclosed tag stays in effect to the end. Nothing is ever reported: bad text shows as bad text. A closing tag returns to the control's default (there is no nesting stack).</li><li><b>One font.</b> Only what LovyanGFX does natively is supported: colours, filled backgrounds, lines (underline / strike / rule) and text scaling. Bold and italic would need different font files, so they are ignored.</li><li>A plain new line in the text is a line break (like an editor), <code>&lt;br&gt;</code> too. Words wrap at the width, a word wider than the control is broken inside. Tab stops: <code>SetTabChars(n)</code>.</li><li><b>Memory:</b> <code>SetTextStatic(const char*)</code> does not copy: a string literal stays in flash. The layout is a table of 16 bytes per visual line (200 lines = 3 KB); the text is read again when drawn, never parsed into a tree. <code>SetText(std::string)</code> copies.</li><li><code>SetShowSource(true)</code> draws the text with every tag visible: handy to debug your markup.</li><li>The same tags work in <a href="label.html">SuperLabel</a> and <a href="messagebox.html">SuperMessageBox</a> after <code>SetRich(true)</code> (off by default: plain text stays plain).</li></ul>
+<h2>GUI workflow</h2><p>Encoder, A short/long, B short/long and touch as in <a href="../concepts/input.html">Input</a>. Like the list box it is edited by scrolling: the <b>encoder</b> scrolls a line, <b>ButtonA</b> (short or long) closes it (accepted), <b>ButtonB</b> short closes it (cancelled), <b>ButtonB long</b> jumps back to the top. Touch: drag to scroll. A thin bar at the right edge shows the position when the text is longer than the area. In code: <code>ScrollTo</code>, <code>ScrollBy</code>.</p>
+<h2>Event workflow</h2><p>The <a href="../concepts/edit-contract.html">edit contract</a>: <code>SetOnAccept</code> when the user closes the text with ButtonA. Use it to leave the help screen.</p>
+<h2>Main API</h2><table><tr><th>Call</th><th>What it does</th></tr><tr><td><code>SetText(s) / SetTextStatic(p)</code></td><td>Copy the text / point at a text that stays valid (flash)</td></tr><tr><td><code>SetShowSource(b)</code></td><td>Show the markup instead of interpreting it</td></tr><tr><td><code>SetTabChars(n)</code></td><td>Tab stop distance in spaces</td></tr><tr><td><code>SetLineGap(px)</code></td><td>Extra space between lines</td></tr><tr><td><code>ScrollTo(line) / ScrollBy(n)</code></td><td>Scroll in code</td></tr><tr><td><code>GetLineCount() / GetFirstLine() / NeedsScroll()</code></td><td>Layout information</td></tr><tr><td><code>SetTextColor(c) / SetAlign(a)</code></td><td>Default colour and alignment (what closing tags return to)</td></tr><tr><td><code>StartEdit() / Service() / BeginEdit()</code></td><td>Scrolling, the usual contract</td></tr></table>
+<h2>Tips and tricks</h2><div class="box tip"><b class="h">Tip</b>Author the text in the Form Designer: the Rich text control has a source editor with a Rendered view (see <a href="../designer/designer-usage.html">Using the designer</a>).</div><div class="box tip"><b class="h">Tip</b>The Form Designer's own <b>?</b> help window is a SuperRichText: <code>tools/FormDesigner/src/HelpDialog.h</code> is a complete example.</div><div class="box tip"><b class="h">Tip</b>Use <code>&lt;tab&gt;</code> for two-column lists (key, description): set the stop with <code>SetTabChars</code>.</div>
+<h2>Pitfalls</h2><div class="box warn"><b class="h">Watch out</b>Alignment applies to a whole line and is taken where the line's first text starts: <code>&lt;center&gt;Title&lt;/center&gt;</code> centres that line, <code>text &lt;center&gt;more</code> does not.</div><div class="box warn"><b class="h">Watch out</b>There is no HTML whitespace collapsing: spaces and new lines are kept as written.</div><div class="box warn"><b class="h">Watch out</b>A text longer than the area needs the encoder (or touch) to scroll: add the control to a form so it can take focus, or scroll it with <code>ScrollBy</code>.</div>
+<h2>See also</h2><p><a href="label.html">SuperLabel</a> &middot; <a href="messagebox.html">SuperMessageBox</a> &middot; <a href="listbox.html">SuperListBox</a></p>
+<div class="pn"><span>&larr; <a href="../controls/gauge.html">SuperGauge</a></span><span><a href="../controls/userdraw.html">SuperUserDraw</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

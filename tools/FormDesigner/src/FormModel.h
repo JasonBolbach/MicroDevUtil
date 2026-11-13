@@ -29,7 +29,7 @@
 
 namespace FD {
 
-enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_MENU, C_GAUGE, C_GRAPH, C_USERDRAW, C_COLORPICKER, C_COUNT };
+enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_MENU, C_GAUGE, C_GRAPH, C_USERDRAW, C_COLORPICKER, C_RICHTEXT, C_COUNT };
 inline bool HasList(int type) { return type == C_LISTBOX || type == C_COMBOBOX || type == C_TABBAR; }      // the control has a list of items (rows / choices / tabs)
 constexpr int MAX_LIST_ITEMS = 200, MAX_ITEM_LEN = 60;
 constexpr int MAX_MENU_NODES = 200, MAX_MENU_DEPTH = 5, MAX_MENU_TEXT = 40, MAX_MENU_ID = 65535;
@@ -205,6 +205,15 @@ static const ExtraDef USERDRAW_EXTRAS[] = {
     { "touch",      "Touch input",       PK_BOOL, "false", 0, 1, "No|Yes" },               // the control then takes focus and raises Pointer / Accept events
 };
 
+// SuperRichText: scrollable text with a few HTML-like tags. The text itself is DControl::list (one entry per line, edited in the rich text editor).
+static const ExtraDef RICHTEXT_EXTRAS[] = {
+    { "bodyHeight", "Body height",  PK_INT,  "120", 8, 600, "" },
+    { "tabChars",   "Tab stops",    PK_INT,  "8",   1, 40,  "" },                      // a <tab> jumps to the next multiple of this many spaces
+    { "lineGap",    "Line gap",     PK_INT,  "0",   0, 20,  "" },
+    { "showSource", "Show source",  PK_BOOL, "false", 0, 1, "No|Yes" },                // draw the markup itself (debugging); generated as SetShowSource(true)
+};
+constexpr int MAX_RICH_LINES = 400, MAX_RICH_CHARS = 4000;
+
 // SuperColorPicker: the three HSV bars with a swatch; "value" is the initial colour (RGB565).
 static const ExtraDef COLORPICKER_EXTRAS[] = {
     { "value", "Color", PK_COLOR, "0xF800", 0, 0, "" },
@@ -248,6 +257,7 @@ inline const TypeInfo& Info(int t) {
         { "SuperGraph",       "Graph",       "graph",    200, "",       false, false, true,  false, GRAPH_EXTRAS,  FD_N(GRAPH_EXTRAS),  false, false },
         { "SuperUserDraw",    "User draw",   "draw",     160, "",       false, false, true,  false, USERDRAW_EXTRAS, FD_N(USERDRAW_EXTRAS), false, false },
         { "SuperColorPicker", "Color picker","picker",   200, "",       false, false, true,  true,  COLORPICKER_EXTRAS, FD_N(COLORPICKER_EXTRAS), false, false },
+        { "SuperRichText",    "Rich text",   "rich",     240, "",       false, true,  true,  true,  RICHTEXT_EXTRAS, FD_N(RICHTEXT_EXTRAS), false, false },
     };
     return T[t < 0 || t >= C_COUNT ? 0 : t];
 }
@@ -634,6 +644,11 @@ struct DForm {
             }
             s += "]";
         }
+        if (c.type == C_RICHTEXT && !c.list.empty()) {                     // "richText": ["line one", "line two"]: readable, one entry per line
+            s += ", \"richText\": [";
+            for (size_t i = 0; i < c.list.size(); ++i) { std::string v; for (char ch : c.list[i]) { if (ch == '"' || ch == '\\') v += '\\'; v += ch; } s += (i ? ", " : "") + std::string("\"") + v + "\""; }
+            s += "]";
+        }
         if (c.type == C_GAUGE && !c.zones.empty()) {                       // "zones": [ { "from": 0, "to": 60, "color": "0x07E0" }, ... ]
             s += ", \"zones\": [";
             for (size_t i = 0; i < c.zones.size(); ++i) s += (i ? ", " : "") + std::string("{ \"from\": ") + FloatText(c.zones[i].from) + ", \"to\": " + FloatText(c.zones[i].to) + ", \"color\": \"" + Hex(c.zones[i].color) + "\" }";
@@ -780,6 +795,13 @@ struct DForm {
                     d.list.push_back(v);
                     if (t == C_TABBAR) { const JV* gv = it.t == JV::OBJ ? it.Get("group") : nullptr; d.pages.resize(d.list.size()); if (gv && gv->t == JV::STR) d.pages.back() = gv->s; }
                 }
+            if (t == C_RICHTEXT) if (const JV* rv = c.Get("richText")) {                          // lines of markup (a single string with \n is accepted too): printable ASCII, bounded
+                std::vector<std::string> raw;
+                if (rv->t == JV::ARR) { for (const JV& l : rv->a) if (l.t == JV::STR) raw.push_back(l.s); }
+                else if (rv->t == JV::STR) { std::string cur; for (char ch : rv->s) { if (ch == '\n') { raw.push_back(cur); cur.clear(); } else cur += ch; } raw.push_back(cur); }
+                int chars = 0;
+                for (std::string& l : raw) { std::string v; for (char ch : l) if (ch >= 0x20 && ch < 0x7F) v += ch; if ((int)d.list.size() >= MAX_RICH_LINES || chars + (int)v.size() > MAX_RICH_CHARS) break; chars += (int)v.size() + 1; d.list.push_back(v); }
+            }
             if (t == C_GAUGE) if (const JV* zv = c.Get("zones")) if (zv->t == JV::ARR)
                 for (const JV& z : zv->a) if (z.t == JV::OBJ && (int)d.zones.size() < MAX_GAUGE_ZONES) {                          // a band needs from < to; the colour is 0xRRRR or a number
                     const JV* fv = z.Get("from"); const JV* tv = z.Get("to"); const JV* cv = z.Get("color");

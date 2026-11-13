@@ -24,6 +24,7 @@
 #include <SuperGraph.h>
 #include <SuperUserDraw.h>
 #include <SuperColorPicker.h>
+#include <SuperRichText.h>
 #include <SuperMessageBox.h>
 #include "FormModel.h"
 #include "FontTable.h"
@@ -74,6 +75,7 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     case C_GRAPH:      p.reset(new SuperGraph(dst, x, y, c.w, font, (int)XInt(c, "bodyHeight"))); break;
     case C_USERDRAW:   p.reset(new SuperUserDraw(dst, x, y, c.w, (int)XInt(c, "bodyHeight"), font)); break;
     case C_COLORPICKER: p.reset(new SuperColorPicker(dst, x, y, c.w, font, nullptr, nullptr, nullptr)); break;
+    case C_RICHTEXT:   p.reset(new SuperRichText(dst, x, y, c.w, (int)XInt(c, "bodyHeight"), font, nullptr, nullptr, nullptr)); break;
     case C_DATEBOX:    p.reset(new SuperDateBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr, (SuperDateBox::DateStyle)XInt(c, "style"))); break;
     default:           p.reset(new SuperLabel(dst, x, y, c.w, font, c.text)); break;
     }
@@ -149,6 +151,11 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
         }
         break; }
     case C_COLORPICKER: static_cast<SuperColorPicker*>(p.get())->SetColor565((uint16_t)XInt(c, "value")); break;
+    case C_RICHTEXT: {
+        auto* r = static_cast<SuperRichText*>(p.get());
+        std::string t; for (size_t i = 0; i < c.list.size(); ++i) t += (i ? "\n" : "") + c.list[i];
+        r->SetText(t); r->SetTabChars((int)XInt(c, "tabChars")); r->SetLineGap((int)XInt(c, "lineGap")); r->SetShowSource(XBool(c, "showSource"));
+        break; }
     case C_USERDRAW: {
         auto* u = static_cast<SuperUserDraw*>(p.get());
         u->SetOnDraw(&UserDrawPlaceholder, (void*)&c.name);

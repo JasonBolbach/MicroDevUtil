@@ -32,7 +32,7 @@ build/FormDesigner</code></pre>
 </ol>
 {tip('You do not have to start from nothing: every new form already contains a ready-made <code>msgYesNo</code> confirmation box (see <a href="designer-boxes.html">Message boxes</a>). Delete it if you do not need it.')}
 <h2>What the designer can place</h2>
-<p>Label, Push button, Check box, Radio button, Progress bar, Spin box, Slider, Text box, Input box, Time box, Date box, List box, Combo box, Tab bar, Menu, Gauge, Graph, User draw and Color picker. Each is described on its own page under <i>Controls</i>; the designer page for a control only adds how its properties are edited. Message boxes are not placed on the surface: they live in a list (see below).</p>
+<p>Label, Push button, Check box, Radio button, Progress bar, Spin box, Slider, Text box, Input box, Time box, Date box, List box, Combo box, Tab bar, Menu, Gauge, Graph, User draw, Color picker and Rich text. Each is described on its own page under <i>Controls</i>; the designer page for a control only adds how its properties are edited. Message boxes are not placed on the surface: they live in a list (see below).</p>
 ''')
 
 add('designer-usage', 'Using the designer', 'Surface, panel, zoom, files, shortcuts', f'''
@@ -51,6 +51,7 @@ add('designer-usage', 'Using the designer', 'Surface, panel, zoom, files, shortc
 <tr><td><code>G</code></td><td>Change the grid step (1 = off)</td></tr>
 <tr><td>Wheel, Shift + wheel</td><td>Scroll the surface up/down, sideways</td></tr>
 <tr><td><code>+</code> <code>-</code> <code>0</code> <code>F</code></td><td>Zoom in, out, 1:1, fit. Ctrl/Cmd + wheel zooms around the mouse. The zoom box and the Fit and 1:1 buttons are above the surface.</td></tr>
+<tr><td><code>?</code> or <code>F1</code></td><td>The keyboard help window (Esc, Enter or OK closes it; it scrolls). It is shown by a <a href="../controls/richtext.html">SuperRichText</a>.</td></tr>
 <tr><td>Ctrl/Cmd + O, S, X</td><td>Open, Save, Export (always asks for the output folder).</td></tr></table>
 <h2>Text fields in the panel</h2>
 <p>Every field is a real editor: arrows, Home/End, Shift to select, Alt/Ctrl + arrows by word, Cmd + Left/Right to the line ends, Ctrl/Cmd + A / C / X / V, undo and redo (Ctrl/Cmd + Z, Shift + Z or Ctrl + Y), double-click selects a word and triple-click everything. The designer is <b>US-ASCII only</b>: any character outside the printable ASCII range is dropped when typed or pasted.</p>
@@ -72,6 +73,7 @@ add('designer-code', 'Generated code and your file', 'What Export writes and how
 <table><tr><th>File</th><th>Who owns it</th><th>What is in it</th></tr>
 <tr><td><code>Form1.designer.h</code></td><td>The designer. Regenerated on every export: <b>never edit it</b>.</td><td>Class <code>Form1Base</code>: every control as a public member, the <code>SuperForm</code>, constants, <code>InitializeComponent()</code>, <code>Show()</code>, <code>Service()</code>, and one empty virtual handler per event.</td></tr>
 <tr><td><code>Form1.h</code></td><td>You. Written once, never changed again.</td><td>Class <code>Form1 : Form1Base</code> with a constructor for your start-up code and an <code>override</code> stub per handler.</td></tr></table>
+<p>Every export of an existing <code>Form1.h</code> also keeps a snapshot of it next to it, named <code>Form1.yyyy_mm_dd_hh_mm_ss.h.txt</code> (a <code>.txt</code> so nothing ever includes it). If you ever overwrite your file by accident, the last export's copy has it. The snapshots are never deleted: tidy them up when you like.</p>
 <h2>Using it in a sketch</h2>
 <pre><code>#include "Form1.h"
 Form1 ui(&amp;lcd, &amp;Enc, &amp;BtnA, &amp;BtnB);   // display, encoder, two buttons
@@ -86,6 +88,7 @@ void loop()  {{ ui.Service(); }}              // focus, editing, touch, handlers
 <tr><td>List box, combo box, tab bar</td><td><code>name_Change()</code> (cursor moved) and <code>name_Accept()</code> (item chosen)</td></tr>
 <tr><td>Menu</td><td><code>menu1_Choose(uint16_t id)</code> with one <code>case</code> per command, plus <code>menu1_Change()</code></td></tr>
 <tr><td>User draw</td><td><code>scope_Draw(spr, body)</code>, and with Touch input <code>scope_Pointer(e)</code> and <code>scope_Accept()</code></td></tr>
+<tr><td>Rich text</td><td><code>name_Accept()</code> (the user closed the text with ButtonA)</td></tr>
 <tr><td>Gauge, graph, text box, label, progress bar</td><td>none (display only). Update them from your code: <code>load.SetValue(v)</code>, <code>trace.AddSample(v)</code>.</td></tr></table>
 <p>To react to an event, write the <code>override</code> in <code>Form1.h</code>:</p>
 <pre><code>protected:
@@ -123,6 +126,16 @@ add('designer-groups', 'Lists, menus, tab pages and groups', 'Items dialogs, the
 <pre><code>void menu1_Choose(uint16_t id) override {{
   switch (id) {{ case MNU_REBOOT: Reboot(); break; case MNU_ABOUT: ShowAbout(); break; }}
 }}</code></pre>
+<h2>Rich text</h2>
+<p>The <b>Rich text</b> control shows scrollable text with a few HTML-like tags (colours, background, underline, strike, big text, alignment, <code>&lt;tab&gt;</code>, <code>&lt;hr&gt;</code>; see <a href="../controls/richtext.html">SuperRichText</a>). Its <b>Text</b> row has an <b>Edit...</b> button that opens the rich text editor.</p>
+{fig('designer_richtext.png', 'The rich text editor in Source mode')}
+<ul>
+<li><b>Source</b> mode edits the markup as text: arrows, Up / Down keep the column, Home / End, Shift selects, Enter makes a new line, Ctrl/Cmd + A C X V Z, mouse click / drag, double-click = word, triple-click = line, wheel scrolls. The tags you may use are listed under the text.</li>
+<li><b>Rendered</b> mode shows the real control with your text (read-only; the wheel scrolls). Switch with the buttons or <code>Ctrl/Cmd + R</code>.</li>
+<li><code>Ctrl/Cmd + Enter</code> = OK, Esc = Cancel. Nothing is checked: what you type is what the control gets.</li>
+<li>In the JSON the text is a readable array of lines: <code>"richText": ["&lt;center&gt;Title&lt;/center&gt;", "Some text"]</code>. The generated code uses <code>SetTextStatic(...)</code>: a string literal that stays in flash.</li>
+<li>Other rows: Body height, Tab stops, Line gap, <i>Show source</i> (draws the markup itself, for debugging).</li>
+</ul>
 <h2>Control groups</h2>
 <p>Every control has a <b>Control group</b> row: a name (empty = no group). Controls with the same name are a group, and each group becomes a constant <code>GRP_X</code>. Do not confuse it with the radio button's <i>Group</i>, which only says which radio buttons exclude each other.</p>
 <pre><code>Form.SetGroupVisible(GRP_ADVANCED, false);   // hide a whole set
@@ -194,6 +207,7 @@ add('designer-tips', 'Designer tips, tricks and pitfalls', 'Things that save tim
 {tip('<b>Input box templates:</b> <b>Presets</b> has phone numbers, ZIP codes, dates, times, IPv4, MAC addresses and more. <b>Build</b> makes a template cell by cell. <code>#</code> is a digit, <code>A</code> upper case, <code>a</code> lower case, <code>B</code> any letter, <code>*</code> anything; every other character is a literal, so <code>###-###-####</code> is a phone number.')}
 {tip('<b>Gauge:</b> the Zones dialog has <b>Fill 3 bands</b> (green / yellow / red at 60 / 85 / 100 % of the range). Update the needle with <code>load.SetValue(v)</code>.')}
 {tip('<b>Graph:</b> <i>Preview data</i> (Sine / Rising / Noise) only exists so the designer shows something. It is not generated: feed the real graph with <code>trace.AddSample(v)</code>.')}
+{tip('<b>Press <code>?</code></b> in the designer for the key list. A <b>Rich text</b> control is a good place for your own help screen: write it in the editor, scroll it with the encoder.')}
 {tip('<b>Pages:</b> design every page in the same area of the form and use the <b>View</b> button to edit one page at a time.')}
 {tip('<b>Hand edits:</b> the JSON file is meant to be edited. Rename a group, reorder menu items, paste a long message: save, open in the designer and it repairs anything unsafe.')}
 <h2>Pitfalls</h2>

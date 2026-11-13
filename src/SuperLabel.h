@@ -19,6 +19,7 @@
 //    of what is behind (or use ApplyTheme). There is no transparent mode.
 //  * Memory: like every control, one sprite of width x height x 2 bytes (follows SharedBuffer / UsePsram).
 #include "SuperControl.h"
+#include "SuperRichCore.h"
 #include <cstdarg>
 #include <cstdio>
 #include <vector>
@@ -49,7 +50,12 @@ public:
     void SetLineGap(int px)       { Gap = px < 0 ? 0 : px; Dirty = true; }
     void SetUnderline(bool on)    { Underline = on; Dirty = true; }
     void SetBodyHeight(int h)     { FixedH = h < 0 ? 0 : h; Dirty = true; }         // 0 = as tall as the lines
-    int  GetLineCount()           { Layout(); return (int)Lines.size(); }
+    // SetRich(true): the text may contain the tags of SuperRichCore.h (<color=red>, <bg=...>, <u>, <s>, <big>, <center>, <br>, <tab>, entities ...).
+    // Default off: a plain label shows every character as it is. In rich mode SetWrap / SetAlign / SetVAlign / SetBodyHeight / SetLineGap still work;
+    // SetMaxLines, SetEllipsis and SetUnderline do not (use the tags).
+    void SetRich(bool on)         { if (on != Rich) { Rich = on; LinesOk = false; Dirty = true; } }
+    bool GetRich() const          { return Rich; }
+    int  GetLineCount()           { Layout(); return Rich ? (int)RichLines.size() : (int)Lines.size(); }
 
 protected:
     void OnFontChanged() override { LinesOk = false; }
@@ -63,6 +69,14 @@ protected:
         Layout();
         Spr.setFont(Font);
         Spr.setTextColor(ColFg);
+        if (Rich) {
+            SuperRich::Options o = RichOpts(); int bh = BlockHeight();
+            int ty = y + (VA == VALIGN_MIDDLE ? (h - bh) / 2 : VA == VALIGN_BOTTOM ? h - bh : 0);
+            Spr.setClipRect(x, y, w, h);
+            for (const SuperRich::Line& l : RichLines) { SuperRich::DrawLine(Spr, Text.c_str(), Text.size(), l, o, x, ty, w); ty += l.H + Gap; }
+            Spr.clearClipRect();
+            return;
+        }
         int fh = Spr.fontHeight(), bh = BlockHeight();
         int ty = y + (VA == VALIGN_MIDDLE ? (h - bh) / 2 : VA == VALIGN_BOTTOM ? h - bh : 0);
         Spr.setClipRect(x, y, w, h);
@@ -89,13 +103,20 @@ private:
     bool Wrap = false, Ellipsis = true, Underline = false;
     int  MaxLines = 0, Gap = 0, FixedH = 0;
     std::vector<std::string> Lines;
+    std::vector<SuperRich::Line> RichLines;
+    bool Rich = false;
     bool LinesOk = false;
     int  LinesW = -1;
 
     int InnerWidth() { return InnerW(); }
+    SuperRich::Options RichOpts() {
+        SuperRich::Options o; o.Def.Fg = ColFg; o.Def.Bg = ColBg; o.Def.Align = (uint8_t)Alignment; o.Wrap = Wrap;
+        Spr.setFont(Font); o.TabPx = std::max(1, 8 * (int)Spr.textWidth(" ")); return o;
+    }
     int BlockHeight() {
         Layout();
         Spr.setFont(Font);
+        if (Rich) return std::max(Spr.fontHeight(), SuperRich::ContentHeight(RichLines, Gap) - Gap);
         int n = std::max(1, (int)Lines.size());
         return n * Spr.fontHeight() + (n - 1) * Gap;
     }
@@ -114,6 +135,7 @@ private:
         if (LinesOk && w == LinesW) return;
         LinesOk = true; LinesW = w;
         Spr.setFont(Font);
+        if (Rich) { SuperRich::Options o = RichOpts(); SuperRich::Layout(Spr, Text.c_str(), Text.size(), w, o, RichLines); return; }
         Lines.clear();
         size_t p = 0;
         while (true) {
