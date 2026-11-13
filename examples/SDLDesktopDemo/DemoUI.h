@@ -75,10 +75,10 @@ public:
     Level->SetRange(0, 100); Level->SetSuffix(" %"); Level->SetValue(40);
 
     TimeBox = new SuperTimeBox(dst, 138, 108, 150, F4, E, A, B);
-    TimeBox->SetLabel("Time"); TimeBox->SetLabelColor(LBL); TimeBox->SetBorder(1, EDGE); TimeBox->SetTime(12, 30, 0);
+    TimeBox->SetLabel("Time"); TimeBox->SetLabelColor(LBL); TimeBox->SetBorder(1, EDGE); TimeBox->SetTime(12, 30, 0); TimeBox->SetAlign(SuperControl::ALIGN_CENTER);
 
     DateBox = new SuperDateBox(dst, 308, 108, W - 316, F4, E, A, B);
-    DateBox->SetStyle(SuperDateBox::DATE_YMD); DateBox->SetLabel("Date (YMD)"); DateBox->SetLabelColor(LBL); DateBox->SetBorder(1, EDGE); DateBox->SetDate(2026, 11, 11);
+    DateBox->SetStyle(SuperDateBox::DATE_YMD); DateBox->SetLabel("Date (YMD)"); DateBox->SetLabelColor(LBL); DateBox->SetBorder(1, EDGE); DateBox->SetDate(2026, 11, 11); DateBox->SetAlign(SuperControl::ALIGN_CENTER);
 
     Picker = new SuperColorPicker(dst, 8, 178, W - 16, F, E, A, B);
     Picker->SetLabel("Color picker (tap / drag a bar, or A short = next bar, A long = accept)"); Picker->SetLabelColor(LBL);
