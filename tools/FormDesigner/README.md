@@ -76,7 +76,7 @@ at most 40 cells; OK needs at least one slot). Time box: Seconds, Value `HH:MM[:
 a template without a slot) is refused: the model keeps the old value, the field turns red, and the reason is shown under the rows and in the status line. Valid values are stored the way the box prints them
 (`7:5` becomes `07:05:00`). A new template that the old value no longer fits clears the value (and says so). **Fit** (on the Width row of text-like controls) sets the exact width that shows the whole text;
 new input / time / date boxes are placed that wide. They raise `<name>_Change()` / `<name>_Accept()` like the spin box (`GetLiveValue()` / `GetValue()`). Library additions: `GetLiveValue()` on the input,
-time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: next the Visible / Enabled / control-group chunk (with tab pages), then chunk 4 display (Gauge, Graph, UserDraw),
+time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: chunk 4 display (Gauge, Graph, UserDraw),
 chunk 5 MessageBox and ColorPicker.
 
 **Chunk 3a: lists.** **List box**, **Combo box**, **Tab bar**. Their items are edited in a modal **items dialog** (the **Edit...** button on the Items / Tabs row): the real `SuperListBox` of items, a text
@@ -104,6 +104,16 @@ Export refuses a menu that still has a problem. The **menu editor** (Edit... on 
 validation (red + reason; an automatic item ID follows the text until you edit it), Add / Add child / Delete / Move up / Move down / Indent / Outdent, **Paste outline** (indented clipboard lines
 become a tree; spaces or tabs) and a live preview of the real menu. Library: `SuperMenu::EditIO()` joins the other controls. Self-test hardening: a crash in the self-test is now reported with the last
 check instead of raising the OS crash dialog.
+
+**Visible, Enabled, control groups and tab pages.** Every control has three more rows: **Control group** (a name; empty = no group = group 0), **Visible** and **Enabled** (the initial state). A control group
+is a safe C++ name, shared by any number of controls (it must not be a control, radio group, menu item or form class name); each used group becomes `static constexpr uint16_t GRP_X = n;` in the generated class
+(numbered 1, 2, 3 by first use, stable in the JSON: `"groupIds"` in the form, `"controlGroup"` per control) and the controls call `SetGroup(GRP_X)`. Not to be confused with a radio button's Group. At run time:
+`Form.SetGroupVisible(GRP_X, bool)`, `Form.SetGroupEnabled(GRP_X, bool)` and `Form.ShowPage(pages, n, show)` (new `SuperForm` methods; `SuperControl::SetGroup / GetGroup`): hidden controls are erased and free
+their buffer, the focus moves to a control that can take it, and group operations override a control's own Visible / Enabled (showing a group shows all of its controls; the initial Visible = No is applied after the
+first page is shown, so it wins at start). **Tab pages:** in the tab bar's items dialog every tab has a **Page group**; the generated code gets a `tabs1_ShowPage(index)` that shows the chosen tab's controls and hides
+the other tabs', calls it when a tab is chosen (then your `tabs1_Accept()`), and shows the first tab's page at start. JSON: a tab with a page is `{ "text": "Home", "group": "GRP_HOME" }`, others plain strings.
+The design surface has a **View** button (All -> each group in turn): only the controls of that group, and those without a group, are shown and clickable, so overlapping pages can be edited one at a time; selecting a control
+of another group from the list switches the view; initially hidden controls are drawn faded with an H. Export refuses a control group with an unsafe or clashing name. Library: `SuperTabBar::EditIO()`.
 
 **Names** (`src/ReservedNames.h`, `FD::ValidName`): a control, radio group or form name must be a plain identifier that is safe in the generated C++ for Arduino, ESP32, Pico and the desktop.
 Refused: every C++ keyword (C++23, incl. `wchar_t`, `static_assert`, `bitand`, `co_await`, contextual `final` / `override`), the generated class's own names (`Form`, `Show`, `Service`, ...),

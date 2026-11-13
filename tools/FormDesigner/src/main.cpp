@@ -54,13 +54,14 @@ static int sel = -1;                                 // selected control (index)
 static int tool = -1;                                // toolbox item waiting to be placed, -1 = none
 static int grid = 8;                                 // snap step in pixels (1 = off)
 static int scrollX = 0, scrollY = 0;                 // design surface scroll (in screen pixels, at the current zoom)
+static std::string viewGroup;                        // design view: "" = every control, else only the controls of this control group (and those without a group) are shown
 static int zoom = 100;                               // design surface zoom in percent (10 .. 800): the form is shown at zoom / 100
 static std::string status; static Uint32 statusAt = 0;
 enum DragMode { D_NONE, D_MOVE, D_RESIZE_L, D_RESIZE_R, D_TEXT };
 static DragMode drag = D_NONE; static int dragDX = 0, dragDY = 0, dragRight = 0;
 
 // ---- property fields ----
-enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN,
+enum Prop { P_NAME, P_TEXT, P_X, P_Y, P_W, P_BSIZE, P_PAD, P_GROUP, P_FNAME, P_FW, P_FH, P_FG, P_BG, P_BORDER, P_FBG, P_FONT, P_BSTYLE, P_ALIGN, P_CGROUP, P_VISIBLE, P_ENABLED,
             P_ITEMS = 98,                          // the items of a list box / combo box / tab bar (opens the items dialog)
             P_HINT = 99,                           // a row that only shows a hint (the template legend)
             P_EXTRA = 100 };                       // P_EXTRA + i = the selected control's i-th extra property (FD::ExtraAt), see FormModel.h
@@ -134,6 +135,7 @@ static int RowKindOf(int p) {
         switch (d->kind) { case FD::PK_COLOR: return RK_COLOR; case FD::PK_FONT: return RK_FONT; case FD::PK_BOOL: case FD::PK_ENUM: return RK_SEG; default: return RK_TEXT; }
     }
     if (p == P_HINT) return RK_HINT;
+    if (p == P_VISIBLE || p == P_ENABLED) return RK_SEG;
     if (p == P_ITEMS) return RK_ITEMS;
     if (p == P_FONT) return RK_FONT;
     if (p == P_BSTYLE || p == P_ALIGN) return RK_SEG;
@@ -144,23 +146,27 @@ static bool IsColorProp(int p) { return RowKindOf(p) == RK_COLOR; }
 static bool IsPickRow(int p) { return RowKindOf(p) != RK_TEXT; }                  // no text field: swatch, font or segments
 static std::string PropLabel(int p) {
     if (const FD::ExtraDef* d = ExtraOf(p)) return d->label;
-    static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align" };
+    static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align", "Control group", "Visible", "Enabled" };
     if (p == P_ITEMS) return Sel() && Sel()->type == FD::C_TABBAR ? "Tabs" : Sel() && Sel()->type == FD::C_MENU ? "Menu items" : "Items";
-    return p >= 0 && p <= P_ALIGN ? L[p] : "";
+    return p >= 0 && p <= P_ENABLED ? L[p] : "";
 }
 // segments of a RK_SEG row
 static int SegCount(int p) {
     if (const FD::ExtraDef* d = ExtraOf(p)) return FD::ChoiceCount(*d);
+    if (p == P_VISIBLE || p == P_ENABLED) return 2;
     return 3;
 }
 static std::string SegLabel(int p, int k) {
     static const char* S[] = { "Standard", "3D", "Sleek" }; static const char* A[] = { "Left", "Center", "Right" };
     if (const FD::ExtraDef* d = ExtraOf(p)) return FD::ChoiceName(*d, k);
+    if (p == P_VISIBLE || p == P_ENABLED) return k ? "Yes" : "No";
     return p == P_BSTYLE ? S[k] : A[k];
 }
 static int SegCurrent(int p) {
     const DControl* c = Sel(); if (!c) return 0;
     if (const FD::ExtraDef* d = ExtraOf(p)) { std::string v = FD::ExtraGet(*c, *d); return d->kind == FD::PK_BOOL ? (v == "true" ? 1 : 0) : atoi(v.c_str()); }
+    if (p == P_VISIBLE) return c->visible ? 1 : 0;
+    if (p == P_ENABLED) return c->enabled ? 1 : 0;
     return p == P_BSTYLE ? (c->borderStyle >= 0 ? c->borderStyle : c->defStyle) : (c->align >= 0 ? c->align : c->defAlign);
 }
 
@@ -219,6 +225,7 @@ static std::string PropValue(int p) {
     case P_BSIZE: return c ? std::to_string(c->borderSize >= 0 ? c->borderSize : c->defSize) : "";
     case P_PAD: return c ? std::to_string(c->padding >= 0 ? c->padding : c->defPad) : "";
     case P_GROUP: return c ? c->group : "";
+    case P_CGROUP: return c ? c->ctlGroup : "";
     case P_X: return c ? std::to_string(c->x) : ""; case P_Y: return c ? std::to_string(c->y) : ""; case P_W: return c ? std::to_string(c->w) : "";
     case P_FNAME: return form.name; case P_FW: return std::to_string(form.w); case P_FH: return std::to_string(form.h);
     }
@@ -246,7 +253,7 @@ static bool ApplyExtra(int p, const std::string& v) {
 static bool ApplyProp(int p, const std::string& v) {
     DControl* c = Sel();
     if (ExtraOf(p)) return ApplyExtra(p, v);
-    if ((p <= P_GROUP) != (c != nullptr)) return false;
+    if ((p <= P_GROUP || (p >= P_CGROUP && p <= P_ENABLED)) != (c != nullptr)) return false;
     if (p == P_BSIZE || p == P_PAD) {                    // empty = back to the control's own default; a value equal to the default is not an override
         bool size = p == P_BSIZE; int n = v.empty() ? -1 : std::min(atoi(v.c_str()), size ? FD::MAX_BORDER : FD::MAX_PADDING);
         (size ? c->borderSize : c->padding) = n == (size ? c->defSize : c->defPad) ? -1 : n; return true;
@@ -257,7 +264,12 @@ static bool ApplyProp(int p, const std::string& v) {
     switch (p) {
     case P_NAME:  if (!FD::ValidName(v) || form.NameTaken(v, sel)) return false; c->name = v; return true;
     case P_TEXT:  c->text = v; return true;
-    case P_GROUP: if (!FD::ValidName(v) || form.ControlNamed(v) || v == form.name || v == form.name + "Base") return false; c->group = v;
+    case P_CGROUP:                                                                      // a control group: a name (a uint16_t constant in the generated class), "" = none
+        if (v.empty()) { c->ctlGroup.clear(); return true; }
+        if (!FD::ValidName(v)) { Status("%s is not a safe C++ name (a keyword, a reserved or library name, or a macro)", v.c_str()); return false; }
+        if (form.GroupNameTaken(v)) { Status("%s is already used by a control, a radio group, a menu item or the form's classes", v.c_str()); return false; }
+        c->ctlGroup = v; if (!viewGroup.empty()) viewGroup = v; return true;
+    case P_GROUP: if (!FD::ValidName(v) || form.ControlNamed(v) || form.IsGroupName(v) || v == form.name || v == form.name + "Base") return false; c->group = v;
                   if (XBool(*c, "checked")) for (const DControl& o : form.items) if (&o != c && o.type == FD::C_RADIO && o.group == v && XBool(o, "checked")) { c->extra.erase("checked"); break; }     // joining a group that already has a selection: it does not take it over
                   return true;     // an identifier that is not a control's name
     case P_X:     c->x = n; ClampPos(*c); return true;
@@ -273,13 +285,13 @@ static bool ApplyProp(int p, const std::string& v) {
 static void BuildFields() {
     nFields = 0;
     auto add = [](int p) { FD::TextField& f = fields[nFields]; fieldProp[nFields++] = p; f.filter = FD::TextField::ANY; f.maxLen = 64;
-                           if (p == P_NAME || p == P_FNAME || p == P_GROUP) f.filter = FD::TextField::IDENT;
+                           if (p == P_NAME || p == P_FNAME || p == P_GROUP || p == P_CGROUP) { f.filter = FD::TextField::IDENT; if (p == P_CGROUP) f.maxLen = 32; }
                            if (p == P_X || p == P_Y || p == P_W || p == P_FW || p == P_FH) { f.filter = FD::TextField::DIGITS; f.maxLen = 4; }
                            if (p == P_BSIZE || p == P_PAD) { f.filter = FD::TextField::DIGITS; f.maxLen = 2; }
                            if (const FD::ExtraDef* d = ExtraOf(p)) { if (d->kind == FD::PK_INT) { f.filter = d->lo < 0 ? FD::TextField::SIGNED : FD::TextField::DIGITS; f.maxLen = 11; } else f.maxLen = 40; } };
     if (Sel()) {
         const FD::TypeInfo& ti = FD::Info(Sel()->type);
-        add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W);
+        add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W); add(P_CGROUP); add(P_VISIBLE); add(P_ENABLED);
         if (FD::HasList(Sel()->type) || Sel()->type == FD::C_MENU) add(P_ITEMS);
         for (int i = 0; i < ti.nExtras; ++i) { add(P_EXTRA + i); if (std::string(ti.extras[i].key) == "template") add(P_HINT); }   // the type's own properties (+ the template legend)
         add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (ti.hasAlign) add(P_ALIGN);
@@ -294,7 +306,11 @@ static void SyncFields() {                           // model -> fields (the fie
     for (int i = 0; i < nFields; ++i) if (i != focus && !IsPickRow(fieldProp[i])) fields[i].SetText(PropValue(fieldProp[i]));
     dirty = true;
 }
-static void Select(int i) { if (i != sel) { sel = i; BuildFields(); } dirty = true; }
+static bool InView(const DControl& c) { return viewGroup.empty() || c.ctlGroup.empty() || c.ctlGroup == viewGroup; }
+static void Select(int i) {
+    if (i >= 0 && i < (int)form.items.size() && !InView(form.items[i])) viewGroup = form.items[i].ctlGroup;        // selecting a control of another page switches the view to it
+    if (i != sel) { sel = i; BuildFields(); } dirty = true;
+}
 static void SetFocus(int i) {
     int old = focus; focus = i; EnsureRowVisible(i); if (old != i) rejectMsg.clear();
     if (old >= 0 && old != i) SyncFields();          // leaving a field: show what the model really holds (clamped, or the old valid name)
@@ -342,7 +358,7 @@ static void OpenItemsDialog() {
     DControl* c = Sel(); if (!c || AnyModal()) return;
     if (c->type == FD::C_MENU) { menuDlg = new FD::MenuEditor(&scr, "Menu items of " + c->name, *c, form, sel, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
     if (!FD::HasList(c->type)) return;
-    itemsDlg = new FD::ItemsDialog(&scr, std::string(c->type == FD::C_TABBAR ? "Tabs of " : "Items of ") + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true;
+    itemsDlg = new FD::ItemsDialog(&scr, std::string(c->type == FD::C_TABBAR ? "Tabs of " : "Items of ") + c->name, *c, form, form.bg); focus = -1; drag = D_NONE; dirty = true;
 }
 static void CloseMenuDialog() {
     bool ok = menuDlg->state == FD::MenuEditor::OK; std::vector<FD::MenuNode> r = menuDlg->nodes;
@@ -351,10 +367,10 @@ static void CloseMenuDialog() {
     if (DControl* c = Sel()) { c->menu = r; form.NormalizeMenu(sel); RefreshGeometry(); ClampPos(*c); SyncFields(); Status("%s: %d items", c->name.c_str(), FD::MenuNodeCount(c->menu)); }
 }
 static void CloseItemsDialog() {
-    bool ok = itemsDlg->state == FD::ItemsDialog::OK; std::vector<std::string> r = itemsDlg->items;
+    bool ok = itemsDlg->state == FD::ItemsDialog::OK; std::vector<std::string> r = itemsDlg->items, pg = itemsDlg->pages;
     delete itemsDlg; itemsDlg = nullptr; drag = D_NONE; dirty = true;
     if (!ok) return;
-    if (DControl* c = Sel()) { c->list = r; FD::ClampSelected(*c); RefreshGeometry(); ClampPos(*c); SyncFields(); Status("%s: %d %s", c->name.c_str(), (int)r.size(), c->type == FD::C_TABBAR ? "tabs" : "items"); }
+    if (DControl* c = Sel()) { c->list = r; if (c->type == FD::C_TABBAR) { c->pages = pg; c->pages.resize(c->list.size()); } FD::ClampSelected(*c); RefreshGeometry(); ClampPos(*c); SyncFields(); Status("%s: %d %s", c->name.c_str(), (int)r.size(), c->type == FD::C_TABBAR ? "tabs" : "items"); }
 }
 static void OpenPresetDialog() {
     DControl* c = Sel(); templateProp = TemplateRowProp(); if (!c || templateProp < 0 || AnyModal()) return;
@@ -415,6 +431,8 @@ static void CloseFileDialog() {
 static void SetEnumProp(int p, int v) {
     DControl* c = Sel(); if (!c) return;
     if (const FD::ExtraDef* d = ExtraOf(p)) ApplyExtra(p, d->kind == FD::PK_BOOL ? (v ? "true" : "false") : std::to_string(v));
+    else if (p == P_VISIBLE) c->visible = v != 0;
+    else if (p == P_ENABLED) c->enabled = v != 0;
     else if (p == P_BSTYLE) c->borderStyle = v == c->defStyle ? -1 : v;
     else if (p == P_ALIGN)  c->align = v == c->defAlign ? -1 : v;
     RefreshGeometry(); ClampPos(*c); SyncFields();
@@ -444,6 +462,7 @@ static void Nudge(int dx, int dy) { if (DControl* c = Sel()) { c->x += dx; c->y 
 static int HitControl(int fx, int fy) {              // topmost control under a form coordinate
     for (int i = (int)form.items.size() - 1; i >= 0; --i) {
         const DControl& c = form.items[i];
+        if (!InView(c)) continue;
         if (fx >= c.x && fx < c.x + c.w && fy >= c.y && fy < c.y + c.h) return i;
     }
     return -1;
@@ -498,6 +517,7 @@ static int MeasureText(const std::string& s) { scr.setFont(&lgfx::fonts::Font2);
 static void Reveal(int i) { fields[i].EnsureVisible(MeasureText, RowFieldW(fieldProp[i]) - 2 * FIELD_PAD); dirty = true; }
 
 // ---- zoom controls: a real SuperSpinBox (drag, click the left / right third, wheel) with Fit and 1:1 buttons ----
+static const int VIEW_X = 548, VIEW_W = 156;      // the design-view button: All -> each control group -> All ...
 static const int ZSPIN_X = 770, ZSPIN_W = 96, ZFIT_X = 874, ZFIT_W = 50, ZONE_X = 930, ZONE_W = 50, ZROW_Y = 59;
 static SuperSpinBox* zoomSpin = nullptr;
 static int ZRowH() { return zoomSpin ? zoomSpin->GetHeight() : 24; }
@@ -536,7 +556,7 @@ static void RenderFormSprite() {
     if (formSpr.width() != form.w || formSpr.height() != form.h) { formSpr.deleteSprite(); formSpr.setColorDepth(16); formSpr.createSprite(form.w, form.h); }
     formSpr.fillSprite(form.bg);
     formBgRaw = ((uint16_t*)formSpr.getBuffer())[0];                    // the background as stored in the buffer (grid dots go on this colour only)
-    for (auto& c : form.items) FD::MakeControl(&formSpr, c, 0, 0)->Push();
+    for (auto& c : form.items) if (InView(c)) FD::MakeControl(&formSpr, c, 0, 0)->Push();
 }
 static void BlitForm(int ox, int oy) {                                   // nearest-neighbour scale of the form sprite onto the viewport
     int x0 = std::max(ox, VX), y0 = std::max(oy, VY), x1 = std::min(ox + ZW(), VX + VW), y1 = std::min(oy + ZH(), VY + VH);
@@ -574,15 +594,19 @@ static void Render() {
     for (int i = 0; i < (int)form.items.size() && TREE_Y0 + (i + 1) * TREE_H < 806; ++i) {
         int y = TREE_Y0 + i * TREE_H;
         if (i == sel) scr.fillRect(18, y, 274, TREE_H - 2, C_SEL);
-        scr.setTextColor(0xFFFF); scr.drawString(form.items[i].name.c_str(), 24, y + 2);
-        scr.setTextColor(0x8410); scr.drawString(FD::Info(form.items[i].type).title, 170, y + 2);
+        scr.setTextColor(InView(form.items[i]) ? 0xFFFF : 0x4A69); scr.drawString(form.items[i].name.c_str(), 24, y + 2);        // (dim: on another page than the one in view)
+        if (!form.items[i].ctlGroup.empty()) { scr.setTextColor(0x8410); scr.drawString(form.items[i].ctlGroup.c_str(), 100, y + 2); }
+        scr.setTextColor(0x8410); scr.drawString(FD::Info(form.items[i].type).title, form.items[i].ctlGroup.empty() ? 170 : 210, y + 2);
     }
 
     // design surface
     Frame(310, 56, 680, 754, "Design surface");
     char b[160];
-    snprintf(b, sizeof b, "%s  %d x %d   grid %d", form.name.c_str(), form.w, form.h, grid);
+    snprintf(b, sizeof b, "%d x %d  grid %d", form.w, form.h, grid);
     scr.setTextColor(0x8410); scr.drawString(b, 430, 62);
+    if (!viewGroup.empty() && !form.IsGroupName(viewGroup)) viewGroup.clear();                // the view group disappeared (no control uses it any more)
+    { std::string vl = "View: " + (viewGroup.empty() ? std::string("All") : viewGroup); if (vl.size() > 17) vl = vl.substr(0, 16) + "~";
+      SuperPushButton vb(&scr, VIEW_X, ZROW_Y, VIEW_W, &lgfx::fonts::Font2, vl); if (!viewGroup.empty()) vb.ColBorder = C_YELLOW; vb.Push(); }
     scr.setTextColor(0xFFFF); scr.drawString("Zoom", ZSPIN_X - 50, 62);
     zoomSpin->Push();
     { SuperPushButton fit(&scr, ZFIT_X, ZROW_Y, ZFIT_W, &lgfx::fonts::Font2, "Fit"), one(&scr, ZONE_X, ZROW_Y, ZONE_W, &lgfx::fonts::Font2, "1:1"); fit.Push(); one.Push(); }
@@ -598,6 +622,8 @@ static void Render() {
             for (int gx = 0; gx < form.w; gx += grid) { int px = ox + Zc(gx); if (px >= VX && px < VX + VW && dp[(size_t)py * dw + px] == formBgRaw) scr.drawPixel(px, py, 0x2945); }
         }
     }
+    for (const DControl& c : form.items) if (!c.visible && InView(c))                    // initially hidden: faded, with an H in the corner
+        { int x0 = ox + Zc(c.x), y0 = oy + Zc(c.y), w = Zc(c.x + c.w) - Zc(c.x), h = Zc(c.y + c.h) - Zc(c.y); scr.fillRectAlpha(x0, y0, w, h, 160, form.bg); scr.setTextColor(C_YELLOW); scr.setFont(&lgfx::fonts::Font2); scr.setTextDatum(lgfx::textdatum_t::top_left); scr.drawString("H", x0 + 2, y0 + 1); }
     if (DControl* c = Sel()) {                                       // selection box + the two resize handles
         int x0 = ox + Zc(c->x), x1 = ox + Zc(c->x + c->w), y0 = oy + Zc(c->y), y1 = oy + Zc(c->y + c->h), my = oy + Zc(c->y + c->h / 2);
         scr.drawRect(x0 - 1, y0 - 1, x1 - x0 + 2, y1 - y0 + 2, C_ACCENT);
@@ -656,7 +682,7 @@ static void Render() {
             scr.setTextColor(0xC618); scr.drawString(b, FIELD_X + 80, fy + 6);
         } else {
             const FD::ExtraDef* xd = ExtraOf(fieldProp[i]);
-            bool bad = focus == i && (fieldProp[i] == P_NAME || fieldProp[i] == P_FNAME || fieldProp[i] == P_GROUP || (xd && xd->kind == FD::PK_TEXT)) && fields[i].text != PropValue(fieldProp[i]);
+            bool bad = focus == i && (fieldProp[i] == P_NAME || fieldProp[i] == P_FNAME || fieldProp[i] == P_GROUP || fieldProp[i] == P_CGROUP || (xd && xd->kind == FD::PK_TEXT)) && fields[i].text != PropValue(fieldProp[i]);
             FD::DrawField(scr, fields[i], FIELD_X, fy, RowFieldW(fieldProp[i]), FIELD_H, focus == i, bad, SDL_GetTicks());
         }
         scr.setClipRect(1002, PANEL_TOP, 386, PANEL_BOT - PANEL_TOP);
@@ -727,6 +753,11 @@ static void Handle(const InputEvent& e) {
         break; }
     case InputEvent::DOWN: {
         if (e.button != SDL_BUTTON_LEFT) break;
+        if (InRect(e.x, e.y, VIEW_X, ZROW_Y, VIEW_W, ZRowH())) {              // the design view: All -> each control group in turn -> All
+            SetFocus(-1); std::vector<std::string> gs = form.UsedGroups(); size_t at = 0;
+            for (size_t k = 0; k < gs.size(); ++k) if (gs[k] == viewGroup) at = k + 1;
+            viewGroup = at < gs.size() ? gs[at] : ""; if (sel >= 0 && sel < (int)form.items.size() && !InView(form.items[sel])) { sel = -1; BuildFields(); } dirty = true; break;
+        }
         if (InRect(e.x, e.y, ZSPIN_X, ZROW_Y, ZSPIN_W, ZRowH())) {          // the zoom spin box: click the left / right third, or drag up / down
             SetFocus(-1); spinPX = e.x; spinPY = e.y; spinDrag = true; spinStarted = false;
             zoomSpin->StartEdit(); SpinPointer(SuperPointerEvent::PRESS, e.x, e.y); break;
@@ -1861,6 +1892,128 @@ static void SelfTest() {
           Check(UserFileMissing(form, u).empty() && HandlerNames(form) == std::vector<std::string>({ "menu1_Change", "menu1_Choose" }), "user file: the Choose handler counts as a handler (not reported missing once the stub exists)"); }
         Check(!ValidName("menu1_Choose") && !ValidName("x_ChooseThunk") && !ValidName("fd_p1") && !ValidName("fd_anything") && ValidName("fdx"), "names: _Choose, _ChooseThunk and the generator's fd_ locals are reserved");
         form.Clear(); FixOutDir(); sel = -1; BuildFields();
+        // ---- the library: control groups ----
+        {
+            SuperLabel l1(&scr, 0, 0, 40, &lgfx::fonts::Font2, "a"), l2(&scr, 0, 0, 40, &lgfx::fonts::Font2, "b"), l3(&scr, 0, 0, 40, &lgfx::fonts::Font2, "c"), l4(&scr, 0, 0, 40, &lgfx::fonts::Font2, "d");
+            SuperPushButton b1(&scr, 0, 0, 40, &lgfx::fonts::Font2, "x"), b2(&scr, 0, 0, 40, &lgfx::fonts::Font2, "y"), b3(&scr, 0, 0, 40, &lgfx::fonts::Font2, "z");
+            SuperForm sf(nullptr, nullptr);
+            Check(l1.GetGroup() == 0 && b1.GetGroup() == 0, "library groups: a control starts in group 0 (no group)");
+            l1.SetGroup(1); l2.SetGroup(1); l3.SetGroup(2); b1.SetGroup(1); b2.SetGroup(2); b3.SetGroup(3); Check(l1.GetGroup() == 1 && b3.GetGroup() == 3, "library groups: SetGroup / GetGroup");
+            sf.Add(&l1, false); sf.Add(&l2, false); sf.Add(&l3, false); sf.Add(&l4, false); sf.Add(&b1); sf.Add(&b2); sf.Add(&b3);
+            Check(sf.GroupCount(1) == 3 && sf.GroupCount(2) == 2 && sf.GroupCount(3) == 1 && sf.GroupCount(0) == 0 && sf.GroupCount(9) == 0, "library groups: GroupCount (group 0 is never counted)");
+            sf.SetGroupVisible(1, false, false); Check(!l1.IsVisible() && !l2.IsVisible() && !b1.IsVisible() && l3.IsVisible() && l4.IsVisible() && b2.IsVisible(), "library groups: SetGroupVisible hides exactly that group");
+            Check(sf.GetFocused() == &b2, "library groups: the focus leaves a control that was hidden (b1 -> b2)");
+            sf.SetGroupVisible(1, true, false); Check(l1.IsVisible() && b1.IsVisible(), "library groups: and shows it again");
+            sf.SetGroupVisible(0, false, false); Check(l4.IsVisible(), "library groups: group 0 is never touched");
+            sf.SetGroupEnabled(2, false); Check(!l3.IsEnabled() && !b2.IsEnabled() && b1.IsEnabled(), "library groups: SetGroupEnabled disables a group");
+            sf.SetGroupEnabled(2, true); Check(l3.IsEnabled() && b2.IsEnabled(), "library groups: and enables it");
+            const uint16_t pages[] = { 1, 2, 3 };
+            sf.ShowPage(pages, 3, 2, false); Check(!l1.IsVisible() && !b1.IsVisible() && l3.IsVisible() && b2.IsVisible() && !b3.IsVisible() && l4.IsVisible(), "library groups: ShowPage shows one page, hides the other listed ones, leaves ungrouped controls alone");
+            sf.ShowPage(pages, 3, 1, false); Check(l1.IsVisible() && b1.IsVisible() && !l3.IsVisible() && !b2.IsVisible(), "library groups: ShowPage switches pages");
+            Check(sf.GetFocused() == &b1, "library groups: the focus moves to the new page's first focusable control");
+            sf.ShowPage(pages, 3, 0, false); Check(!l1.IsVisible() && !l3.IsVisible() && !b3.IsVisible() && l4.IsVisible() && sf.GetFocused() == nullptr, "library groups: show = 0 hides every listed page (nothing left to focus)");
+            const uint16_t partial[] = { 1 }; sf.ShowPage(pages, 3, 3, false); sf.ShowPage(partial, 1, 1, false); Check(b3.IsVisible() && b1.IsVisible() && !b2.IsVisible(), "library groups: a group that is not listed stays as it is");
+        }
+        // ---- chunk 6: Visible / Enabled / control groups / tab pages in the designer ----
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Pg"; viewGroup.clear();
+        Place(C_TABBAR, 8, 8); Place(C_LABEL, 8, 48); Place(C_PUSHBUTTON, 8, 80); Place(C_SLIDER, 8, 120);
+        { DControl d; Check(d.ctlGroup.empty() && d.visible && d.enabled && d.pages.empty(), "groups: the defaults (no group, visible, enabled)"); }
+        auto GR = [&](int prop) { for (int i = 0; i < nFields; ++i) if (fieldProp[i] == prop) return i; return -1; };
+        auto GSet = [&](const char* text) { int r = GR(P_CGROUP); EnsureRowVisible(r); Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); if (text[0]) Type(text); else Key(SDLK_BACKSPACE); Key(SDLK_RETURN); };
+        auto GSeg = [&](int prop, int seg) { int r = GR(prop); EnsureRowVisible(r); Click(FIELD_X + seg * (FIELD_W / 2) + 6, FieldY(r) + 5); };
+        for (int i = 0; i < 4; ++i) { Select(i); Check(GR(P_CGROUP) >= 0 && GR(P_VISIBLE) >= 0 && GR(P_ENABLED) >= 0 && PropLabel(P_CGROUP) == "Control group", ("groups: control " + std::to_string(i) + " has Control group / Visible / Enabled rows").c_str()); }
+        Select(1); GSet("GRP_HOME"); Check(form.items[1].ctlGroup == "GRP_HOME", "groups: a control group is typed as a name");
+        Select(2); GSet("GRP_HOME"); Check(form.items[2].ctlGroup == "GRP_HOME" && form.UsedGroups().size() == 1, "groups: several controls can share a group name");
+        Select(3); GSet("GRP_SETTINGS"); Check(form.items[3].ctlGroup == "GRP_SETTINGS" && form.UsedGroups() == std::vector<std::string>({ "GRP_HOME", "GRP_SETTINGS" }), "groups: groups are listed in order of first use");
+        Check(form.GroupId("GRP_HOME") == 1 && form.GroupId("GRP_SETTINGS") == 2 && form.GroupId("nope") == 0, "groups: numbered 1, 2, 3 by first use (0 = none)");
+        { bool unchanged = true; for (const char* bad : { "int", "HIGH", "1abc", "label1", "Pg", "PgBase", "x_Click", "fd_x" }) { GSet(bad); if (form.items[3].ctlGroup != "GRP_SETTINGS") unchanged = false; }
+          Check(unchanged && status.find("not a safe") != std::string::npos, "groups: a keyword, macro, control name or form class name is refused, the old group stays, with the reason"); }
+        GSet("label1"); Check(status.find("already used") != std::string::npos, "groups: (a control's name: already used)");
+        GSet(""); Check(form.items[3].ctlGroup.empty() && form.UsedGroups() == std::vector<std::string>({ "GRP_HOME" }) && form.GroupId("GRP_HOME") == 1, "groups: clearing the field means no group (and an unused group disappears)");
+        GSet("GRP_SETTINGS"); Check(form.GroupId("GRP_SETTINGS") == 2, "groups: a group that comes back gets the next free number");
+        Check(form.NameTaken("GRP_HOME") && form.NameTaken("GRP_SETTINGS") && !form.GroupNameTaken("GRP_HOME") && form.GroupNameTaken("label1") && form.GroupNameTaken("Pg"), "groups: group names count as names (a control cannot be called GRP_HOME) but several controls may share one");
+        Select(2); { int r = GR(P_NAME); Click(FIELD_X + 20, FieldY(r) + 5); Key(SDLK_a, KMOD_LCTRL); Type("GRP_HOME"); Key(SDLK_RETURN); } Check(form.items[2].name == "button1", "groups: a control cannot be renamed to a group name");
+        Check(form.FormNameClashes("GRP_HOME") && !form.FormNameClashes("Other"), "groups: the form cannot be renamed to a group name");
+        // Visible / Enabled
+        Select(2); GSeg(P_VISIBLE, 0); Check(!form.items[2].visible && ToJsonHas(form, "\"visible\": false"), "visible: No hides the control initially (saved as false)");
+        GSeg(P_VISIBLE, 1); Check(form.items[2].visible && !ToJsonHas(form, "visible"), "visible: Yes is the default (not saved)");
+        GSeg(P_ENABLED, 0); Check(!form.items[2].enabled && ToJsonHas(form, "\"enabled\": false"), "enabled: No disables the control initially");
+        { auto dc = MakeControl(&scr, form.items[2], 0, 0); Check(!dc->IsEnabled() && dc->IsVisible(), "enabled: the real control is drawn disabled (dimmed) in the designer"); }
+        GSeg(P_ENABLED, 1); Check(form.items[2].enabled && !ToJsonHas(form, "enabled"), "enabled: Yes is the default (not saved)");
+        // JSON and the numbers
+        { std::string gj = form.ToJson(), ge; DForm gf;
+          Check(gf.FromJson(gj, ge) && gf.items[1].ctlGroup == "GRP_HOME" && gf.items[3].ctlGroup == "GRP_SETTINGS" && gf.ToJson() == gj, "groups: the control groups and their numbers survive the JSON round trip");
+          Check(gj.find("\"controlGroup\": \"GRP_HOME\"") != std::string::npos && gj.find("\"groupIds\": { \"GRP_HOME\": 1, \"GRP_SETTINGS\": 2 }") != std::string::npos, "groups: written readably (controlGroup per control, groupIds in the form)");
+          Check(gf.FromJson("{\"form\":{\"name\":\"F\",\"groupIds\":{\"B\":7,\"A\":7,\"Z\":3}},\"controls\":[{\"type\":\"SuperLabel\",\"name\":\"a\",\"controlGroup\":\"A\"},{\"type\":\"SuperLabel\",\"name\":\"b\",\"controlGroup\":\"B\"},{\"type\":\"SuperLabel\",\"name\":\"c\",\"controlGroup\":\"C\"}]}", ge)
+                && gf.GroupId("B") == 7 && gf.GroupId("A") == 8 && gf.GroupId("C") == 9, "groups: numbers from a file are kept (the first owner of a repeated number keeps it); the others get the next free numbers");
+          Check(gf.GroupId("Z") == 0 && gf.groupIds.size() == 3, "groups: an unused name in groupIds is dropped");
+          Check(gf.FromJson("{\"form\":{\"name\":\"F\"},\"controls\":[{\"type\":\"SuperLabel\",\"name\":\"a\",\"controlGroup\":\"int\"},{\"type\":\"SuperLabel\",\"name\":\"b\",\"controlGroup\":\"a\"},{\"type\":\"SuperLabel\",\"name\":\"c\",\"controlGroup\":\"G_OK\",\"visible\":false,\"enabled\":false}]}", ge)
+                && gf.items[0].ctlGroup.empty() && gf.items[1].ctlGroup.empty() && gf.items[2].ctlGroup == "G_OK" && !gf.items[2].visible && !gf.items[2].enabled, "groups: unsafe group names or names that are a control's name in a file are dropped; visible / enabled are read"); }
+        // the design view
+        viewGroup.clear(); Select(3); Check(viewGroup.empty(), "view: starts on All");
+        Click(VIEW_X + 10, ZROW_Y + 5); Check(viewGroup == "GRP_HOME" && sel == -1, "view: the View button goes to the first group (and deselects a control that is no longer shown)");
+        Check(HitControl(10, 52) == 1 && HitControl(10, 125) == -1, "view: a control of another page cannot be clicked, one of the shown group can");
+        Click(VIEW_X + 10, ZROW_Y + 5); Check(viewGroup == "GRP_SETTINGS" && HitControl(10, 52) == -1 && HitControl(10, 125) == 3, "view: ... then the next group");
+        Click(VIEW_X + 10, ZROW_Y + 5); Check(viewGroup.empty() && HitControl(10, 52) == 1, "view: ... then back to All");
+        viewGroup = "GRP_HOME"; Select(3); Check(viewGroup == "GRP_SETTINGS" && sel == 3, "view: selecting a control of another page (from the tree) switches the view to its group");
+        Select(0); Check(viewGroup == "GRP_SETTINGS" && sel == 0, "view: a control without a group is shown in every view");
+        viewGroup.clear();
+        // tab pages in the items dialog
+        Select(0);
+        auto OpenTabs = [&]() { int r = GR(P_ITEMS); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 30, FieldY(r) + 5); };
+        auto TK = [&](SDL_Keycode k, Uint16 m = 0) { InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = k; v.mod = m; Handle(v); };
+        auto TT = [&](const char* tx) { InputEvent v; v.type = InputEvent::TEXT; strncpy(v.text, tx, sizeof v.text - 1); Handle(v); };
+        auto TB = [&](int row, int k) { int x = itemsDlg->BtnX(row, k) + 6, y = (row == 1 ? itemsDlg->Row1Y() : itemsDlg->Row2Y()) + 3; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); };
+        auto TSel = [&](int i) { SuperListBox* lb = itemsDlg->Lb(); int x = lb->GetX() + lb->GetBorder() + lb->GetPadding() + 8, y = lb->GetBoxTop() + lb->GetBorder() + lb->GetPadding() + 2 + i * 18; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); };
+        auto TPage = [&](const char* g) { Handle(ev(InputEvent::DOWN, itemsDlg->RX() + 20, itemsDlg->PageY() + 5)); Handle(ev(InputEvent::UP, 0, 0)); TK(SDLK_a, KMOD_LCTRL); if (g[0]) TT(g); else TK(SDLK_BACKSPACE); };
+        auto TOk = [&]() { int x = itemsDlg->OkX() + 5, y = itemsDlg->BtnY() + 3; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); };
+        OpenTabs(); Check(itemsDlg != nullptr && itemsDlg->items.size() == 3 && itemsDlg->pages.size() == 3 && itemsDlg->PageText().empty(), "tab pages: the tabs dialog has a Page group per tab (none yet)");
+        TSel(0); TPage("GRP_HOME"); Check(itemsDlg->pages[0] == "GRP_HOME" && itemsDlg->PageFocused(), "tab pages: the page group of a tab is typed in its field");
+        TK(SDLK_ESCAPE); TSel(1); TPage("GRP_SETTINGS"); TK(SDLK_ESCAPE); TSel(2); Check(itemsDlg->pages[1] == "GRP_SETTINGS" && itemsDlg->pages[2].empty() && itemsDlg->PageText().empty(), "tab pages: each tab has its own (the third has none)");
+        TPage("int"); Check(itemsDlg->pages[2].empty() && itemsDlg->Message().find("not a safe") != std::string::npos, "tab pages: a keyword is refused (red, with the reason)");
+        TPage("label1"); Check(itemsDlg->pages[2].empty() && itemsDlg->Message().find("already used") != std::string::npos, "tab pages: a control's name is refused");
+        TPage("GRP_HOME"); Check(itemsDlg->pages[2] == "GRP_HOME" && itemsDlg->Message().empty(), "tab pages: a group another tab (or a control) already uses is fine: pages may share a group");
+        TPage(""); TK(SDLK_ESCAPE); Check(itemsDlg->pages[2].empty(), "tab pages: clearing it means no page");
+        TSel(1); TB(1, 1); Check(itemsDlg->items.size() == 4 && itemsDlg->pages.size() == 4 && itemsDlg->pages[0] == "GRP_HOME" && itemsDlg->pages[1].empty() && itemsDlg->pages[2] == "GRP_SETTINGS", "tab pages: Insert adds a tab without a page; the others keep theirs");
+        TK(SDLK_ESCAPE); TB(1, 2); Check(itemsDlg->items.size() == 3 && itemsDlg->pages == std::vector<std::string>({ "GRP_HOME", "GRP_SETTINGS", "" }), "tab pages: Delete removes the tab and its page");
+        TSel(0); TB(1, 4); Check(itemsDlg->items[1] == "Tab 1" && itemsDlg->pages[1] == "GRP_HOME" && itemsDlg->pages[0] == "GRP_SETTINGS", "tab pages: Move down moves the page with its tab");
+        TB(1, 3); Check(itemsDlg->items[0] == "Tab 1" && itemsDlg->pages[0] == "GRP_HOME", "tab pages: Move up moves it back");
+        TSel(2); TPage("GRP_LAST"); TK(SDLK_ESCAPE); TB(1, 3); TB(1, 3); Check(itemsDlg->items[0] == "Tab 3" && itemsDlg->pages[0] == "GRP_LAST", "tab pages: (Tab 3 moved to the top with its page)");
+        TB(2, 0); { auto pageOf = [&](const char* t) { for (size_t i = 0; i < itemsDlg->items.size(); ++i) if (itemsDlg->items[i] == t) return itemsDlg->pages[i]; return std::string("?"); };
+                    Check(itemsDlg->items[0] == "Tab 1" && pageOf("Tab 1") == "GRP_HOME" && pageOf("Tab 2") == "GRP_SETTINGS" && pageOf("Tab 3") == "GRP_LAST", "tab pages: Sort A-Z keeps every page with its tab"); }
+        { char* oldClip = SDL_GetClipboardText(); SDL_SetClipboardText("One\nTwo"); size_t n0 = itemsDlg->items.size(); TB(2, 1); Check(itemsDlg->items.size() == n0 + 2 && itemsDlg->pages.size() == itemsDlg->items.size(), "tab pages: Paste lines adds tabs without pages"); if (oldClip) { SDL_SetClipboardText(oldClip); SDL_free(oldClip); } }
+        TB(2, 2); Check(itemsDlg->items.empty() && itemsDlg->pages.empty(), "tab pages: Clear all clears both");
+        TB(1, 0); TK(SDLK_a, KMOD_LCTRL); TT("Home"); TK(SDLK_ESCAPE); TK(SDLK_ESCAPE);
+        Check(itemsDlg == nullptr && form.items[0].list == std::vector<std::string>({ "Tab 1", "Tab 2", "Tab 3" }) && form.items[0].pages.empty(), "tab pages: Esc cancels (the tab bar keeps its tabs and pages)");
+        OpenTabs(); TB(2, 2);
+        TB(1, 0); TK(SDLK_a, KMOD_LCTRL); TT("Home"); TK(SDLK_TAB); TT("GRP_HOME"); TK(SDLK_ESCAPE);
+        TB(1, 0); TK(SDLK_a, KMOD_LCTRL); TT("Settings"); TK(SDLK_TAB); TT("GRP_SETTINGS"); TK(SDLK_ESCAPE);
+        TB(1, 0); TK(SDLK_a, KMOD_LCTRL); TT("About"); TK(SDLK_ESCAPE); TOk();
+        Check(itemsDlg == nullptr && form.items[0].list == std::vector<std::string>({ "Home", "Settings", "About" }) && form.items[0].pages == std::vector<std::string>({ "GRP_HOME", "GRP_SETTINGS", "" }), "tab pages: OK stores the tabs with their page groups");
+        form.items[1].ctlGroup = "GRP_HOME"; form.items[2].ctlGroup = "GRP_HOME"; form.items[3].ctlGroup = "GRP_SETTINGS"; form.items[2].visible = false; form.items[3].enabled = false;
+        { std::string tj = form.ToJson(), te; DForm tf; Check(tf.FromJson(tj, te) && tf.items[0].list == form.items[0].list && tf.items[0].pages == form.items[0].pages && tf.ToJson() == tj, "tab pages: the pages survive the JSON round trip");
+          Check(tj.find("\"items\": [{ \"text\": \"Home\", \"group\": \"GRP_HOME\" }, { \"text\": \"Settings\", \"group\": \"GRP_SETTINGS\" }, \"About\"]") != std::string::npos, "tab pages: a tab with a page is written as { text, group }, one without as a plain string");
+          Check(tf.FromJson("{\"form\":{},\"controls\":[{\"type\":\"SuperTabBar\",\"name\":\"t\",\"items\":[\"A\",{\"text\":\"B\",\"group\":\"G1\"},{\"text\":\"C\",\"group\":\"int\"},{\"group\":\"G3\"}]}]}", te)
+                && tf.items[0].list == std::vector<std::string>({ "A", "B", "C" }) && tf.items[0].pages == std::vector<std::string>({ "", "G1", "" }), "tab pages: a file may mix strings and objects; an unsafe page name is dropped, a tab without text is dropped"); }
+        // generated code
+        { std::string g = GenerateDesigner(form); auto hg = [&](const char* x) { return g.find(x) != std::string::npos; };
+          Check(hg("// control groups") && hg("static constexpr uint16_t GRP_HOME = 1;") && hg("static constexpr uint16_t GRP_SETTINGS = 2;") && g.find("GRP_HOME = 1") < g.find("SuperTabBar tabs1;"), "codegen: every used control group is a static constexpr uint16_t in the class");
+          Check(hg("label1.SetGroup(GRP_HOME);") && hg("button1.SetGroup(GRP_HOME);") && hg("slider1.SetGroup(GRP_SETTINGS);") && !hg("tabs1.SetGroup"), "codegen: SetGroup for the controls that have a group");
+          Check(hg("button1.SetVisible(false, false);") && !hg("label1.SetVisible") && hg("slider1.SetEnabled(false);") && !hg("button1.SetEnabled"), "codegen: initial Visible = No and Enabled = No");
+          Check(g.find("tabs1_ShowPage(tabs1.GetSelected(), false);") < g.find("button1.SetVisible(false, false);") && g.find("button1.SetVisible(false, false);") > g.find("InitializeComponent();"), "codegen: Visible = No is applied after the first page is shown, so it wins at start (the designer shows it faded)");
+          Check(hg("void tabs1_ShowPage(int index, bool draw = true) {") && hg("static const uint16_t pages[] = { GRP_HOME, GRP_SETTINGS, 0 };") && hg("Form.ShowPage(pages, 3, (index >= 0 && index < 3) ? pages[index] : 0, draw);"), "codegen: a ShowPage method per tab bar (a tab without a page is 0)");
+          Check(hg("tabs1_ShowPage(tabs1.GetSelected(), false);") && g.find("InitializeComponent();\n        tabs1_ShowPage") != std::string::npos, "codegen: the selected tab's page is shown at start, the others hidden");
+          Check(hg("static void tabs1_AcceptThunk(void* u) { auto* s = static_cast<PgBase*>(u); s->tabs1_ShowPage(s->tabs1.GetSelected()); s->tabs1_Accept(); }"), "codegen: choosing a tab switches the page, then calls your handler");
+          Check(hg("tabs1.SetOnAccept(tabs1_AcceptThunk, this);") && hg("virtual void tabs1_Accept() {}"), "codegen: the handler is still yours");
+          std::string u = GenerateUserFile(form); Check(u.find("The page (control group) of that tab is already shown.") != std::string::npos, "user file: the tab Accept hint says the page is already shown");
+          ExtraSet(form.items[0], *FindExtra(C_TABBAR, "selected"), "1"); Check(GenerateDesigner(form).find("tabs1.SetSelected(1);") != std::string::npos, "codegen: (a different initial tab)");
+          form.items[0].pages = { "", "", "" }; std::string g2 = GenerateDesigner(form);
+          Check(g2.find("_ShowPage") == std::string::npos && g2.find("tabs1_AcceptThunk") != std::string::npos && g2.find("s->tabs1_ShowPage") == std::string::npos && g2.find("GRP_SETTINGS = ") != std::string::npos, "codegen: without any page group a tab bar writes no page code (the groups of controls still exist)"); }
+        { DForm bad; bad.name = "Bad"; DControl a; a.type = C_LABEL; a.name = "grp"; a.ctlGroup = "grp"; bad.items.push_back(a); std::error_code bec; std::string bdir = "/tmp/fd_badgroup"; std::filesystem::remove_all(bdir, bec); std::filesystem::create_directories(bdir, bec);
+          GenResult br = WriteDesigner(bad, bdir); Check(!br.ok && br.error.find("control group") != std::string::npos && !std::filesystem::exists(bdir + "/Bad.designer.h", bec), "export: a control group named like a control is refused (nothing is written)");
+          bad.items[0].ctlGroup = "G_OK"; br = WriteDesigner(bad, bdir); Check(br.ok, "export: a valid group exports"); std::filesystem::remove_all(bdir, bec); }
+        Check(!ValidName("tabs1_ShowPage") && !ValidName("x_ShowPage"), "names: _ShowPage is reserved too");
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); viewGroup.clear();
         // delete
         form.Clear(); Place(C_LABEL, 8, 8); Place(C_CHECKBOX, 8, 40); sel = -1; Key(SDLK_TAB); Key(SDLK_DELETE); Check(form.items.size() == 1 && sel == -1, "designer: Delete removes the selected control");
         form.Clear(); sel = -1; BuildFields(); unsetenv("FD_FORM");

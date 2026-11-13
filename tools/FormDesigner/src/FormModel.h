@@ -202,6 +202,9 @@ struct DControl {
     int defStyle = 0, defSize = 1, defPad = 2, defAlign = 0;    // derived: the control's own defaults (not saved)
     int h = 16;                      // derived from the real control (not saved)
     std::vector<MenuNode> menu;                                 // the items of a menu (a tree)
+    std::string ctlGroup;                                       // control group: a name (generated as a uint16_t constant); "" = none (group 0, the default)
+    bool visible = true, enabled = true;                        // the initial state (SetVisible / SetEnabled)
+    std::vector<std::string> pages;                             // tab bar: the control group each tab shows ("" = none), parallel to `list` (may be shorter)
     std::vector<std::string> list;                              // the items of a list box / combo box / tab bar (printable ASCII, non-empty)
     std::map<std::string, std::string> extra;                   // type-specific properties (ExtraDef): only values that differ from the default are stored
 };
@@ -348,6 +351,7 @@ struct DForm {
     std::string name = "Form1";
     int w = DEFAULT_FORM_W, h = DEFAULT_FORM_H;
     uint16_t bg = DEF_FORM_BG;       // the form's back colour
+    mutable std::vector<std::pair<std::string, int>> groupIds;   // control group name -> number (1, 2, 3 by first use), kept stable in the JSON
     std::string outDir;              // where the generated code goes ("" until the designer fills in a folder that exists)
     std::vector<DControl> items;
 
@@ -355,8 +359,29 @@ struct DForm {
     // A name is taken when a control (other than `except`) or a radio group already has it: both become C++ members of the generated class.
     // The form's own class names count too: the generated classes are <name>Base and <name>, and no member may be called like its class.
     // Menu item ids (itemId) are constants of the generated class too; `exceptMenu` = a menu whose own items are not counted (the one being edited).
-    bool NameTaken(const std::string& n, int except = -1, int exceptMenu = -1) const {
+    // Control groups (a name per group of controls, a uint16_t constant in the generated class) count as names too; ctlGroups = false leaves them out.
+    std::vector<std::string> UsedGroups() const {                  // control group names in order of first use (controls, then tab pages)
+        std::vector<std::string> v;
+        auto add = [&](const std::string& g) { if (!g.empty() && std::find(v.begin(), v.end(), g) == v.end()) v.push_back(g); };
+        for (const DControl& c : items) add(c.ctlGroup);
+        for (const DControl& c : items) if (c.type == C_TABBAR) for (const std::string& p : c.pages) add(p);
+        return v;
+    }
+    bool IsGroupName(const std::string& n) const { auto u = UsedGroups(); return std::find(u.begin(), u.end(), n) != u.end(); }
+    // The number of every used group (stable: a name keeps the number the file gave it; new names get the next one above the highest). Unused names are dropped.
+    void AssignGroupIds() const {
+        std::vector<std::string> used = UsedGroups(); std::vector<std::pair<std::string, int>> out; std::set<int> ids;
+        for (auto& kv : groupIds) if (std::find(used.begin(), used.end(), kv.first) != used.end() && kv.second >= 1 && kv.second <= MAX_MENU_ID && ids.insert(kv.second).second) out.push_back(kv);
+        int mx = ids.empty() ? 0 : *ids.rbegin();
+        for (const std::string& g : used) { bool have = false; for (auto& kv : out) if (kv.first == g) have = true; if (!have) out.push_back({ g, ++mx }); }
+        groupIds = out;
+    }
+    int GroupId(const std::string& g) const { AssignGroupIds(); for (auto& kv : groupIds) if (kv.first == g) return kv.second; return 0; }
+    // Would g be a usable control group name? (a safe C++ name that no control, radio group, menu item or form class already has; other CONTROLS may share it: that is the point)
+    bool GroupNameTaken(const std::string& g) const { return NameTaken(g, -1, -1, false); }
+    bool NameTaken(const std::string& n, int except = -1, int exceptMenu = -1, bool ctlGroups = true) const {
         if (n == name || n == name + "Base") return true;
+        if (ctlGroups && IsGroupName(n)) return true;
         for (int i = 0; i < (int)items.size(); ++i) {
             if (i != except && items[i].name == n) return true;
             if (items[i].type == C_RADIO && items[i].group == n) return true;
@@ -402,10 +427,19 @@ struct DForm {
         MenuForEach(c.menu, [&](MenuNode& k) {                                          // B: fill in what a command needs
             if (!(k.kids.empty() || !k.itemId.empty() || k.id >= 0)) return;
             if (k.id < 0) k.id = ++maxId;
-            if (k.itemId.empty()) { k.itemId = AutoItemId(prefix, k.text, [&](const std::string& s) { return NameTaken(s, -1, mi) || usedNames.count(s) > 0; }); usedNames.insert(k.itemId); }
+            if (k.itemId.empty()) { k.itemId = AutoItemId(prefix, k.text, [&](const std::string& s) { return NameTaken(s, -1, mi, false) || usedNames.count(s) > 0; }); usedNames.insert(k.itemId); }
         });
     }
     void NormalizeMenus() { for (int i = 0; i < (int)items.size(); ++i) NormalizeMenu(i); }
+    // The first thing wrong with the control groups (for the export check), or "".
+    std::string GroupProblem() const {
+        for (const std::string& g : UsedGroups()) {
+            if (!ValidName(g)) return "the control group \"" + g + "\" is not a safe C++ name";
+            if (GroupNameTaken(g)) return "the control group " + g + " has the same name as a control, a radio group, a menu item or the form's classes";
+            int id = GroupId(g); if (id < 1 || id > MAX_MENU_ID) return "the control group " + g + " has no valid number";
+        }
+        return "";
+    }
     // The first thing wrong with the menus (for the export check), or "".
     std::string MenuProblem() const {
         for (int mi = 0; mi < (int)items.size(); ++mi) {
@@ -428,6 +462,7 @@ struct DForm {
         for (const DControl& c : items) {
             if (c.name == f || c.name == f + "Base") return true;
             if (withGroups && c.type == C_RADIO && (c.group == f || c.group == f + "Base")) return true;
+            if (withGroups && (c.ctlGroup == f || c.ctlGroup == f + "Base")) return true;
             if (withGroups && c.type == C_MENU) { bool hit = false; MenuForEach(c.menu, [&](const MenuNode& k) { if (k.itemId == f || k.itemId == f + "Base") hit = true; }); if (hit) return true; }
         }
         return false;
@@ -442,11 +477,18 @@ struct DForm {
 
     static std::string Layout(const DControl& c) {              // only the overrides, e.g. , "borderStyle": "sleek", "padding": 4
         std::string s;
-        if (HasList(c.type) && !c.list.empty()) {                         // "items": ["Red", "Green"]
+        if (HasList(c.type) && !c.list.empty()) {                         // "items": ["Red", "Green"]; a tab with a page group is { "text": "Home", "group": "GRP_HOME" }
             s += ", \"items\": [";
-            for (size_t i = 0; i < c.list.size(); ++i) { std::string v; for (char ch : c.list[i]) { if (ch == '"' || ch == '\\') v += '\\'; v += ch; } s += (i ? ", \"" : "\"") + v + "\""; }
+            for (size_t i = 0; i < c.list.size(); ++i) {
+                std::string v; for (char ch : c.list[i]) { if (ch == '"' || ch == '\\') v += '\\'; v += ch; }
+                std::string pg = c.type == C_TABBAR && i < c.pages.size() ? c.pages[i] : "";
+                s += (i ? ", " : "") + (pg.empty() ? "\"" + v + "\"" : "{ \"text\": \"" + v + "\", \"group\": \"" + pg + "\" }");
+            }
             s += "]";
         }
+        if (!c.ctlGroup.empty()) s += ", \"controlGroup\": \"" + c.ctlGroup + "\"";
+        if (!c.visible) s += ", \"visible\": false";
+        if (!c.enabled) s += ", \"enabled\": false";
         if (c.type == C_RADIO) s += ", \"group\": \"" + c.group + "\"";
         if (c.borderStyle >= 0) s += std::string(", \"borderStyle\": \"") + StyleName(c.borderStyle) + "\"";
         if (c.borderSize >= 0)  s += ", \"borderSize\": " + std::to_string(c.borderSize);
@@ -482,9 +524,14 @@ struct DForm {
         }
         return s + std::string((size_t)ind, ' ') + "]";
     }
+    std::string GroupIdsJson() const {                            // , "groupIds": { "GRP_PAGE1": 1, "GRP_PAGE2": 2 }
+        AssignGroupIds(); if (groupIds.empty()) return "";
+        std::string s = ", \"groupIds\": { "; for (size_t i = 0; i < groupIds.size(); ++i) s += (i ? ", \"" : "\"") + groupIds[i].first + "\": " + std::to_string(groupIds[i].second);
+        return s + " }";
+    }
     std::string ToJson() const {
         auto esc = [](const std::string& s) { std::string r; for (char c : s) { if (c == '"' || c == '\\') r += '\\'; r += c; } return r; };
-        std::string j = "{\n  \"form\": { \"name\": \"" + esc(name) + "\", \"width\": " + std::to_string(w) + ", \"height\": " + std::to_string(h) + ", \"backColor\": \"" + Hex(bg) + "\", \"outputPath\": \"" + esc(outDir) + "\" },\n  \"controls\": [";
+        std::string j = "{\n  \"form\": { \"name\": \"" + esc(name) + "\", \"width\": " + std::to_string(w) + ", \"height\": " + std::to_string(h) + ", \"backColor\": \"" + Hex(bg) + "\", \"outputPath\": \"" + esc(outDir) + "\"" + GroupIdsJson() + " },\n  \"controls\": [";
         for (size_t i = 0; i < items.size(); ++i) {
             const DControl& c = items[i];
             j += i ? ",\n    " : "\n    ";
@@ -544,11 +591,17 @@ struct DForm {
                 }
             }
             if (HasList(t)) if (const JV* lv = c.Get("items")) if (lv->t == JV::ARR)                  // items: printable ASCII, non-empty, a sensible number and length
-                for (const JV& it : lv->a) if (it.t == JV::STR && (int)d.list.size() < MAX_LIST_ITEMS) {
-                    std::string v; for (char ch : it.s) if (ch >= 0x20 && ch < 0x7F) v += ch;
+                for (const JV& it : lv->a) if ((it.t == JV::STR || it.t == JV::OBJ) && (int)d.list.size() < MAX_LIST_ITEMS) {
+                    std::string raw = it.t == JV::STR ? it.s : (it.Get("text") && it.Get("text")->t == JV::STR ? it.Get("text")->s : "");
+                    std::string v; for (char ch : raw) if (ch >= 0x20 && ch < 0x7F) v += ch;
                     if (v.size() > (size_t)MAX_ITEM_LEN) v.resize(MAX_ITEM_LEN);
-                    if (!v.empty()) d.list.push_back(v);
+                    if (v.empty()) continue;
+                    d.list.push_back(v);
+                    if (t == C_TABBAR) { const JV* gv = it.t == JV::OBJ ? it.Get("group") : nullptr; d.pages.resize(d.list.size()); if (gv && gv->t == JV::STR) d.pages.back() = gv->s; }
                 }
+            if (const JV* v = c.Get("controlGroup")) if (v->t == JV::STR) d.ctlGroup = v->s;
+            if (const JV* v = c.Get("visible")) if (v->t == JV::NUM) d.visible = v->n != 0;
+            if (const JV* v = c.Get("enabled")) if (v->t == JV::NUM) d.enabled = v->n != 0;
             if (t == C_MENU) if (const JV* mv = c.Get("items")) if (mv->t == JV::ARR) {                      // nested items: text, optional itemId / id, optional items
                 int budget = 1000;
                 std::function<void(const JV&, std::vector<MenuNode>&, int)> rd = [&](const JV& arr, std::vector<MenuNode>& out, int depth) {
@@ -575,6 +628,12 @@ struct DForm {
         for (DControl& c : n.items)                                   // a group name must not be a control name or the form's class (all are C++ names)
             if (c.type == C_RADIO && (n.ControlNamed(c.group) || c.group == n.name || c.group == n.name + "Base")) c.group = n.UniqueGroupName();
         n.NormalizeMenus();                                            // item ids: valid, unique, numbered (after the control names are final)
+        for (DControl& c : n.items) {                                  // control groups: safe names that no control, radio group, menu item or form class has
+            if (!c.ctlGroup.empty() && (!ValidName(c.ctlGroup) || n.GroupNameTaken(c.ctlGroup))) c.ctlGroup.clear();
+            if (c.type == C_TABBAR) { c.pages.resize(c.list.size()); for (std::string& p : c.pages) if (!p.empty() && (!ValidName(p) || n.GroupNameTaken(p))) p.clear(); }
+        }
+        if (const JV* gv = f->Get("groupIds")) if (gv->t == JV::OBJ) for (auto& kv : gv->o) if (kv.second.t == JV::NUM) n.groupIds.push_back({ kv.first, (int)kv.second.n });
+        n.AssignGroupIds();                                            // numbers: the file's where valid, else the next free
         for (DControl& c : n.items) if (HasList(c.type)) ClampSelected(c);                 // the initial selection must be an item
         { std::set<std::string> seen;                                 // only one radio button per group can be selected: the first one wins
           for (DControl& c : n.items) if (c.type == C_RADIO && XBool(c, "checked") && !seen.insert(c.group).second) c.extra.erase("checked"); }

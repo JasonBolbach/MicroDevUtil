@@ -19,6 +19,7 @@
 #include <SuperComboBox.h>
 #include <SuperTabBar.h>
 #include <SuperMenu.h>
+#include <SuperForm.h>
 #include "FormModel.h"
 #include "FontTable.h"
 
@@ -46,6 +47,7 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     default:           p.reset(new SuperLabel(dst, x, y, c.w, font, c.text)); break;
     }
     p->SetVisible(false, false);                                  // the setters below must not draw (SetValue would push at once)
+    p->SetEnabled(c.enabled);                                     // disabled controls are drawn dimmed by the real control
     if (c.borderStyle >= 0) p->SetBorderStyle((SuperControl::BorderStyle)c.borderStyle);
     if (c.borderSize >= 0)  p->SetBorder(c.borderSize, c.border);
     if (c.padding >= 0)     p->SetPadding(c.padding);

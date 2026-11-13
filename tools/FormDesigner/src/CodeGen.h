@@ -75,6 +75,7 @@ inline std::vector<std::string> HandlerNames(const DForm& f) {
     for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) v.push_back(c.name + "_" + ev.name);
     return v;
 }
+inline bool HasPages(const DControl& c) { if (c.type != C_TABBAR) return false; for (const std::string& p : c.pages) if (!p.empty()) return true; return false; }
 inline bool Focusable(int type) { return type != C_LABEL && type != C_PROGRESS && type != C_TEXTBOX; }
 inline std::string CppChar(char c) { return c == '\'' ? "'\\''" : c == '\\' ? "'\\\\'" : std::string("'") + c + "'"; }
 
@@ -172,6 +173,8 @@ inline std::string GenerateDesigner(const DForm& f) {
         bool any = false;
         MenuForEach(c.menu, [&](const MenuNode& k) { if (!k.itemId.empty() && k.id >= 0) { if (!any) o << "\n    // " << c.name << ": item ids\n"; any = true; o << "    static constexpr uint16_t " << k.itemId << " = " << k.id << ";\n"; } });
     }
+    { auto groups = f.UsedGroups();                                                                      // control groups: SetGroup(GRP_X), Form.SetGroupVisible(GRP_X, ...)
+      if (!groups.empty()) { o << "\n    // control groups (SuperControl::SetGroup; use them with Form.SetGroupVisible / SetGroupEnabled / ShowPage)\n"; for (const std::string& g : groups) o << "    static constexpr uint16_t " << g << " = " << f.GroupId(g) << ";\n"; } }
     o << "\n";
     for (const DControl& c : f.items) o << "    " << Info(c.type).key << " " << c.name << ";\n";
     for (const std::string& g : groups) o << "    SuperRadioGroup " << g << ";\n";
@@ -193,12 +196,21 @@ inline std::string GenerateDesigner(const DForm& f) {
         o << ")";
     }
     sep(); o << "Form(enc, btnA)"; sep(); o << "Dst(dst)";
-    o << " {\n        InitializeComponent();\n    }\n    virtual ~" << base << "() {}\n\n";
+    o << " {\n        InitializeComponent();\n";
+    for (const DControl& c : f.items) if (HasPages(c)) o << "        " << c.name << "_ShowPage(" << c.name << ".GetSelected(), false);       // the first tab's page is shown, the others are hidden\n";
+    for (const DControl& c : f.items) if (!c.visible) o << "        " << c.name << ".SetVisible(false, false);       // Visible = No: hidden at start (after the first page is shown)\n";
+    o << "    }\n    virtual ~" << base << "() {}\n\n";
 
     o << "    // Clears the screen to the form's back colour and draws every control.\n"
       << "    void Show() { Dst->fillScreen(FormBackColor); Form.Draw(); }\n"
       << "    // Call every loop pass: focus handling and editing (see SuperForm).\n"
       << "    SuperEditState Service() { return Form.Service(); }\n\n";
+    for (const DControl& c : f.items) if (HasPages(c)) {                                                   // tab pages: one control group per tab
+        o << "    // " << c.name << ": shows the controls of the chosen tab's group and hides the other tabs' (called when a tab is chosen)\n"
+          << "    void " << c.name << "_ShowPage(int index, bool draw = true) {\n        static const uint16_t pages[] = { ";
+        for (size_t i = 0; i < c.list.size(); ++i) o << (i ? ", " : "") << (i < c.pages.size() && !c.pages[i].empty() ? c.pages[i] : "0");
+        o << " };\n        Form.ShowPage(pages, " << c.list.size() << ", (index >= 0 && index < " << c.list.size() << ") ? pages[index] : 0, draw);\n    }\n\n";
+    }
 
     if (!HandlerNames(f).empty()) {
         o << "protected:\n    // Events: override these in your own class.\n";
@@ -224,6 +236,8 @@ inline std::string GenerateDesigner(const DForm& f) {
             static const char* a[] = { "ALIGN_LEFT", "ALIGN_CENTER", "ALIGN_RIGHT" };
             o << "        " << n << ".SetAlign(SuperControl::" << a[c.align] << ");\n";
         }
+        if (!c.ctlGroup.empty()) o << "        " << n << ".SetGroup(" << c.ctlGroup << ");\n";
+        if (!c.enabled) o << "        " << n << ".SetEnabled(false);\n";
         EmitLabel(o, c);
         EmitExtras(o, c);
         for (const EventDef& ev : EventsOf(c.type)) o << "        " << n << "." << ev.setter << "(" << n << "_" << ev.name << "Thunk, this);\n";
@@ -233,6 +247,8 @@ inline std::string GenerateDesigner(const DForm& f) {
     o << "    }\n";
     for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) {
         if (ev.idArg) o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { auto* s = static_cast<" << base << "*>(u); s->" << c.name << "_" << ev.name << "((uint16_t)s->" << c.name << ".GetResultId()); }\n";
+        else if (HasPages(c) && std::string(ev.name) == "Accept")
+            o << "    static void " << c.name << "_AcceptThunk(void* u) { auto* s = static_cast<" << base << "*>(u); s->" << c.name << "_ShowPage(s->" << c.name << ".GetSelected()); s->" << c.name << "_Accept(); }\n";
         else o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { static_cast<" << base << "*>(u)->" << c.name << "_" << ev.name << "(); }\n";
     }
     for (const DControl& c : f.items) if (c.type == C_COMBOBOX && XInt(c, "restore") == 0)
@@ -271,6 +287,7 @@ inline std::string GenerateUserFile(const DForm& f) {
                 o << "        default: break;\n        }\n    }\n";
                 continue;
             }
+            if (HasPages(c) && std::string(ev.name) == "Accept") hint += " The page (control group) of that tab is already shown.";
             o << "    void " << c.name << "_" << ev.name << "() override {\n        // " << hint << "\n    }\n";
         }
     }
@@ -291,7 +308,7 @@ struct GenResult { bool ok = false, unchanged = false; std::string path, error; 
 inline GenResult WriteDesigner(DForm& f, const std::string& dir) {
     namespace fs = std::filesystem;
     GenResult r; std::error_code ec;
-    { std::string problem = f.MenuProblem(); if (!problem.empty()) { r.error = problem; return r; } }          // never write code that would not compile
+    { std::string problem = f.MenuProblem(); if (problem.empty()) problem = f.GroupProblem(); if (!problem.empty()) { r.error = problem; return r; } }          // never write code that would not compile
     if (dir.empty() || !fs::is_directory(dir, ec)) { r.error = "folder \"" + dir + "\" does not exist"; return r; }
     fs::path p = fs::path(dir) / DesignerFileName(f);
     r.path = p.string();
