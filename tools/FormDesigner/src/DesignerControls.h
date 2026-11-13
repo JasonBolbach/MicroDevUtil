@@ -2,6 +2,7 @@
 // Builds the REAL SuperGUI control for a designer control, so the design surface shows exactly what the device will draw.
 // The control is created for one draw (or one height measurement) and destroyed again; the designer keeps only the model.
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <LovyanGFX.hpp>
 #include <SuperLabel.h>
@@ -40,6 +41,7 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     case C_LISTBOX:    p.reset(new SuperListBox(dst, x, y, c.w, font, (int)XInt(c, "rows"), nullptr, nullptr, nullptr)); break;
     case C_COMBOBOX:   p.reset(new SuperComboBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr)); break;
     case C_TABBAR:     p.reset(new SuperTabBar(dst, x, y, c.w, font, nullptr, nullptr, nullptr)); break;
+    case C_MENU:       p.reset(new SuperMenu(dst, x, y, c.w, font, (int)XInt(c, "rows"), nullptr, nullptr, nullptr)); break;
     case C_DATEBOX:    p.reset(new SuperDateBox(dst, x, y, c.w, font, nullptr, nullptr, nullptr, (SuperDateBox::DateStyle)XInt(c, "style"))); break;
     default:           p.reset(new SuperLabel(dst, x, y, c.w, font, c.text)); break;
     }
@@ -83,6 +85,14 @@ inline std::unique_ptr<SuperControl> MakeControl(lgfx::LovyanGFX* dst, const DCo
     case C_TABBAR: {
         auto* b = static_cast<SuperTabBar*>(p.get());
         b->TabPad = (int)XInt(c, "tabPad"); b->SetItems(c.list); if (!c.list.empty()) b->SetSelected((int)XInt(c, "selected"));
+        break; }
+    case C_MENU: {
+        auto* m = static_cast<SuperMenu*>(p.get());
+        m->Wrap = XBool(c, "wrap"); m->ShowBack = XBool(c, "showBack"); m->RowPad = (int)XInt(c, "rowPad");
+        std::function<void(const std::vector<MenuNode>&, SuperMenu::Item*)> add = [&](const std::vector<MenuNode>& nodes, SuperMenu::Item* parent) {
+            for (const MenuNode& k : nodes) { SuperMenu::Item* it = m->AddItem(k.text, k.id < 0 ? 0 : k.id, parent); add(k.kids, it); }
+        };
+        add(c.menu, nullptr);                                                      // (the idle menu shows the top level)
         break; }
     case C_TEXTBOX: static_cast<SuperTextBox*>(p.get())->SetText(c.text); break;
     case C_INPUTBOX: {
@@ -132,6 +142,9 @@ inline std::string Validate(lgfx::LovyanGFX* dst, const DControl& c) {
         t.SetYearRange((int)XInt(c, "yearMin"), (int)XInt(c, "yearMax"));
         if (!t.SetValue(XStr(c, "value"))) return "not a valid date inside the year range: YYYY-MM-DD, e.g. 2026-12-31 (2026-02-30 does not exist)";
         return ""; }
+    case C_MENU:
+        if (!ValidName(XStr(c, "idPrefix") + "X")) return "the ID prefix must be letters, digits and underscores, safe in C++ (e.g. MNU_)";
+        return "";
     case C_LISTBOX: case C_COMBOBOX: case C_TABBAR:
         if (!c.list.empty() && XInt(c, "selected") >= (long)c.list.size()) return "the list has " + std::to_string(c.list.size()) + " items: Selected can be 0 to " + std::to_string(c.list.size() - 1);
         return "";

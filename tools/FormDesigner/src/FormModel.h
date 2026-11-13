@@ -13,6 +13,8 @@
 // A control's height is not stored: it follows the font (the real SuperGUI control reports it, see DesignerControls.h).
 #include <cctype>
 #include <cstdint>
+#include <algorithm>
+#include <functional>
 #include <map>
 #include <set>
 #include <cstdio>
@@ -26,9 +28,18 @@
 
 namespace FD {
 
-enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_COUNT };
+enum CType { C_LABEL, C_PUSHBUTTON, C_CHECKBOX, C_RADIO, C_PROGRESS, C_SPINBOX, C_SLIDER, C_TEXTBOX, C_INPUTBOX, C_TIMEBOX, C_DATEBOX, C_LISTBOX, C_COMBOBOX, C_TABBAR, C_MENU, C_COUNT };
 inline bool HasList(int type) { return type == C_LISTBOX || type == C_COMBOBOX || type == C_TABBAR; }      // the control has a list of items (rows / choices / tabs)
 constexpr int MAX_LIST_ITEMS = 200, MAX_ITEM_LEN = 60;
+constexpr int MAX_MENU_NODES = 200, MAX_MENU_DEPTH = 5, MAX_MENU_TEXT = 40, MAX_MENU_ID = 65535;
+
+// ---- menu items: a tree. Every item that is a command (a leaf) has an itemId (a C++-safe name that becomes `static constexpr uint16_t <itemId> = <id>;`
+// in the generated class) and a numeric id; a parent (an item with sub-items) may have them too. id < 0 / empty itemId = none. ----
+struct MenuNode {
+    std::string text, itemId;
+    int id = -1;
+    std::vector<MenuNode> kids;
+};
 
 // ---- per-type properties beyond the common ones ("extras"): a table drives the property panel, the JSON and the code generator ----
 enum PKind { PK_INT, PK_TEXT, PK_BOOL, PK_ENUM, PK_COLOR, PK_FONT };
@@ -118,6 +129,14 @@ static const ExtraDef TABBAR_EXTRAS[] = {
     { "tabPad",   "Tab padding", PK_INT, "6", 0, 30, "" },
 };
 
+static const ExtraDef MENU_EXTRAS[] = {
+    { "rows",     "Visible rows", PK_INT,  "5",    1, 30, "" },
+    { "wrap",     "Wrap around",  PK_BOOL, "false", 0, 1, "No|Yes" },
+    { "showBack", "Back row",     PK_BOOL, "true",  0, 1, "No|Yes" },        // sub-menus start with a "< Back" row (touch friendly)
+    { "rowPad",   "Row padding",  PK_INT,  "1",    0, 8, "" },
+    { "idPrefix", "ID prefix",    PK_TEXT, "MNU_", 0, 0, "" },                // new item ids are named <prefix><TEXT>, e.g. MNU_REBOOT
+};
+
 struct TypeInfo {
     const char* key;       // the SuperGUI class name (also the "type" in the JSON)
     const char* title;     // shown in the toolbox
@@ -151,6 +170,7 @@ inline const TypeInfo& Info(int t) {
         { "SuperListBox",     "List box",    "list",     140, "",       false, true,  true,  true,  LISTBOX_EXTRAS, FD_N(LISTBOX_EXTRAS), false, false },
         { "SuperComboBox",    "Combo box",   "combo",    140, "",       false, true,  true,  true,  COMBOBOX_EXTRAS, FD_N(COMBOBOX_EXTRAS), false, false },
         { "SuperTabBar",      "Tab bar",     "tabs",     220, "",       false, false, true,  true,  TABBAR_EXTRAS, FD_N(TABBAR_EXTRAS), false, false },
+        { "SuperMenu",        "Menu",        "menu",     160, "",       false, false, true,  true,  MENU_EXTRAS,   FD_N(MENU_EXTRAS),   false, false },
     };
     return T[t < 0 || t >= C_COUNT ? 0 : t];
 }
@@ -181,6 +201,7 @@ struct DControl {
     int borderStyle = -1, borderSize = -1, padding = -1, align = -1;
     int defStyle = 0, defSize = 1, defPad = 2, defAlign = 0;    // derived: the control's own defaults (not saved)
     int h = 16;                      // derived from the real control (not saved)
+    std::vector<MenuNode> menu;                                 // the items of a menu (a tree)
     std::vector<std::string> list;                              // the items of a list box / combo box / tab bar (printable ASCII, non-empty)
     std::map<std::string, std::string> extra;                   // type-specific properties (ExtraDef): only values that differ from the default are stored
 };
@@ -219,6 +240,27 @@ inline bool ValidName(const std::string& s) {
     if (s.empty() || isdigit((unsigned char)s[0]) || IsReserved(s)) return false;
     for (unsigned char c : s) if (!isalnum(c) && c != '_') return false;
     return true;
+}
+
+// ---- menu helpers ----
+inline std::string Trim(const std::string& s) { size_t a = s.find_first_not_of(' '), b = s.find_last_not_of(' '); return a == std::string::npos ? "" : s.substr(a, b - a + 1); }
+inline int MenuNodeCount(const std::vector<MenuNode>& v) { int n = 0; for (const MenuNode& k : v) n += 1 + MenuNodeCount(k.kids); return n; }
+inline int MenuMaxId(const std::vector<MenuNode>& v) { int m = -1; for (const MenuNode& k : v) m = std::max(m, std::max(k.id, MenuMaxId(k.kids))); return m; }
+template <class F> void MenuForEach(std::vector<MenuNode>& v, F&& f) { for (MenuNode& k : v) { f(k); MenuForEach(k.kids, f); } }       // pre-order
+template <class F> void MenuForEach(const std::vector<MenuNode>& v, F&& f) { for (const MenuNode& k : v) { f(k); MenuForEach(k.kids, f); } }
+inline int MenuDepth(const std::vector<MenuNode>& v) { int d = 0; for (const MenuNode& k : v) d = std::max(d, 1 + MenuDepth(k.kids)); return d; }
+// "Power off" -> "POWER_OFF"
+inline std::string MenuUpper(const std::string& t) {
+    std::string r; bool us = false;
+    for (unsigned char c : t) { if (isalnum(c)) { if (us && !r.empty()) r += '_'; r += (char)toupper(c); us = false; } else us = true; }
+    return r;
+}
+// A free, valid name for a new item: <prefix><TEXT>, then <prefix><TEXT>_2, _3 ...  (taken(candidate) says whether a name is used)
+inline std::string AutoItemId(const std::string& prefix, const std::string& text, const std::function<bool(const std::string&)>& taken) {
+    std::string base = prefix + MenuUpper(text); if (MenuUpper(text).empty()) base = prefix + "ITEM";
+    std::string cand = base;
+    for (int k = 2; !ValidName(cand) || taken(cand); ++k) cand = base + "_" + std::to_string(k);
+    return cand;
 }
 
 // ---- a tiny JSON reader (objects, arrays, strings, integers; enough for the designer's own files) ----
@@ -292,6 +334,7 @@ private:
         }
         if (c == '"') { v.t = JV::STR; return Str(v.s); }
         if (S.compare(P, 4, "true") == 0)  { v.t = JV::NUM; v.n = 1; P += 4; return true; }
+        if (S.compare(P, 4, "null") == 0)  { v.t = JV::NUL; P += 4; return true; }
         if (S.compare(P, 5, "false") == 0) { v.t = JV::NUM; v.n = 0; P += 5; return true; }
         if (c == '-' || isdigit((unsigned char)c)) {
             char* end = nullptr; v.n = strtol(S.c_str() + P, &end, 10); v.t = JV::NUM;
@@ -311,19 +354,81 @@ struct DForm {
     void Clear() { name = "Form1"; w = DEFAULT_FORM_W; h = DEFAULT_FORM_H; bg = DEF_FORM_BG; items.clear(); }   // outDir is kept: it belongs to the project folder
     // A name is taken when a control (other than `except`) or a radio group already has it: both become C++ members of the generated class.
     // The form's own class names count too: the generated classes are <name>Base and <name>, and no member may be called like its class.
-    bool NameTaken(const std::string& n, int except = -1) const {
+    // Menu item ids (itemId) are constants of the generated class too; `exceptMenu` = a menu whose own items are not counted (the one being edited).
+    bool NameTaken(const std::string& n, int except = -1, int exceptMenu = -1) const {
         if (n == name || n == name + "Base") return true;
         for (int i = 0; i < (int)items.size(); ++i) {
             if (i != except && items[i].name == n) return true;
             if (items[i].type == C_RADIO && items[i].group == n) return true;
+            if (items[i].type == C_MENU && i != exceptMenu) { bool hit = false; MenuForEach(items[i].menu, [&](const MenuNode& k) { if (k.itemId == n) hit = true; }); if (hit) return true; }
         }
         return false;
+    }
+    // Bring a menu into a consistent state (also used after loading a hand-edited file): empty items dropped, limits kept; itemIds valid and unique
+    // (invalid or repeated ones are renamed); ids unique, 0..65535; every command (a leaf, or any item that has one of them) has both an itemId and an id;
+    // missing ids are the next number above the highest id. The first appearance of a duplicate keeps its value.
+    void NormalizeMenu(int mi) {
+        if (mi < 0 || mi >= (int)items.size() || items[mi].type != C_MENU) return;
+        DControl& c = items[mi]; std::string prefix = XStr(c, "idPrefix"); int count = 0;
+        std::function<void(std::vector<MenuNode>&, int)> clean = [&](std::vector<MenuNode>& v, int depth) {
+            std::vector<MenuNode> out;
+            for (MenuNode& k : v) {
+                k.text = Trim(Ascii(k.text)); if (k.text.size() > (size_t)MAX_MENU_TEXT) k.text.resize(MAX_MENU_TEXT);
+                if (k.text.empty() || count >= MAX_MENU_NODES) continue;
+                ++count; if (depth + 1 >= MAX_MENU_DEPTH) k.kids.clear(); else clean(k.kids, depth + 1);
+                out.push_back(std::move(k));
+            }
+            v = std::move(out);
+        };
+        clean(c.menu, 0);
+        std::set<int> usedIds; std::set<std::string> usedNames;
+        // An explicit name is valid when no control, group, form class or EARLIER menu has it (the first menu in the file keeps a name two menus share).
+        auto takenBefore = [&](const std::string& n2) {
+            if (n2 == name || n2 == name + "Base") return true;
+            for (int i = 0; i < (int)items.size(); ++i) {
+                if (i != mi && items[i].name == n2) return true;
+                if (items[i].name == n2 && i == mi) return true;
+                if (items[i].type == C_RADIO && items[i].group == n2) return true;
+                if (items[i].type == C_MENU && i < mi) { bool hit = false; MenuForEach(items[i].menu, [&](const MenuNode& k) { if (k.itemId == n2) hit = true; }); if (hit) return true; }
+            }
+            return false;
+        };
+        MenuForEach(c.menu, [&](MenuNode& k) {                                          // A: keep the first valid explicit values
+            if (!k.itemId.empty() && !(ValidName(k.itemId) && !takenBefore(k.itemId) && usedNames.insert(k.itemId).second)) k.itemId.clear();
+            if (k.id >= 0 && !(k.id <= MAX_MENU_ID && usedIds.insert(k.id).second)) k.id = -1;
+            if (k.id > MAX_MENU_ID) k.id = -1;
+        });
+        int maxId = usedIds.empty() ? 0 : *usedIds.rbegin();
+        MenuForEach(c.menu, [&](MenuNode& k) {                                          // B: fill in what a command needs
+            if (!(k.kids.empty() || !k.itemId.empty() || k.id >= 0)) return;
+            if (k.id < 0) k.id = ++maxId;
+            if (k.itemId.empty()) { k.itemId = AutoItemId(prefix, k.text, [&](const std::string& s) { return NameTaken(s, -1, mi) || usedNames.count(s) > 0; }); usedNames.insert(k.itemId); }
+        });
+    }
+    void NormalizeMenus() { for (int i = 0; i < (int)items.size(); ++i) NormalizeMenu(i); }
+    // The first thing wrong with the menus (for the export check), or "".
+    std::string MenuProblem() const {
+        for (int mi = 0; mi < (int)items.size(); ++mi) {
+            const DControl& c = items[mi]; if (c.type != C_MENU) continue;
+            std::set<int> ids; std::set<std::string> names; std::string bad;
+            if (!ValidName(XStr(c, "idPrefix") + "X")) return c.name + ": the ID prefix \"" + XStr(c, "idPrefix") + "\" does not make a valid name";
+            MenuForEach(c.menu, [&](const MenuNode& k) {
+                if (!bad.empty()) return;
+                if (k.text.empty()) bad = c.name + ": a menu item has no text";
+                else if (k.kids.empty() && (k.itemId.empty() || k.id < 0)) bad = c.name + ": \"" + k.text + "\" needs an item ID and an id";
+                else if (!k.itemId.empty() && (!ValidName(k.itemId) || NameTaken(k.itemId, -1, mi) || !names.insert(k.itemId).second)) bad = c.name + ": the item ID " + k.itemId + " is not a safe, unused C++ name";
+                else if (k.id >= 0 && (k.id > MAX_MENU_ID || !ids.insert(k.id).second)) bad = c.name + ": the id " + std::to_string(k.id) + " of \"" + k.text + "\" is used twice (or too big)";
+            });
+            if (!bad.empty()) return bad;
+        }
+        return "";
     }
     // Would renaming the form to f collide with a control or a radio group?
     bool FormNameClashes(const std::string& f, bool withGroups = true) const {
         for (const DControl& c : items) {
             if (c.name == f || c.name == f + "Base") return true;
             if (withGroups && c.type == C_RADIO && (c.group == f || c.group == f + "Base")) return true;
+            if (withGroups && c.type == C_MENU) { bool hit = false; MenuForEach(c.menu, [&](const MenuNode& k) { if (k.itemId == f || k.itemId == f + "Base") hit = true; }); if (hit) return true; }
         }
         return false;
     }
@@ -362,6 +467,21 @@ struct DForm {
     }
     static std::string Hex(uint16_t c) { char b[8]; snprintf(b, sizeof b, "0x%04X", c); return b; }
 
+    static std::string JsonEsc(const std::string& s) { std::string r; for (char c : s) { if (c == '"' || c == '\\') r += '\\'; r += c; } return r; }
+    // A menu as nested, readable, hand-editable JSON:  [ { "text": "System", "items": [ { "text": "Reboot", "itemId": "MNU_REBOOT", "id": 7 } ] }, ... ]
+    static std::string MenuJson(const std::vector<MenuNode>& v, int ind) {
+        if (v.empty()) return "[]";
+        std::string pad((size_t)ind + 2, ' '), s = "[\n";
+        for (size_t i = 0; i < v.size(); ++i) {
+            const MenuNode& k = v[i];
+            s += pad + "{ \"text\": \"" + JsonEsc(k.text) + "\"";
+            if (!k.itemId.empty()) s += ", \"itemId\": \"" + JsonEsc(k.itemId) + "\"";
+            if (k.id >= 0) s += ", \"id\": " + std::to_string(k.id);
+            if (!k.kids.empty()) s += ", \"items\": " + MenuJson(k.kids, ind + 2);
+            s += i + 1 < v.size() ? " },\n" : " }\n";
+        }
+        return s + std::string((size_t)ind, ' ') + "]";
+    }
     std::string ToJson() const {
         auto esc = [](const std::string& s) { std::string r; for (char c : s) { if (c == '"' || c == '\\') r += '\\'; r += c; } return r; };
         std::string j = "{\n  \"form\": { \"name\": \"" + esc(name) + "\", \"width\": " + std::to_string(w) + ", \"height\": " + std::to_string(h) + ", \"backColor\": \"" + Hex(bg) + "\", \"outputPath\": \"" + esc(outDir) + "\" },\n  \"controls\": [";
@@ -370,7 +490,8 @@ struct DForm {
             j += i ? ",\n    " : "\n    ";
             j += "{ \"type\": \"" + std::string(Info(c.type).key) + "\", \"name\": \"" + esc(c.name) + "\", \"text\": \"" + esc(c.text) +
                  "\", \"font\": \"" + esc(c.font) + "\", \"textColor\": \"" + Hex(c.fg) + "\", \"backColor\": \"" + Hex(c.bg) + "\", \"borderColor\": \"" + Hex(c.border) +
-                 "\"" + Layout(c) + ", \"x\": " + std::to_string(c.x) + ", \"y\": " + std::to_string(c.y) + ", \"width\": " + std::to_string(c.w) + " }";
+                 "\"" + Layout(c) + ", \"x\": " + std::to_string(c.x) + ", \"y\": " + std::to_string(c.y) + ", \"width\": " + std::to_string(c.w) +
+                 (c.type == C_MENU ? ",\n      \"items\": " + MenuJson(c.menu, 6) + "\n    }" : " }");
         }
         j += items.empty() ? "]\n}\n" : "\n  ]\n}\n";
         return j;
@@ -428,6 +549,24 @@ struct DForm {
                     if (v.size() > (size_t)MAX_ITEM_LEN) v.resize(MAX_ITEM_LEN);
                     if (!v.empty()) d.list.push_back(v);
                 }
+            if (t == C_MENU) if (const JV* mv = c.Get("items")) if (mv->t == JV::ARR) {                      // nested items: text, optional itemId / id, optional items
+                int budget = 1000;
+                std::function<void(const JV&, std::vector<MenuNode>&, int)> rd = [&](const JV& arr, std::vector<MenuNode>& out, int depth) {
+                    for (const JV& it : arr.a) {
+                        if (budget-- <= 0 || depth >= MAX_MENU_DEPTH + 1) return;
+                        MenuNode k;
+                        if (it.t == JV::STR) k.text = it.s;                                        // shorthand: just the text
+                        else if (it.t == JV::OBJ) {
+                            if (const JV* v = it.Get("text")) if (v->t == JV::STR) k.text = v->s;
+                            if (const JV* v = it.Get("itemId")) if (v->t == JV::STR) k.itemId = v->s;
+                            if (const JV* v = it.Get("id")) if (v->t == JV::NUM) k.id = (int)std::max(-1L, std::min(v->n, 1000000L));
+                            if (const JV* v = it.Get("items")) if (v->t == JV::ARR) rd(*v, k.kids, depth + 1);
+                        } else continue;
+                        out.push_back(std::move(k));
+                    }
+                };
+                rd(*mv, d.menu, 0);
+            }
             d.x = num(c.Get("x"), 0, 0, MAX_FORM_W); d.y = num(c.Get("y"), 0, 0, MAX_FORM_H);
             d.w = num(c.Get("width"), Info(t).defW, MIN_CONTROL_W, MAX_FORM_W);
             n.items.push_back(d);
@@ -435,6 +574,7 @@ struct DForm {
         for (int k = 1; n.FormNameClashes(n.name, false); ++k) n.name = "Form" + std::to_string(k);   // the form's class names must not clash with a control (a group gives way to the form, below)
         for (DControl& c : n.items)                                   // a group name must not be a control name or the form's class (all are C++ names)
             if (c.type == C_RADIO && (n.ControlNamed(c.group) || c.group == n.name || c.group == n.name + "Base")) c.group = n.UniqueGroupName();
+        n.NormalizeMenus();                                            // item ids: valid, unique, numbered (after the control names are final)
         for (DControl& c : n.items) if (HasList(c.type)) ClampSelected(c);                 // the initial selection must be an item
         { std::set<std::string> seen;                                 // only one radio button per group can be selected: the first one wins
           for (DControl& c : n.items) if (c.type == C_RADIO && XBool(c, "checked") && !seen.insert(c.group).second) c.extra.erase("checked"); }

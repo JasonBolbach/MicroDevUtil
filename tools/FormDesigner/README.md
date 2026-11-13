@@ -76,7 +76,7 @@ at most 40 cells; OK needs at least one slot). Time box: Seconds, Value `HH:MM[:
 a template without a slot) is refused: the model keeps the old value, the field turns red, and the reason is shown under the rows and in the status line. Valid values are stored the way the box prints them
 (`7:5` becomes `07:05:00`). A new template that the old value no longer fits clears the value (and says so). **Fit** (on the Width row of text-like controls) sets the exact width that shows the whole text;
 new input / time / date boxes are placed that wide. They raise `<name>_Change()` / `<name>_Accept()` like the spin box (`GetLiveValue()` / `GetValue()`). Library additions: `GetLiveValue()` on the input,
-time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: chunk 3b Menu, chunk 4 display (Gauge, Graph, UserDraw),
+time and date boxes, `GetContentWidth()` on `SuperTextBox`, `EditIO()` on the input / field boxes. Planned: next the Visible / Enabled / control-group chunk (with tab pages), then chunk 4 display (Gauge, Graph, UserDraw),
 chunk 5 MessageBox and ColorPicker.
 
 **Chunk 3a: lists.** **List box**, **Combo box**, **Tab bar**. Their items are edited in a modal **items dialog** (the **Edit...** button on the Items / Tabs row): the real `SuperListBox` of items, a text
@@ -86,8 +86,24 @@ are dropped. The JSON stores them as a readable array: `"items": ["Red", "Green"
 Wrap around / Row padding, combo box Popup rows and **Popup restore** (default *Redraw form*: the generated code gives the popup a `SetRestore` thunk that calls `Form.Redraw(...)`, which works on every panel and
 saves the read-back sprite; *Read back* leaves the library default), tab bar Tab padding. Events `<name>_Change()` (the cursor moved) and `<name>_Accept()` (a row / item / tab was chosen). Library additions
 (all additive): `InsertItem` / `RemoveItem` / `SetItem` / `GetItem` on the list box, combo box and tab bar (the tab bar also gets `SetItems`; `GetTab` stays), and on `SuperMenu` `RemoveItem(item)` (with everything
-below it; the memory is reused by `AddItem`), `FindById(id)` and `Root()`. Next: chunk 3b, the **Menu**: a nested, readable, hand-editable JSON layout where every item has an `itemId` (a C++-safe name that becomes a
-`static constexpr uint16_t` in the generated class) and a numeric `id` (next free number, duplicates refused), and a `<menu>_Choose(uint16_t id)` handler with a `switch` stub in your file.
+below it; the memory is reused by `AddItem`), `FindById(id)` and `Root()`. **Chunk 3b: the Menu.** A nested tree of items, stored as readable, hand-editable JSON:
+```json
+{ "type": "SuperMenu", "name": "menu1", ...,
+  "items": [
+    { "text": "System", "items": [
+        { "text": "Reboot",    "itemId": "MNU_REBOOT",    "id": 7 },
+        { "text": "Power off", "itemId": "MNU_POWER_OFF", "id": 8 } ] },
+    { "text": "About", "itemId": "MNU_ABOUT", "id": 20 } ] }
+```
+Every command (a leaf) has an **itemId** (a C++-safe name, unique across the whole form, refused if it is a keyword / macro / control name / ...) and a numeric **id** (0-65535, unique within the menu).
+The generated class gets `static constexpr uint16_t MNU_REBOOT = 7;` for each, the `AddItem` calls use the constants (`menu1.AddItem("Reboot", MNU_REBOOT, fd_p1)`), and the handler is
+**`menu1_Choose(uint16_t id)`** (plus `menu1_Change()`); your file gets a `switch (id)` with one `case` per command. Parent items (sub-menus) may have an itemId and an id, or neither.
+**Minimal JSON is enough** (`"About"` or `{ "text": "About" }`): on load the designer fills in the missing itemIds (`<ID prefix><TEXT>`, default prefix `MNU_`, so "Power off" becomes `MNU_POWER_OFF`)
+and the next free ids (above the highest), and repairs problems (the first owner of a repeated id or name keeps it; unsafe names are replaced; empty items dropped; at most 5 levels and 200 items).
+Export refuses a menu that still has a problem. The **menu editor** (Edit... on the Menu items row) is the optional graphical way: the tree (real `SuperListBox`), Text / Item ID / Id fields with strict
+validation (red + reason; an automatic item ID follows the text until you edit it), Add / Add child / Delete / Move up / Move down / Indent / Outdent, **Paste outline** (indented clipboard lines
+become a tree; spaces or tabs) and a live preview of the real menu. Library: `SuperMenu::EditIO()` joins the other controls. Self-test hardening: a crash in the self-test is now reported with the last
+check instead of raising the OS crash dialog.
 
 **Names** (`src/ReservedNames.h`, `FD::ValidName`): a control, radio group or form name must be a plain identifier that is safe in the generated C++ for Arduino, ESP32, Pico and the desktop.
 Refused: every C++ keyword (C++23, incl. `wchar_t`, `static_assert`, `bitand`, `co_await`, contextual `final` / `override`), the generated class's own names (`Form`, `Show`, `Service`, ...),

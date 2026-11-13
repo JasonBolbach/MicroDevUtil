@@ -8,6 +8,8 @@
 #include <LovyanGFX.hpp>
 #include <LGFX_AUTODETECT.hpp>
 #include <algorithm>
+#include <csignal>
+#include <unistd.h>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +28,7 @@
 #include "PresetDialog.h"
 #include "TemplateBuilder.h"
 #include "ItemsDialog.h"
+#include "MenuEditor.h"
 #include "AppSettings.h"
 #include <SuperSpinBox.h>
 #include <vector>
@@ -142,7 +145,7 @@ static bool IsPickRow(int p) { return RowKindOf(p) != RK_TEXT; }                
 static std::string PropLabel(int p) {
     if (const FD::ExtraDef* d = ExtraOf(p)) return d->label;
     static const char* L[] = { "Name", "Text", "X", "Y", "Width", "Border size", "Padding", "Group", "Name", "Width", "Height", "Text color", "Back color", "Border color", "Back color", "Font", "Border style", "Align" };
-    if (p == P_ITEMS) return Sel() && Sel()->type == FD::C_TABBAR ? "Tabs" : "Items";
+    if (p == P_ITEMS) return Sel() && Sel()->type == FD::C_TABBAR ? "Tabs" : Sel() && Sel()->type == FD::C_MENU ? "Menu items" : "Items";
     return p >= 0 && p <= P_ALIGN ? L[p] : "";
 }
 // segments of a RK_SEG row
@@ -277,7 +280,7 @@ static void BuildFields() {
     if (Sel()) {
         const FD::TypeInfo& ti = FD::Info(Sel()->type);
         add(P_NAME); if (ti.hasText) add(P_TEXT); if (Sel()->type == FD::C_RADIO) add(P_GROUP); add(P_X); add(P_Y); add(P_W);
-        if (FD::HasList(Sel()->type)) add(P_ITEMS);
+        if (FD::HasList(Sel()->type) || Sel()->type == FD::C_MENU) add(P_ITEMS);
         for (int i = 0; i < ti.nExtras; ++i) { add(P_EXTRA + i); if (std::string(ti.extras[i].key) == "template") add(P_HINT); }   // the type's own properties (+ the template legend)
         add(P_FONT); add(P_FG); add(P_BG); add(P_BORDER); add(P_BSTYLE); add(P_BSIZE); add(P_PAD); if (ti.hasAlign) add(P_ALIGN);
         if (ti.hasLabel) for (int i = 0; i < FD::N_LABEL_EXTRAS; ++i) add(P_EXTRA + ti.nExtras + i);   // the label group
@@ -334,10 +337,18 @@ static void CloseFontDialog() {
 static FD::PresetDialog* presetDlg = nullptr; static FD::TemplateBuilder* builderDlg = nullptr; static int templateProp = -1;
 static int TemplateRowProp() { for (int i = 0; i < nFields; ++i) if (const FD::ExtraDef* d = ExtraOf(fieldProp[i])) if (std::string(d->key) == "template") return fieldProp[i]; return -1; }
 static bool AnyModal();
-static FD::ItemsDialog* itemsDlg = nullptr;
+static FD::ItemsDialog* itemsDlg = nullptr; static FD::MenuEditor* menuDlg = nullptr;
 static void OpenItemsDialog() {
-    DControl* c = Sel(); if (!c || !FD::HasList(c->type) || AnyModal()) return;
+    DControl* c = Sel(); if (!c || AnyModal()) return;
+    if (c->type == FD::C_MENU) { menuDlg = new FD::MenuEditor(&scr, "Menu items of " + c->name, *c, form, sel, form.bg); focus = -1; drag = D_NONE; dirty = true; return; }
+    if (!FD::HasList(c->type)) return;
     itemsDlg = new FD::ItemsDialog(&scr, std::string(c->type == FD::C_TABBAR ? "Tabs of " : "Items of ") + c->name, *c, form.bg); focus = -1; drag = D_NONE; dirty = true;
+}
+static void CloseMenuDialog() {
+    bool ok = menuDlg->state == FD::MenuEditor::OK; std::vector<FD::MenuNode> r = menuDlg->nodes;
+    delete menuDlg; menuDlg = nullptr; drag = D_NONE; dirty = true;
+    if (!ok) return;
+    if (DControl* c = Sel()) { c->menu = r; form.NormalizeMenu(sel); RefreshGeometry(); ClampPos(*c); SyncFields(); Status("%s: %d items", c->name.c_str(), FD::MenuNodeCount(c->menu)); }
 }
 static void CloseItemsDialog() {
     bool ok = itemsDlg->state == FD::ItemsDialog::OK; std::vector<std::string> r = itemsDlg->items;
@@ -368,7 +379,7 @@ static void FitSel() {                                // Fit: the control is exa
 static bool SaveForm(); static bool OpenForm(); static void ExportForm(const std::string& dir);
 enum FilePurpose { FP_OPEN, FP_SAVE, FP_EXPORT };
 static FD::FileDialog* fileDlg = nullptr; static int filePurpose = FP_OPEN;
-static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg; }
+static bool AnyModal() { return fileDlg || colorDlg || fontDlg || presetDlg || builderDlg || itemsDlg || menuDlg; }
 static bool DirOk(const std::string& d) { std::error_code ec; return !d.empty() && std::filesystem::is_directory(d, ec); }
 static void OpenFileDialog(int purpose) {
     if (AnyModal()) return;
@@ -415,10 +426,13 @@ static void Place(int type, int fx, int fy) {        // fx, fy in form coordinat
     c.w = FD::Info(type).defW; c.x = Snap(fx); c.y = Snap(fy);
     if (type == FD::C_RADIO) { c.group = form.UniqueGroupName(); for (const DControl& o : form.items) if (o.type == FD::C_RADIO) { c.group = o.group; break; } }   // joins the form's first group
     if (FD::HasList(type)) for (int i = 1; i <= 3; ++i) c.list.push_back(std::string(type == FD::C_TABBAR ? "Tab " : "Item ") + std::to_string(i));      // a few sample items
+    if (type == FD::C_MENU) {                                                    // a small sample menu; ids and names are filled in below
+        FD::MenuNode sys; sys.text = "System"; FD::MenuNode a, b, about; a.text = "Reboot"; b.text = "Power off"; about.text = "About"; sys.kids = { a, b }; c.menu = { sys, about };
+    }
     FD::Measure(&scr, c);
     if (type == FD::C_INPUTBOX || type == FD::C_TIMEBOX || type == FD::C_DATEBOX) c.w = std::max(FD::MIN_CONTROL_W, FD::FitWidth(&scr, c));      // exactly as wide as its text
     FD::Measure(&scr, c); ClampPos(c);
-    form.items.push_back(c); sel = (int)form.items.size() - 1; BuildFields();
+    form.items.push_back(c); sel = (int)form.items.size() - 1; form.NormalizeMenu(sel); BuildFields();
     Status("added %s", c.name.c_str());
 }
 static void DeleteSel() {
@@ -624,8 +638,11 @@ static void Render() {
             if (optional && !id.empty()) { scr.setTextColor(0xF800); scr.drawString("x", FIELD_X + FIELD_W - 16, fy + 6); }
             else if (!optional) { scr.setTextColor(0x8410); scr.drawString("click to change", FIELD_X + FIELD_W - 100, fy + 6); }
         } else if (kind == RK_ITEMS) {                                                       // a summary of the list; the Edit button (or a click) opens the items dialog
-            const DControl* ic = Sel(); std::string sm = std::to_string(ic->list.size()) + (ic->type == FD::C_TABBAR ? " tabs: " : " items: ");
-            for (size_t k = 0; k < ic->list.size() && sm.size() < 60; ++k) sm += (k ? ", " : "") + ic->list[k];
+            const DControl* ic = Sel(); std::string sm;
+            if (ic->type == FD::C_MENU) { int cmds = 0; FD::MenuForEach(ic->menu, [&](const FD::MenuNode& k) { if (!k.itemId.empty()) ++cmds; }); sm = std::to_string(FD::MenuNodeCount(ic->menu)) + " items, " + std::to_string(cmds) + " ids: ";
+                                          for (size_t k = 0; k < ic->menu.size() && sm.size() < 60; ++k) sm += (k ? ", " : "") + ic->menu[k].text; }
+            else { sm = std::to_string(ic->list.size()) + (ic->type == FD::C_TABBAR ? " tabs: " : " items: ");
+                   for (size_t k = 0; k < ic->list.size() && sm.size() < 60; ++k) sm += (k ? ", " : "") + ic->list[k]; }
             scr.fillRect(FIELD_X, fy, FIELD_W - 80, FIELD_H, 0x0000); scr.drawRect(FIELD_X, fy, FIELD_W - 80, FIELD_H, 0x7BEF);
             scr.setClipRect(FIELD_X + 2, fy + 2, FIELD_W - 84, FIELD_H - 4); scr.setTextColor(0xC618); scr.drawString(sm.c_str(), FIELD_X + 6, fy + 6);
             scr.setClipRect(1002, PANEL_TOP, 386, PANEL_BOT - PANEL_TOP);
@@ -668,12 +685,14 @@ static void Render() {
     if (presetDlg) presetDlg->Draw();
     if (builderDlg) builderDlg->Draw();
     if (itemsDlg) itemsDlg->Draw(SDL_GetTicks());
+    if (menuDlg) menuDlg->Draw(SDL_GetTicks());
     scr.pushSprite(lcd, 0, 0);
     dirty = false;
 }
 
 // ---- input ----
 static void Handle(const InputEvent& e) {
+    if (menuDlg) { menuDlg->Event(e); dirty = true; if (menuDlg->state != FD::MenuEditor::OPEN) CloseMenuDialog(); return; }
     if (itemsDlg) { itemsDlg->Event(e); dirty = true; if (itemsDlg->state != FD::ItemsDialog::OPEN) CloseItemsDialog(); return; }
     if (presetDlg) { presetDlg->Event(e); dirty = true; if (presetDlg->state != FD::PresetDialog::OPEN) ClosePresetDialog(); return; }
     if (builderDlg) { builderDlg->Event(e); dirty = true; if (builderDlg->state != FD::TemplateBuilder::OPEN) CloseBuilderDialog(); return; }
@@ -804,9 +823,15 @@ static void Handle(const InputEvent& e) {
 // ---- synthetic-event self test (FD_SELFTEST=1) ----
 static bool ToJsonHas(const FD::DForm& f, const char* what) { return f.ToJson().find(what) != std::string::npos; }
 static int fails = 0;
-static void Check(bool ok, const char* what) { printf("%s  %s\n", ok ? "ok  " : "FAIL", what); if (!ok) ++fails; }
+static const char* lastCheck = "(none)";
+static void CrashHandler(int sig) {                    // self-test only: report the last check and leave quietly (no macOS crash dialog)
+    char b[300]; int n = snprintf(b, sizeof b, "\nSELFTEST CRASHED (signal %d) after the check: %s\n", sig, lastCheck); if (n > 0) { ssize_t r = write(2, b, (size_t)n); (void)r; }
+    _exit(139);
+}
+static void Check(bool ok, const char* what) { lastCheck = what; printf("%s  %s\n", ok ? "ok  " : "FAIL", what); fflush(stdout); if (!ok) ++fails; }       // (flushed: a crash shows the last check)
 static bool Next(InputEvent& e) { return Input::Poll(e); }
 static void SelfTest() {
+    signal(SIGSEGV, CrashHandler); signal(SIGBUS, CrashHandler); signal(SIGABRT, CrashHandler); signal(SIGILL, CrashHandler); signal(SIGFPE, CrashHandler);
     SDL_Window* w = nullptr;
     for (int i = 0; i < 100 && !(w = Input::Window()); ++i) SDL_Delay(50);   // the window is created on the main thread
     Check(w != nullptr, "SDL window found");
@@ -1380,7 +1405,7 @@ static void SelfTest() {
         }
         // ---- chunk 1: spin box and slider, the property schema, the label, the scrolling panel ----
         form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Ctl";
-        Check(C_COUNT == 14 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
+        Check(C_COUNT == 15 && std::string(Info(C_SPINBOX).key) == "SuperSpinBox" && std::string(Info(C_SLIDER).key) == "SuperSlider" && Info(C_SPINBOX).editable && !Info(C_PUSHBUTTON).editable, "chunk 1: the spin box and slider exist and are editable controls");
         Check(ExtraCount(C_SPINBOX) == 8 + N_LABEL_EXTRAS && ExtraCount(C_SLIDER) == 5 + N_LABEL_EXTRAS && ExtraCount(C_LABEL) == 0 && ExtraCount(C_PROGRESS) == N_LABEL_EXTRAS, "chunk 1: a control has its own extras plus the label group (SuperLabel has none)");
         { DControl d; d.type = C_SPINBOX; const ExtraDef& mn = *FindExtra(C_SPINBOX, "min");
           Check(ExtraSet(d, mn, "-5") && XInt(d, "min") == -5 && d.extra.count("min") && ExtraSet(d, mn, "0") && !d.extra.count("min"), "extras: a value equal to the default is not stored");
@@ -1710,6 +1735,132 @@ static void SelfTest() {
           Check(u.find("list1.GetSelectedText()") != std::string::npos && u.find("combo1.GetValue()") != std::string::npos && u.find("tabs1.GetSelected()") != std::string::npos, "user file: handler hints for the list controls"); }
         Check(!ValidName("combo1_RestoreThunk") && !ValidName("x_Accept"), "names: _RestoreThunk is reserved too");
         form.Clear(); FixOutDir(); sel = -1; BuildFields();
+        // ---- chunk 3b: the menu ----
+        {
+            Check(std::string(Info(C_MENU).key) == "SuperMenu" && ExtraCount(C_MENU) == 5 + N_LABEL_EXTRAS && !HasList(C_MENU), "menu: the type exists (rows, wrap, back row, row padding, ID prefix + the label group)");
+            Check(MenuUpper("Power off") == "POWER_OFF" && MenuUpper("  a--b  ") == "A_B" && MenuUpper("!!!") == "" && MenuUpper("Save as...") == "SAVE_AS", "menu: item text becomes an upper-case name part");
+            Check(AutoItemId("MNU_", "Power off", [](const std::string&) { return false; }) == "MNU_POWER_OFF" && AutoItemId("MNU_", "!!!", [](const std::string&) { return false; }) == "MNU_ITEM", "menu: automatic item ids are <prefix><TEXT> (MNU_ITEM when the text has no letters)");
+            Check(AutoItemId("MNU_", "A", [](const std::string& n) { return n == "MNU_A" || n == "MNU_A_2"; }) == "MNU_A_3", "menu: a taken automatic name gets _2, _3 ...");
+            DForm f; std::string e;
+            auto load = [&](const std::string& items, const char* extra = "") { return f.FromJson("{\"form\":{\"name\":\"Mn\"},\"controls\":[{\"type\":\"SuperMenu\",\"name\":\"menu1\"" + std::string(extra) + ",\"items\":" + items + "}]}", e); };
+            Check(load("[\"A\", {\"text\":\"B\"}, {\"text\":\"C\",\"items\":[\"D\",\"E\"]}]"), "menu: a minimal hand-written menu loads (strings and objects)");
+            { const auto& m = f.items[0].menu; Check(m.size() == 3 && m[0].itemId == "MNU_A" && m[0].id == 1 && m[1].id == 2 && m[2].itemId.empty() && m[2].id == -1 && m[2].kids[0].itemId == "MNU_D" && m[2].kids[0].id == 3 && m[2].kids[1].id == 4, "menu: leaves get an item ID and the next ids (in order), a parent gets none"); }
+            Check(load("[{\"text\":\"X\",\"id\":5,\"itemId\":\"MNU_X\"},{\"text\":\"Y\",\"id\":5,\"itemId\":\"MNU_X\"},{\"text\":\"Z\"}]"), "menu: (duplicates in a file)");
+            { const auto& m = f.items[0].menu; Check(m[0].id == 5 && m[0].itemId == "MNU_X" && m[1].id == 6 && m[1].itemId == "MNU_Y" && m[2].id == 7 && m[2].itemId == "MNU_Z", "menu: a repeated id or item ID keeps its first owner; later ones get the next free id and an automatic name"); }
+            Check(load("[{\"text\":\"a\",\"itemId\":\"int\"},{\"text\":\"b\",\"itemId\":\"1x\"},{\"text\":\"c\",\"itemId\":\"Form\"},{\"text\":\"d\",\"itemId\":\"HIGH\"},{\"text\":\"e\",\"itemId\":\"menu1\"},{\"text\":\"f\",\"itemId\":\"Mn\"},{\"text\":\"g\",\"itemId\":\"MnBase\"},{\"text\":\"h\",\"itemId\":\"x_Click\"}]"), "menu: (unsafe item IDs in a file)");
+            { bool ok = true; for (const auto& k : f.items[0].menu) if (!ValidName(k.itemId) || k.itemId.rfind("MNU_", 0) != 0) ok = false; Check(ok, "menu: keywords, bad characters, library names, control / form names and handler names are replaced by automatic ones"); }
+            Check(load("[{\"text\":\"a\",\"id\":70000},{\"text\":\"b\",\"id\":-5},{\"text\":\"c\",\"id\":3}]"), "menu: (ids out of range)");
+            { const auto& m = f.items[0].menu; Check(m[2].id == 3 && m[0].id == 4 && m[1].id == 5, "menu: an id out of range counts as missing: the next free id above the highest valid one"); }
+            Check(load("[{\"text\":\"P\",\"itemId\":\"MNU_P\",\"items\":[\"k\"]},{\"text\":\"Q\",\"id\":9,\"items\":[\"l\"]},{\"text\":\"R\",\"items\":[\"m\"]}]"), "menu: (parents)");
+            { const auto& m = f.items[0].menu; Check(m[0].id >= 0 && m[0].itemId == "MNU_P" && m[1].id == 9 && m[1].itemId == "MNU_Q" && m[2].itemId.empty() && m[2].id == -1, "menu: a parent may have both an item ID and an id, or neither; one without the other is completed"); }
+            Check(load("[\"\", {\"text\":\"   \"}, {\"text\":\"ok\"}, 5, null]"), "menu: (empty items)");
+            Check(f.items[0].menu.size() == 1 && f.items[0].menu[0].text == "ok", "menu: items without text and values that are not items are dropped");
+            { std::string deep = "[{\"text\":\"1\",\"items\":[{\"text\":\"2\",\"items\":[{\"text\":\"3\",\"items\":[{\"text\":\"4\",\"items\":[{\"text\":\"5\",\"items\":[{\"text\":\"6\"}]}]}]}]}]}]";
+              Check(load(deep) && MenuDepth(f.items[0].menu) == MAX_MENU_DEPTH, "menu: nesting is limited to 5 levels"); }
+            { std::string many = "["; for (int i = 0; i < 300; ++i) many += (i ? ",\"i" : "\"i") + std::to_string(i) + "\""; many += "]";
+              Check(load(many) && MenuNodeCount(f.items[0].menu) == MAX_MENU_NODES, "menu: at most 200 items are read"); }
+            Check(load("[{\"text\":\"Reboot\"}]", ",\"idPrefix\":\"CMD_\"") && f.items[0].menu[0].itemId == "CMD_REBOOT", "menu: the ID prefix is used for automatic names");
+            Check(load("[{\"text\":\"Reboot\"}]", ",\"idPrefix\":\"\"") && ValidName(f.items[0].menu[0].itemId), "menu: an empty prefix still gives a valid name");
+            Check(load("[{\"text\":\"Settings\",\"items\":[{\"text\":\"Reboot\",\"id\":7,\"itemId\":\"MNU_REBOOT\"},\"About\"]}]"), "menu: (round trip)");
+            { std::string j1 = f.ToJson(), e2; DForm g2; Check(g2.FromJson(j1, e2) && g2.ToJson() == j1 && g2.items[0].menu[0].kids[0].id == 7, "menu: the JSON round trip is stable");
+              Check(j1.find("\"items\": [\n") != std::string::npos && j1.find("\"itemId\": \"MNU_REBOOT\", \"id\": 7") != std::string::npos && j1.find("{ \"text\": \"Settings\", \"items\": [") != std::string::npos, "menu: the layout is written nested and readable, one item per line"); }
+            // the form-level view of item ids
+            Check(f.FromJson("{\"form\":{\"name\":\"Mn\"},\"controls\":[{\"type\":\"SuperMenu\",\"name\":\"menu1\",\"items\":[{\"text\":\"Go\",\"itemId\":\"MNU_GO\"}]},{\"type\":\"SuperMenu\",\"name\":\"menu2\",\"items\":[{\"text\":\"Go\",\"itemId\":\"MNU_GO\"}]}]}", e), "menu: (names across the form)");
+            Check(f.items[0].menu[0].itemId == "MNU_GO" && f.items[1].menu[0].itemId != "MNU_GO" && ValidName(f.items[1].menu[0].itemId), "menu: item IDs are unique across menus (constants of one class): the first keeps it");
+            Check(f.NameTaken("MNU_GO") && !f.NameTaken("MNU_GO", -1, 0) && f.NameTaken("MNU_GO", -1, 1), "menu: a control or group cannot be named like an item ID (except one that belongs to the menu being edited)");
+            Check(f.FromJson("{\"form\":{\"name\":\"Mn\"},\"controls\":[{\"type\":\"SuperLabel\",\"name\":\"MNU_GO\"},{\"type\":\"SuperMenu\",\"name\":\"menu1\",\"items\":[{\"text\":\"Go\",\"itemId\":\"MNU_GO\"}]}]}", e) && f.items[1].menu[0].itemId != "MNU_GO" && ValidName(f.items[1].menu[0].itemId), "menu: an item ID equal to a control's name is replaced");
+            Check(f.FromJson("{\"form\":{\"name\":\"Mn\"},\"controls\":[{\"type\":\"SuperMenu\",\"name\":\"menu1\",\"items\":[{\"text\":\"Go\",\"itemId\":\"MNU_GO\"}]},{\"type\":\"SuperMenu\",\"name\":\"menu2\",\"items\":[{\"text\":\"Go\",\"itemId\":\"MNU_GO\"}]}]}", e), "menu: (again, for the form-level checks)");
+            Check(f.FormNameClashes("MNU_GO") && !f.FormNameClashes("Plain"), "menu: the form cannot be renamed to an item ID");
+            { f.items[0].menu[0].id = 3; f.items[0].menu.push_back(f.items[0].menu[0]); Check(f.MenuProblem().find("used twice") != std::string::npos || f.MenuProblem().find("unused") != std::string::npos, "menu: MenuProblem reports a duplicate id or item ID (what the export refuses)"); }
+            { DForm bad; bad.name = "Bad"; DControl m; m.type = C_MENU; m.name = "menu1"; MenuNode a, b; a.text = "A"; a.itemId = "MNU_A"; a.id = 1; b.text = "B"; b.itemId = "MNU_B"; b.id = 1; m.menu = { a, b }; bad.items.push_back(m);
+              std::error_code bec; std::string bdir = "/tmp/fd_badmenu"; std::filesystem::remove_all(bdir, bec); std::filesystem::create_directories(bdir, bec);
+              GenResult br = WriteDesigner(bad, bdir); Check(!br.ok && br.error.find("used twice") != std::string::npos && !std::filesystem::exists(bdir + "/Bad.designer.h", bec), "export: a menu with a duplicate id is refused (nothing is written)");
+              bad.items[0].menu[1].id = 2; bad.items[0].menu[1].itemId = ""; br = WriteDesigner(bad, bdir); Check(!br.ok && br.error.find("needs an item ID") != std::string::npos, "export: a command without an item ID is refused");
+              bad.items[0].menu[1].itemId = "int"; br = WriteDesigner(bad, bdir); Check(!br.ok && br.error.find("safe") != std::string::npos, "export: an unsafe item ID is refused");
+              bad.items[0].menu[1].itemId = "MNU_B"; br = WriteDesigner(bad, bdir); Check(br.ok, "export: a valid menu is written"); std::filesystem::remove_all(bdir, bec); }
+        }
+        // ---- the menu editor ----
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Mn2"; Place(C_MENU, 8, 8);
+        Check(FD::MenuNodeCount(form.items[0].menu) == 4 && form.items[0].menu[0].itemId.empty() && form.items[0].menu[0].kids[0].itemId == "MNU_REBOOT" && form.items[0].menu[0].kids[0].id == 1 && form.items[0].menu[1].itemId == "MNU_ABOUT" && form.items[0].menu[1].id == 3, "menu editor: a new menu has a small sample with automatic ids and names");
+        { int r = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_ITEMS) r = i; Check(r >= 0 && PropLabel(P_ITEMS) == "Menu items", "menu editor: a Menu items row"); EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 30, FieldY(r) + 5); }
+        Check(menuDlg != nullptr && menuDlg->Rows() == 4 && menuDlg->Selected() == 0 && menuDlg->RowText(1).find("MNU_REBOOT = 1") != std::string::npos && menuDlg->RowText(1).substr(0, 4) == "    ", "menu editor: opens on the tree (indented, with each command's constant and id)");
+        if (menuDlg) { auto N = [&]() -> const MenuNode& { static MenuNode none; const MenuNode* n = menuDlg ? menuDlg->SelectedNode() : nullptr; return n ? *n : none; };
+          auto MK = [&](SDL_Keycode k, Uint16 m = 0) { InputEvent v; v.type = InputEvent::KEY_DOWN; v.key = k; v.mod = m; Handle(v); };
+          auto MT = [&](const char* tx) { InputEvent v; v.type = InputEvent::TEXT; strncpy(v.text, tx, sizeof v.text - 1); Handle(v); };
+          auto MF = [&](int k) { Handle(ev(InputEvent::DOWN, menuDlg->RX() + 20, menuDlg->FieldY(k) + 5)); Handle(ev(InputEvent::UP, 0, 0)); };
+          auto MB = [&](int row, int k) { int x = menuDlg->BtnX(row, k) + 6, y = (row == 1 ? menuDlg->Row1Y() : menuDlg->Row2Y()) + 3; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); };
+          auto MSel = [&](int i) { SuperListBox* lb = menuDlg->Lb(); int x = lb->GetX() + lb->GetBorder() + lb->GetPadding() + 8, y = lb->GetBoxTop() + lb->GetBorder() + lb->GetPadding() + 2 + i * 18; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); };
+          auto MSet = [&](int k, const char* v) { MF(k); MK(SDLK_a, KMOD_LCTRL); MT(v); };
+          auto MClear = [&](int k) { MF(k); MK(SDLK_a, KMOD_LCTRL); MK(SDLK_BACKSPACE); };
+          auto Leave = [&]() { if (menuDlg && menuDlg->FocusedField() >= 0) MK(SDLK_ESCAPE); };          // Esc in a field goes back to the tree; Esc in the tree would cancel
+          MSel(1); Check(menuDlg->Selected() == 1 && menuDlg->FieldText(0) == "Reboot" && menuDlg->FieldText(1) == "MNU_REBOOT" && menuDlg->FieldText(2) == "1", "menu editor: clicking an item shows its text, item ID and id");
+          MSet(0, "Restart"); Check(N().text == "Restart" && N().itemId == "MNU_RESTART", "menu editor: an automatic item ID follows the text");
+          MSet(1, "MNU_REBOOT_NOW"); Check(N().itemId == "MNU_REBOOT_NOW" && menuDlg->Message().empty(), "menu editor: the item ID can be edited");
+          MSet(0, "Restart now"); Check(N().itemId == "MNU_REBOOT_NOW", "menu editor: an item ID you edited no longer follows the text");
+          MSet(1, "int"); Check(N().itemId == "MNU_REBOOT_NOW" && menuDlg->Message().find("not a safe C++ name") != std::string::npos && menuDlg->FieldText(1) == "int", "menu editor: a keyword is refused (red, with the reason, the old one stays)");
+          MSet(1, "MNU_ABOUT"); Check(N().itemId == "MNU_REBOOT_NOW" && menuDlg->Message().find("already used") != std::string::npos, "menu editor: an item ID already used by another item is refused");
+          MSet(1, "menu1"); Check(N().itemId == "MNU_REBOOT_NOW" && menuDlg->Message().find("already used") != std::string::npos, "menu editor: an item ID equal to a control name is refused");
+          MSet(1, "HIGH"); Check(N().itemId == "MNU_REBOOT_NOW" && !menuDlg->Message().empty(), "menu editor: an Arduino macro is refused");
+          MClear(1); Check(N().itemId == "MNU_REBOOT_NOW" && menuDlg->Message().find("needs") != std::string::npos, "menu editor: a command cannot lose its item ID");
+          MSet(1, "MNU_REBOOT"); Check(N().itemId == "MNU_REBOOT", "menu editor: a valid item ID is accepted again");
+          MSet(2, "3"); Check(N().id == 1 && menuDlg->Message().find("already used") != std::string::npos, "menu editor: an id used by another item of the menu is refused");
+          MSet(2, "70000"); Check(N().id == 1 && menuDlg->Message().find("65535") != std::string::npos, "menu editor: an id above 65535 is refused");
+          MClear(2); Check(N().id == 1 && menuDlg->Message().find("needs an id") != std::string::npos, "menu editor: a command cannot lose its id");
+          MSet(2, "9"); Check(N().id == 9 && menuDlg->Message().empty(), "menu editor: a free id is accepted");
+          Leave(); MSel(0); Check(menuDlg->FieldText(1).empty() && menuDlg->FieldText(2).empty(), "menu editor: a parent (System) has no item ID and no id");
+          MSet(1, "MNU_SYSTEM"); Check(N().itemId == "MNU_SYSTEM" && N().id == 10, "menu editor: giving a parent an item ID gives it the next free id");
+          MClear(1); Check(N().itemId.empty() && N().id == -1, "menu editor: clearing a parent's item ID clears its id too");
+          Leave();
+          // structure: System{Reboot, Power off}, About
+          MSel(3); int maxBefore = std::max(0, MenuMaxId(menuDlg->nodes)); MB(1, 0);
+          Check(menuDlg->Rows() == 5 && menuDlg->Selected() == 4 && N().itemId.rfind("MNU_ITEM", 0) == 0 && N().id == maxBefore + 1 && menuDlg->FocusedField() == 0, "menu editor: Add puts a new command after the selection with the next id, and focuses its text");
+          Leave(); MB(1, 1); Check(menuDlg->Rows() == 6 && menuDlg->RowText(5).substr(0, 4) == "    " && N().id == maxBefore + 2, "menu editor: Add child adds a sub-item (the selected item becomes a parent)");
+          Leave(); MB(1, 2); Check(menuDlg->Rows() == 5 && menuDlg->Selected() == 4, "menu editor: Delete removes the selected item (here the sub-item)");
+          MB(1, 3); Check(menuDlg->Rows() == 5 && menuDlg->Selected() == 3 && menuDlg->RowText(4).find("About") != std::string::npos, "menu editor: Move up");
+          MB(1, 4); Check(menuDlg->Selected() == 4 && menuDlg->RowText(4).find("Item") != std::string::npos, "menu editor: Move down");
+          MB(1, 3); MSel(4); MB(2, 0); Check(menuDlg->Rows() == 5 && menuDlg->RowText(4).substr(0, 4) == "    " && menuDlg->RowText(4).find("About") != std::string::npos, "menu editor: Indent makes the item a child of the one above");
+          MB(2, 1); Check(menuDlg->RowText(4).substr(0, 4) != "    " && menuDlg->RowText(4).find("About") != std::string::npos, "menu editor: Outdent brings it back");
+          { bool refused = false; for (int i = 0; i < 8 && !refused; ++i) { MB(1, 1); Leave(); refused = menuDlg && menuDlg->Message().find("5 levels") != std::string::npos; }
+            Check(menuDlg != nullptr && refused && MenuDepth(menuDlg->nodes) <= MAX_MENU_DEPTH, "menu editor: nesting stops at 5 levels"); }
+          // paste an outline
+          MB(2, 3); Check(menuDlg->Rows() == 0 && menuDlg->nodes.empty(), "menu editor: Clear all");
+          { char* oldClip = SDL_GetClipboardText(); SDL_SetClipboardText("File\n  Open\n  Save\n    Save as\n    Save copy\nEdit\n\tCut\n\tCopy\n\nHelp\n");
+            MB(2, 2); const auto& n = menuDlg->nodes;
+            Check(n.size() == 3 && n[0].text == "File" && n[0].kids.size() == 2 && n[0].kids[1].text == "Save" && n[0].kids[1].kids.size() == 2 && n[0].kids[1].kids[0].text == "Save as" && n[1].kids.size() == 2 && n[1].kids[1].text == "Copy" && n[2].text == "Help", "menu editor: Paste outline builds the tree from the indentation (spaces or tabs, blank lines ignored)");
+            Check(n[0].itemId.empty() && n[0].kids[1].itemId.empty() && n[0].kids[0].itemId == "MNU_OPEN" && n[0].kids[1].kids[0].itemId == "MNU_SAVE_AS" && n[2].itemId == "MNU_HELP", "menu editor: pasted leaves become commands with automatic names, parents get none");
+            { std::set<int> ids; bool uniq = true; MenuForEach(n, [&](const MenuNode& k) { if (k.id >= 0 && !ids.insert(k.id).second) uniq = false; }); Check(uniq && ids.size() == 6, "menu editor: their ids are unique (next free numbers)"); }
+            SDL_SetClipboardText("Open\n  Deep\n    Deeper\n      Deepest\n        TooDeep\n          Way too deep\n"); MB(2, 2);
+            Check(MenuDepth(menuDlg->nodes) <= MAX_MENU_DEPTH, "menu editor: a pasted outline is cut at 5 levels");
+            SDL_SetClipboardText(""); size_t n0 = (size_t)MenuNodeCount(menuDlg->nodes); MB(2, 2); Check((size_t)MenuNodeCount(menuDlg->nodes) == n0 && !menuDlg->Message().empty(), "menu editor: an empty clipboard adds nothing and says so");
+            if (oldClip) { SDL_SetClipboardText(oldClip); SDL_free(oldClip); } }
+          menuDlg->Draw(0);                                                    // (the whole dialog draws without trouble)
+          MB(2, 3); MB(1, 0); Leave(); MK(SDLK_ESCAPE); Check(menuDlg == nullptr && FD::MenuNodeCount(form.items[0].menu) == 4, "menu editor: Esc cancels (the control keeps its menu)");
+          { int r = -1; for (int i = 0; i < nFields; ++i) if (fieldProp[i] == P_ITEMS) r = i; EnsureRowVisible(r); Click(FIELD_X + FIELD_W - 30, FieldY(r) + 5); }
+          MB(2, 3); MT("x"); { char* oldClip = SDL_GetClipboardText(); SDL_SetClipboardText("One\nTwo\n  Three"); MB(2, 2); if (oldClip) { SDL_SetClipboardText(oldClip); SDL_free(oldClip); } }
+          if (menuDlg) { int x = menuDlg->OkX() + 5, y = menuDlg->BtnY() + 3; Handle(ev(InputEvent::DOWN, x, y)); Handle(ev(InputEvent::UP, x, y)); }
+          Check(menuDlg == nullptr && form.items[0].menu.size() == 2 && form.items[0].menu[0].text == "One" && form.items[0].menu[0].itemId == "MNU_ONE" && form.items[0].menu[1].kids.size() == 1 && form.items[0].menu[1].kids[0].itemId == "MNU_THREE", "menu editor: OK stores the menu");
+        }
+        // ---- generated code ----
+        form.Clear(); FixOutDir(); sel = -1; BuildFields(); form.name = "Mg";
+        { DControl m; m.type = C_MENU; m.name = "menu1"; m.x = 8; m.y = 8; m.w = 160;
+          MenuNode sys, reb, off, about, sub; sys.text = "System"; reb.text = "Reboot"; reb.itemId = "MNU_REBOOT"; reb.id = 7; off.text = "Power \"off\""; off.itemId = "MNU_POWER_OFF"; off.id = 8; about.text = "About"; about.itemId = "MNU_ABOUT"; about.id = 20;
+          sub.text = "More"; sub.itemId = "MNU_MORE"; sub.id = 30; MenuNode deep; deep.text = "Deep"; deep.itemId = "MNU_DEEP"; deep.id = 31; sub.kids = { deep }; sys.kids = { reb, off, sub }; m.menu = { sys, about };
+          ExtraSet(m, *FindExtra(C_MENU, "rows"), "4"); ExtraSet(m, *FindExtra(C_MENU, "wrap"), "true"); ExtraSet(m, *FindExtra(C_MENU, "showBack"), "false"); ExtraSet(m, *FindExtra(C_MENU, "rowPad"), "3");
+          form.items.push_back(m); }
+        Check(form.MenuProblem().empty(), "codegen: (the test menu is consistent)");
+        { std::string g = GenerateDesigner(form); auto h5 = [&](const char* x) { return g.find(x) != std::string::npos; };
+          Check(h5("#include <SuperMenu.h>") && h5("menu1(dst, 8, 8, 160, &lgfx::fonts::Font2, 4, enc, btnA, btnB)"), "codegen: the menu takes its visible rows before the encoder and buttons");
+          Check(h5("static constexpr uint16_t MNU_REBOOT = 7;") && h5("static constexpr uint16_t MNU_POWER_OFF = 8;") && h5("static constexpr uint16_t MNU_DEEP = 31;") && h5("// menu1: item ids") && g.find("MNU_REBOOT = 7") < g.find("SuperMenu menu1;"), "codegen: every item ID is a static constexpr uint16_t in the class, before the controls");
+          Check(h5("auto* fd_p1 = menu1.AddItem(\"System\", 0);") && h5("menu1.AddItem(\"Reboot\", MNU_REBOOT, fd_p1);") && h5("menu1.AddItem(\"Power \\\"off\\\"\", MNU_POWER_OFF, fd_p1);"), "codegen: AddItem calls use the constants as ids, parents as local variables (text escaped)");
+          Check(h5("auto* fd_p2 = menu1.AddItem(\"More\", MNU_MORE, fd_p1);") && h5("menu1.AddItem(\"Deep\", MNU_DEEP, fd_p2);") && h5("menu1.AddItem(\"About\", MNU_ABOUT);"), "codegen: nesting, a parent that has an id, and a top-level item without a parent argument");
+          Check(g.find("fd_p1 = menu1.AddItem(\"System\"") < g.find("menu1.AddItem(\"Reboot\"") && g.find("menu1.AddItem(\"Deep\"") < g.find("menu1.AddItem(\"About\""), "codegen: the items come in menu order");
+          Check(h5("menu1.Wrap = true;") && h5("menu1.ShowBack = false;") && h5("menu1.RowPad = 3;"), "codegen: menu settings that differ from the defaults");
+          Check(h5("virtual void menu1_Change() {}") && h5("virtual void menu1_Choose(uint16_t id) {}") && h5("menu1.SetOnAccept(menu1_ChooseThunk, this);") && h5("s->menu1_Choose((uint16_t)s->menu1.GetResultId());"), "codegen: the Choose handler receives the id of the chosen command");
+          std::string u = GenerateUserFile(form);
+          Check(u.find("void menu1_Choose(uint16_t id) override {") != std::string::npos && u.find("switch (id) {") != std::string::npos && u.find("case MNU_REBOOT:    // Reboot") != std::string::npos && u.find("case MNU_ABOUT:") != std::string::npos && u.find("case MNU_DEEP:") != std::string::npos && u.find("case MNU_MORE") == std::string::npos && u.find("case MNU_POWER_OFF:    // Power \"off\"") == std::string::npos == false, "user file: a switch with one case per command (parents are not commands)");
+          Check(UserFileMissing(form, u).empty() && HandlerNames(form) == std::vector<std::string>({ "menu1_Change", "menu1_Choose" }), "user file: the Choose handler counts as a handler (not reported missing once the stub exists)"); }
+        Check(!ValidName("menu1_Choose") && !ValidName("x_ChooseThunk") && !ValidName("fd_p1") && !ValidName("fd_anything") && ValidName("fdx"), "names: _Choose, _ChooseThunk and the generator's fd_ locals are reserved");
+        form.Clear(); FixOutDir(); sel = -1; BuildFields();
         // delete
         form.Clear(); Place(C_LABEL, 8, 8); Place(C_CHECKBOX, 8, 40); sel = -1; Key(SDLK_TAB); Key(SDLK_DELETE); Check(form.items.size() == 1 && sel == -1, "designer: Delete removes the selected control");
         form.Clear(); sel = -1; BuildFields(); unsetenv("FD_FORM");
@@ -1744,7 +1895,7 @@ void setup() {
     if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'p') OpenPresetDialog();            // FD_SHOW=presets | builder: the template dialogs (select an input box with FD_SELECT)
     else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'b') OpenBuilderDialog();
     else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'o') OpenFileDialog(FP_OPEN);          // FD_SHOW=open: the Open dialog
-    else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'i') OpenItemsDialog();                // FD_SHOW=items
+    else if (getenv("FD_SHOW") && getenv("FD_SHOW")[0] == 'i') OpenItemsDialog();                // (also the menu editor for a selected menu)                // FD_SHOW=items
     else if (getenv("FD_SHOW")) { if (!form.items.empty()) { sel = 0; BuildFields(); } for (int i = 0; i < nFields; ++i) if (fieldProp[i] == (getenv("FD_SHOW")[0] == 'f' ? P_FONT : Sel() ? P_FG : P_FBG)) { if (fieldProp[i] == P_FONT) OpenFontDialog(P_FONT); else OpenColorDialog(fieldProp[i]); break; } }   // FD_SHOW=color | font: open a dialog at start (for screenshots)
     if (getenv("FD_SELFTEST")) SelfTest();
 }

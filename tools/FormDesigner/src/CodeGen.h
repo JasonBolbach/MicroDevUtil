@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -41,11 +42,11 @@ inline std::string HexColor(uint16_t c) { char b[8]; snprintf(b, sizeof b, "0x%0
 inline std::string DesignerFileName(const DForm& f) { return f.name + ".designer.h"; }
 
 inline const char* HeaderOf(int type) {
-    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h" };
+    static const char* h[C_COUNT] = { "SuperLabel.h", "SuperPushButton.h", "SuperCheckBox.h", "SuperRadioButton.h", "SuperProgressBar.h", "SuperSpinBox.h", "SuperSlider.h", "SuperTextBox.h", "SuperInputBox.h", "SuperTimeBox.h", "SuperTimeBox.h", "SuperListBox.h", "SuperComboBox.h", "SuperTabBar.h", "SuperMenu.h" };
     return h[type];
 }
 // The events a control raises: the handler is <control>_<Name>() and it is connected with control.<setter>(thunk, this).
-struct EventDef { const char* name; const char* setter; const char* hint; };      // hint: what the stub's comment tells the user (%s = the control)
+struct EventDef { const char* name; const char* setter; const char* hint; bool idArg = false; };    // idArg: the handler receives the id of the chosen menu item      // hint: what the stub's comment tells the user (%s = the control)
 inline std::vector<EventDef> EventsOf(int type) {
     switch (type) {
     case C_PUSHBUTTON: return { { "Click",  "SetOnAccept", "%s was pressed." } };
@@ -63,6 +64,8 @@ inline std::vector<EventDef> EventsOf(int type) {
                                 { "Accept", "SetOnAccept", "%s: an item was chosen: %s.GetValue() is its text, %s.GetSelected() its index." } };
     case C_TABBAR:     return { { "Change", "SetOnChange", "%s: the cursor moved to another tab: %s.GetCursor() is its index." },
                                 { "Accept", "SetOnAccept", "%s: a tab was chosen: %s.GetSelected() is its index (show that page)." } };
+    case C_MENU:       return { { "Change", "SetOnChange", "%s: the cursor moved, or the menu level changed." },
+                                { "Choose", "SetOnAccept", "%s: a command was chosen: id is its constant (switch on it).", true } };
     default:           return {};
     }
 }
@@ -112,6 +115,25 @@ inline void EmitExtras(std::ostringstream& o, const DControl& c) {
         }
         if (c.type == C_COMBOBOX && XInt(c, "restore") == 0) o << "        " << n << ".SetRestore(" << n << "_RestoreThunk, this);      // the form redraws what the popup covered\n";
     }
+    if (c.type == C_MENU) {
+        if (XBool(c, "wrap")) o << "        " << n << ".Wrap = true;\n";
+        if (!XBool(c, "showBack")) o << "        " << n << ".ShowBack = false;\n";
+        if (XSet(c, "rowPad")) o << "        " << n << ".RowPad = " << XInt(c, "rowPad") << ";\n";
+        if (!c.menu.empty()) {                                                                  // the items, nested like the JSON (fd_pN = a parent's item)
+            o << "        {\n"; int counter = 0;
+            std::function<void(const std::vector<MenuNode>&, const std::string&)> emit = [&](const std::vector<MenuNode>& v, const std::string& parent) {
+                for (const MenuNode& k : v) {
+                    std::string idArg = (!k.itemId.empty() && k.id >= 0) ? k.itemId : "0";
+                    o << "            ";
+                    std::string var;
+                    if (!k.kids.empty()) { var = "fd_p" + std::to_string(++counter); o << "auto* " << var << " = "; }
+                    o << n << ".AddItem(" << CppString(k.text) << ", " << idArg << (parent.empty() ? "" : ", " + parent) << ");\n";
+                    if (!k.kids.empty()) emit(k.kids, var);
+                }
+            };
+            emit(c.menu, ""); o << "        }\n";
+        }
+    }
     if (c.type == C_TEXTBOX && !c.text.empty()) o << "        " << n << ".SetText(" << CppString(c.text) << ");\n";
     if (c.type == C_INPUTBOX) {
         if (XSet(c, "literalColor")) o << "        " << n << ".ColLiteral = " << HexColor((uint16_t)XInt(c, "literalColor")) << ";\n";
@@ -145,7 +167,12 @@ inline std::string GenerateDesigner(const DForm& f) {
 
     o << "\nclass " << base << " {\npublic:\n"
       << "    static constexpr int FormWidth = " << f.w << ", FormHeight = " << f.h << ";\n"
-      << "    static constexpr uint16_t FormBackColor = " << HexColor(f.bg) << ";\n\n";
+      << "    static constexpr uint16_t FormBackColor = " << HexColor(f.bg) << ";\n";
+    for (const DControl& c : f.items) if (c.type == C_MENU) {                                        // the menu item ids: use them in your Choose handler
+        bool any = false;
+        MenuForEach(c.menu, [&](const MenuNode& k) { if (!k.itemId.empty() && k.id >= 0) { if (!any) o << "\n    // " << c.name << ": item ids\n"; any = true; o << "    static constexpr uint16_t " << k.itemId << " = " << k.id << ";\n"; } });
+    }
+    o << "\n";
     for (const DControl& c : f.items) o << "    " << Info(c.type).key << " " << c.name << ";\n";
     for (const std::string& g : groups) o << "    SuperRadioGroup " << g << ";\n";
     o << "    SuperForm Form;\n\n";
@@ -158,7 +185,7 @@ inline std::string GenerateDesigner(const DForm& f) {
         sep();
         o << c.name << "(dst, " << c.x << ", " << c.y << ", " << c.w << ", &lgfx::fonts::" << FindFont(c.font).id;
         if (Info(c.type).ctorText) o << ", " << CppString(c.text);
-        if (c.type == C_LISTBOX) o << ", " << XInt(c, "rows");                                    // the number of visible rows is a constructor argument
+        if (c.type == C_LISTBOX || c.type == C_MENU) o << ", " << XInt(c, "rows");                                    // the number of visible rows is a constructor argument
         if (c.type == C_INPUTBOX) o << ", " << CppString(XStr(c, "template"));                      // the template comes before the encoder and buttons
         if (Info(c.type).editable) o << ", enc, btnA, btnB";                  // editable controls take the encoder and the two buttons
         if (c.type == C_TIMEBOX && !XBool(c, "seconds")) o << ", false";                           // (seconds = true is the default)
@@ -175,7 +202,7 @@ inline std::string GenerateDesigner(const DForm& f) {
 
     if (!HandlerNames(f).empty()) {
         o << "protected:\n    // Events: override these in your own class.\n";
-        for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) o << "    virtual void " << c.name << "_" << ev.name << "() {}\n";
+        for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) o << "    virtual void " << c.name << "_" << ev.name << (ev.idArg ? "(uint16_t id) {}\n" : "() {}\n");
         o << "\n";
     }
 
@@ -204,8 +231,10 @@ inline std::string GenerateDesigner(const DForm& f) {
         o << "        Form.Add(&" << n << (Focusable(c.type) ? "" : ", false") << ");\n";
     }
     o << "    }\n";
-    for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type))
-        o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { static_cast<" << base << "*>(u)->" << c.name << "_" << ev.name << "(); }\n";
+    for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) {
+        if (ev.idArg) o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { auto* s = static_cast<" << base << "*>(u); s->" << c.name << "_" << ev.name << "((uint16_t)s->" << c.name << ".GetResultId()); }\n";
+        else o << "    static void " << c.name << "_" << ev.name << "Thunk(void* u) { static_cast<" << base << "*>(u)->" << c.name << "_" << ev.name << "(); }\n";
+    }
     for (const DControl& c : f.items) if (c.type == C_COMBOBOX && XInt(c, "restore") == 0)
         o << "    static void " << c.name << "_RestoreThunk(void* u) {\n        auto* s = static_cast<" << base << "*>(u);\n"
           << "        s->Form.Redraw(s->" << c.name << ".GetPopupX(), s->" << c.name << ".GetPopupY(), s->" << c.name << ".GetPopupWidth(), s->" << c.name << ".GetPopupHeight(), FormBackColor);\n    }\n";
@@ -233,11 +262,16 @@ inline std::string GenerateUserFile(const DForm& f) {
     if (!h.empty()) {
         o << "\nprotected:\n";
         for (const DControl& c : f.items) for (const EventDef& ev : EventsOf(c.type)) {
-            o << "    void " << c.name << "_" << ev.name << "() override {\n        // ";
             std::string hint = ev.hint;                                       // %s = the control, GROUP = its radio group
             for (size_t p; (p = hint.find("%s")) != std::string::npos;) hint.replace(p, 2, c.name);
             for (size_t p; (p = hint.find("GROUP")) != std::string::npos;) hint.replace(p, 5, c.group);
-            o << hint << "\n    }\n";
+            if (ev.idArg) {                                                   // a menu: one case per command constant
+                o << "    void " << c.name << "_" << ev.name << "(uint16_t id) override {\n        // " << hint << "\n        switch (id) {\n";
+                MenuForEach(c.menu, [&](const MenuNode& k) { if (k.kids.empty() && !k.itemId.empty()) o << "        case " << k.itemId << ":    // " << k.text << "\n            break;\n"; });
+                o << "        default: break;\n        }\n    }\n";
+                continue;
+            }
+            o << "    void " << c.name << "_" << ev.name << "() override {\n        // " << hint << "\n    }\n";
         }
     }
     o << "};\n";
@@ -257,6 +291,7 @@ struct GenResult { bool ok = false, unchanged = false; std::string path, error; 
 inline GenResult WriteDesigner(DForm& f, const std::string& dir) {
     namespace fs = std::filesystem;
     GenResult r; std::error_code ec;
+    { std::string problem = f.MenuProblem(); if (!problem.empty()) { r.error = problem; return r; } }          // never write code that would not compile
     if (dir.empty() || !fs::is_directory(dir, ec)) { r.error = "folder \"" + dir + "\" does not exist"; return r; }
     fs::path p = fs::path(dir) / DesignerFileName(f);
     r.path = p.string();
