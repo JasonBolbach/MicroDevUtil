@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Generated code and your file - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Form Designer</h4>
+<a class="item" href="../designer/designer-start.html">Form Designer: your first form</a>
+<a class="item" href="../designer/designer-usage.html">Using the designer</a>
+<a class="item cur" href="../designer/designer-code.html">Generated code and your file</a>
+<a class="item" href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a>
+<a class="item" href="../designer/designer-boxes.html">Message boxes</a>
+<a class="item" href="../designer/designer-json.html">The form file (JSON)</a>
+<a class="item" href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Generated code and your file</h1>
+<p>Export writes two files next to each other.</p>
+<table><tr><th>File</th><th>Who owns it</th><th>What is in it</th></tr>
+<tr><td><code>Form1.designer.h</code></td><td>The designer. Regenerated on every export: <b>never edit it</b>.</td><td>Class <code>Form1Base</code>: every control as a public member, the <code>SuperForm</code>, constants, <code>InitializeComponent()</code>, <code>Show()</code>, <code>Service()</code>, and one empty virtual handler per event.</td></tr>
+<tr><td><code>Form1.h</code></td><td>You. Written once, never changed again.</td><td>Class <code>Form1 : Form1Base</code> with a constructor for your start-up code and an <code>override</code> stub per handler.</td></tr></table>
+<h2>Using it in a sketch</h2>
+<pre><code>#include "Form1.h"
+Form1 ui(&amp;lcd, &amp;Enc, &amp;BtnA, &amp;BtnB);   // display, encoder, two buttons
+
+void setup() { /* init lcd, Enc, BtnA, BtnB */ ui.Show(); }
+void loop()  { ui.Service(); }              // focus, editing, touch, handlers</code></pre>
+<h2>Handlers</h2>
+<table><tr><th>Control</th><th>Handlers</th></tr>
+<tr><td>Push button</td><td><code>okBtn_Click()</code></td></tr>
+<tr><td>Check box, radio button</td><td><code>wifi_Change()</code></td></tr>
+<tr><td>Spin box, slider, input / time / date box, color picker</td><td><code>name_Change()</code> (live, while editing) and <code>name_Accept()</code> (the user confirmed)</td></tr>
+<tr><td>List box, combo box, tab bar</td><td><code>name_Change()</code> (cursor moved) and <code>name_Accept()</code> (item chosen)</td></tr>
+<tr><td>Menu</td><td><code>menu1_Choose(uint16_t id)</code> with one <code>case</code> per command, plus <code>menu1_Change()</code></td></tr>
+<tr><td>User draw</td><td><code>scope_Draw(spr, body)</code>, and with Touch input <code>scope_Pointer(e)</code> and <code>scope_Accept()</code></td></tr>
+<tr><td>Gauge, graph, text box, label, progress bar</td><td>none (display only). Update them from your code: <code>load.SetValue(v)</code>, <code>trace.AddSample(v)</code>.</td></tr></table>
+<p>To react to an event, write the <code>override</code> in <code>Form1.h</code>:</p>
+<pre><code>protected:
+  void okBtn_Click() override { if (msgYesNo_Ask() == MSG_YESNO_YES) Save(); }
+  void volume_Change() override { SetVolume(volume.GetLiveValue()); }</code></pre>
+<h2>When you add controls later</h2>
+<p>The designer never edits <code>Form1.h</code>. Instead the status line (and <code>FD_EXPORT=1</code>) lists the handlers your file does not mention yet, for example <code>add to it: cancelBtn_Click +1 more</code>. Copy the stub you want from the <code>protected:</code> list of <code>Form1.designer.h</code>. Delete <code>Form1.h</code> to get a fresh one (it will not remember your code!).</p>
+<h2>Constants you get</h2>
+<ul><li><code>MNU_...</code> for every menu command, <code>GRP_...</code> for every control group, <code>MSG_...</code> for named message box buttons, and <code>MSG_CANCELLED</code> / <code>MSG_PENDING</code>. Use them instead of numbers.</li></ul>
+<div class="box tip"><b class="h">Tip</b>The constructor takes <b>both</b> buttons: <code>Form1(dst, enc, btnA, btnB)</code>. Older exports took only one; re-export and pass <code>&amp;BtnB</code> too.</div>
+<div class="box warn"><b class="h">Watch out</b>Do not put your code in <code>Form1.designer.h</code>. The next export replaces the whole file and your changes are gone. Everything of yours goes in <code>Form1.h</code>.</div>
+
+<div class="pn"><span>&larr; <a href="../designer/designer-usage.html">Using the designer</a></span><span><a href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

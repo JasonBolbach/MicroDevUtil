@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Designer tips, tricks and pitfalls - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Form Designer</h4>
+<a class="item" href="../designer/designer-start.html">Form Designer: your first form</a>
+<a class="item" href="../designer/designer-usage.html">Using the designer</a>
+<a class="item" href="../designer/designer-code.html">Generated code and your file</a>
+<a class="item" href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a>
+<a class="item" href="../designer/designer-boxes.html">Message boxes</a>
+<a class="item" href="../designer/designer-json.html">The form file (JSON)</a>
+<a class="item cur" href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Designer tips, tricks and pitfalls</h1>
+<h2>Tips and tricks</h2>
+<div class="box tip"><b class="h">Tip</b><b>Design at 1:1, check at Fit.</b> Press <code>0</code> for the true pixel size and <code>F</code> to see the whole form. Everything you see is drawn by the real controls, so a gap or a clipped text on screen is a gap or a clipped text on the device.</div>
+<div class="box tip"><b class="h">Tip</b><b>Name controls as you place them.</b> <code>okBtn</code>, <code>cancelBtn</code>, <code>volume</code> make the handlers (<code>okBtn_Click</code>) read like sentences. A prefix such as <code>btn</code>, <code>lbl</code>, <code>chk</code> keeps the Controls-on-form list tidy.</div>
+<div class="box tip"><b class="h">Tip</b><b>Lists from a spreadsheet:</b> copy a column, open the items dialog and click <b>Paste lines</b>. For menus, copy an indented outline and click <b>Paste outline</b>.</div>
+<div class="box tip"><b class="h">Tip</b><b>Input box templates:</b> <b>Presets</b> has phone numbers, ZIP codes, dates, times, IPv4, MAC addresses and more. <b>Build</b> makes a template cell by cell. <code>#</code> is a digit, <code>A</code> upper case, <code>a</code> lower case, <code>B</code> any letter, <code>*</code> anything; every other character is a literal, so <code>###-###-####</code> is a phone number.</div>
+<div class="box tip"><b class="h">Tip</b><b>Gauge:</b> the Zones dialog has <b>Fill 3 bands</b> (green / yellow / red at 60 / 85 / 100 % of the range). Update the needle with <code>load.SetValue(v)</code>.</div>
+<div class="box tip"><b class="h">Tip</b><b>Graph:</b> <i>Preview data</i> (Sine / Rising / Noise) only exists so the designer shows something. It is not generated: feed the real graph with <code>trace.AddSample(v)</code>.</div>
+<div class="box tip"><b class="h">Tip</b><b>Pages:</b> design every page in the same area of the form and use the <b>View</b> button to edit one page at a time.</div>
+<div class="box tip"><b class="h">Tip</b><b>Hand edits:</b> the JSON file is meant to be edited. Rename a group, reorder menu items, paste a long message: save, open in the designer and it repairs anything unsafe.</div>
+<h2>Pitfalls</h2>
+<div class="box warn"><b class="h">Watch out</b><b>Editing <code>Form1.designer.h</code>.</b> It is overwritten on every export. Your code belongs in <code>Form1.h</code>.</div>
+<div class="box warn"><b class="h">Watch out</b><b>A new handler is not in your file.</b> After you add a control, export and read the status line: it names the handlers <code>Form1.h</code> does not have. Copy the stubs from the <code>protected:</code> list.</div>
+<div class="box warn"><b class="h">Watch out</b><b>Names are strictly checked.</b> A C++ keyword (<code>class</code>, <code>int</code>), a library or Arduino name (<code>delay</code>, <code>Serial</code>, <code>PI</code>, <code>HIGH</code>), a pin name (<code>A0</code>, <code>D13</code>), a macro defined by the headers, a name starting with an underscore or <code>fd_</code>, or one that ends like a handler (<code>x_Click</code>) is refused. Two things can never share a name: controls, radio groups, menu IDs, control groups, message boxes and their button names, and the form (<code>Form1</code>, <code>Form1Base</code>).</div>
+<div class="box warn"><b class="h">Watch out</b><b>The constructor needs both buttons</b>: <code>(dst, enc, btnA, btnB)</code>.</div>
+<div class="box warn"><b class="h">Watch out</b><b>A group show overrides Visible.</b> <code>SetGroupVisible(g, true)</code> shows every control of the group, even those set to Visible = No.</div>
+<div class="box warn"><b class="h">Watch out</b><b>Text is US-ASCII.</b> Accented letters and symbols outside the printable ASCII range are dropped when typed, pasted or loaded.</div>
+<div class="box warn"><b class="h">Watch out</b><b>Message boxes block.</b> <code>_Ask()</code> does not return until the user answers. Use <code>_Open()</code> / <code>_Poll()</code> in a loop that must keep running.</div>
+<div class="box warn"><b class="h">Watch out</b><b>User draw cannot be previewed.</b> The designer cannot run your drawing code, so it shows a placeholder. Your <code>name_Draw(spr, body)</code> is what the device draws.</div>
+<h2>Checking the designer itself</h2>
+<p><code>FD_SELFTEST=1 build/FormDesigner</code> runs hundreds of automatic checks with synthetic mouse and keyboard events and exits 0 when all pass. <code>FD_SNAPSHOT=frame.raw</code> writes the first frame (raw big-endian RGB565, 1400x820) and exits; useful for screenshots.</p>
+
+<div class="pn"><span>&larr; <a href="../designer/designer-json.html">The form file (JSON)</a></span><span><a href="../controls/label.html">SuperLabel</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

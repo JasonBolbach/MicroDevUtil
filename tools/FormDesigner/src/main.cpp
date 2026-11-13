@@ -179,11 +179,17 @@ static int SegCurrent(int p) {
 // ---- the last successful save folder of the generated code (kept in the form's JSON as outputPath, not shown in the designer) ----
 static bool DirExists(const std::string& p) { std::error_code ec; return !p.empty() && std::filesystem::is_directory(p, ec); }
 static std::string WorkDir() { std::error_code ec; return std::filesystem::current_path(ec).string(); }     // the executable's working folder
-// A quick check after loading (and at start-up): a missing folder falls back to the working folder. Returns true when it had to change.
+// The folder the FormDesigner program itself lives in (the default export folder); the working folder if SDL cannot tell.
+static std::string AppDir() {
+    std::string d; if (char* b = SDL_GetBasePath()) { d = b; SDL_free(b); }
+    while (d.size() > 1 && (d.back() == '/' || d.back() == '\\')) d.pop_back();
+    return DirExists(d) ? d : WorkDir();
+}
+// A quick check after loading (and at start-up): a missing export folder falls back to the FormDesigner application folder. Returns true when it had to change.
 // The code generator will set form.outDir after every successful save of the generated files.
 static bool FixOutDir() {
     if (DirExists(form.outDir)) return false;
-    form.outDir = WorkDir(); return true;
+    form.outDir = AppDir(); return true;
 }
 
 static bool GetColorProp(int p, uint16_t& out) {      // the model colour a colour row edits
@@ -858,7 +864,7 @@ static void Handle(const InputEvent& e) {
         }
         if (cmd && e.key == SDLK_s) { OpenFileDialog(FP_SAVE); break; }          // Save always shows the dialog (a new name becomes the form's file)
         if (cmd && e.key == SDLK_o) { OpenFileDialog(FP_OPEN); break; }          // Open always shows the dialog, where it was last looking
-        if (cmd && e.key == SDLK_x) { if (shift) OpenFileDialog(FP_EXPORT); else ExportForm(""); break; }   // Export (Shift: choose the folder first)
+        if (cmd && e.key == SDLK_x) { OpenFileDialog(FP_EXPORT); break; }   // Export: always asks for the folder (starting at the one saved in the form), then writes the code
         if (cmd) break;                                                          // no other Ctrl / Cmd shortcuts (so Ctrl+G is not the grid key)
         int step = shift ? grid : 1;
         switch (e.key) {
@@ -1050,10 +1056,10 @@ static void SelfTest() {
         Check(form.items.size() == 2 && form.items[0].text == "say \"hi\" \\ ok", "designer: Ctrl+S / Ctrl+O round trip through a file");
         remove("/tmp/fd_selftest_form.json");
         // output folder: stored in the JSON, a missing folder falls back to the working folder on load
-        Check(DirExists(form.outDir) && form.outDir == WorkDir(), "designer: a new form's output folder is the working folder");
+        Check(DirExists(form.outDir) && form.outDir == AppDir(), "designer: a new form's output folder is the FormDesigner application folder");
         { std::string e2; DForm h; h.outDir = "/some \"dir\""; Check(g.FromJson(h.ToJson(), e2) && g.outDir == h.outDir, "model: outputPath survives a JSON round trip (quotes escaped)"); }
         { FILE* f = fopen("/tmp/fd_selftest_form.json", "wb"); fputs("{\"form\":{\"outputPath\":\"/no/such/folder/anywhere\"},\"controls\":[]}", f); fclose(f); }
-        OpenForm(); Check(form.outDir == WorkDir(), "designer: a saved output folder that no longer exists is replaced by the working folder");
+        OpenForm(); Check(form.outDir == AppDir(), "designer: a saved output folder that no longer exists is replaced by the application folder");
         { FILE* f = fopen("/tmp/fd_selftest_form.json", "wb"); fputs("{\"form\":{\"outputPath\":\"/tmp\"},\"controls\":[]}", f); fclose(f); }
         OpenForm(); Check(form.outDir == "/tmp", "designer: a saved output folder that exists is kept");
         remove("/tmp/fd_selftest_form.json"); setenv("FD_FORM", "/tmp/fd_selftest_form.json", 1);
@@ -1208,8 +1214,10 @@ static void SelfTest() {
         setenv("FD_FORM", (gdir + "/demo.json").c_str(), 1); form.outDir = gdir; std::filesystem::remove(gdir + "/Demo.designer.h", fec);
         Key(SDLK_g, KMOD_LCTRL); Check(!std::filesystem::exists(gdir + "/Demo.designer.h") && grid == 8, "export: Ctrl+G does nothing any more (no export, no grid change)");
         Key(SDLK_x, KMOD_LCTRL);
+        Check(fileDlg != nullptr && fileDlg->Dir() == std::filesystem::path(gdir).lexically_normal().string() && !std::filesystem::exists(gdir + "/Demo.designer.h"), "export: Ctrl+X opens the folder dialog on the folder saved in the form (nothing is written yet)");
+        Handle(ev(InputEvent::DOWN, fileDlg->OkX() + 5, fileDlg->BtnY() + 3)); Handle(ev(InputEvent::UP, 0, 0));
         { std::ifstream in(gdir + "/demo.json"); std::stringstream ss; ss << in.rdbuf();
-          Check(std::filesystem::exists(gdir + "/Demo.designer.h") && ss.str().find("\"outputPath\": \"" + gdir + "\"") != std::string::npos && grid == 8, "export: Ctrl+X writes the code and saves the form with outputPath"); }
+          Check(std::filesystem::exists(gdir + "/Demo.designer.h") && ss.str().find("\"outputPath\": \"" + std::filesystem::path(gdir).lexically_normal().string() + "\"") != std::string::npos && grid == 8, "export: Ctrl+X writes the code and saves the form with outputPath"); }
         std::filesystem::remove_all(gdir, fec); unsetenv("FD_FORM"); form.Clear(); FixOutDir();
         // ---- the file dialog (a real folder tree in the temp folder) ----
         {

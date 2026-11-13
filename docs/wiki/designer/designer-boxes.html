@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Message boxes - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Form Designer</h4>
+<a class="item" href="../designer/designer-start.html">Form Designer: your first form</a>
+<a class="item" href="../designer/designer-usage.html">Using the designer</a>
+<a class="item" href="../designer/designer-code.html">Generated code and your file</a>
+<a class="item" href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a>
+<a class="item cur" href="../designer/designer-boxes.html">Message boxes</a>
+<a class="item" href="../designer/designer-json.html">The form file (JSON)</a>
+<a class="item" href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Message boxes</h1>
+<p>A message box is a modal question ("Delete all data?" with Yes / No). It is not drawn on the form: you open it from code and get the answer. The designer keeps the boxes in a list. <b>Select nothing</b> (click an empty spot of the surface, or press Esc) and click <b>Edit...</b> on the <i>Message boxes</i> row.</p>
+<figure><img src="../img/designer_boxes.png" alt="The message box editor with a live preview of the real box" style="max-width:100%"><figcaption>The message box editor with a live preview of the real box</figcaption></figure>
+<h2>The editor</h2>
+<ul>
+<li><b>Name</b>: the member (<code>msgDelete</code>). <b>Title</b>: optional, shown above the box.</li>
+<li><b>Width</b>, <b>Default button</b> (the highlighted one), <b>Centered</b> or an X / Y position.</li>
+<li><b>Edit message...</b>: the message is a list of lines (one entry per line, at most 12). Long lines are word-wrapped on the device.</li>
+<li><b>Buttons</b>: 1 to 3. Type the text; the <i>name</i> next to it is optional and becomes a constant. Emptying a button's text removes the button.</li>
+<li><b>Auto names</b> fills in <code>MSG_DELETE_YES</code>-style names. <b>Add Yes/No</b> adds a ready-made confirmation box ("Confirm?", Yes / No, No highlighted).</li>
+</ul>
+<h2>Using a box in your code</h2>
+<pre><code>// blocking: waits for the answer
+if (msgDelete_Ask() == MSG_DELETE_YES) DeleteAll();
+
+// the answer is the button's INDEX; -1 (MSG_CANCELLED) when the user cancelled
+int r = msgYesNo_Ask();
+if (r == MSG_YESNO_YES) { ... } else if (r == MSG_YESNO_NO) { ... }
+
+// not blocking: keep your loop running
+msgDelete_Open();                           // show it
+int r = msgDelete_Poll();                   // every pass: MSG_PENDING while it is open</code></pre>
+<p>When a box closes, the form is redrawn over the area it covered. The text can be changed at run time with <code>msgDelete.SetMessage("...")</code>. Encoder turn moves between buttons, ButtonA chooses, ButtonB cancels (touch works too).</p>
+<div class="box tip"><b class="h">Tip</b>Name the buttons you test for: <code>MSG_DELETE_YES</code> reads better than <code>== 0</code> and survives re-ordering the buttons in the designer.</div>
+<div class="box warn"><b class="h">Watch out</b><code>_Ask()</code> blocks until the user answers: the rest of your <code>loop()</code> (sensors, networking, animation) does not run meanwhile. Use <code>_Open()</code> / <code>_Poll()</code> when that matters.</div>
+<div class="box warn"><b class="h">Watch out</b>Fonts and colours of a box (<code>"font"</code>, <code>"textColor"</code>, <code>"backColor"</code>, <code>"borderColor"</code>) are only editable in the JSON file for now.</div>
+
+<div class="pn"><span>&larr; <a href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a></span><span><a href="../designer/designer-json.html">The form file (JSON)</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

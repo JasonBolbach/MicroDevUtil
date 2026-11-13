@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The form file (JSON) - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Form Designer</h4>
+<a class="item" href="../designer/designer-start.html">Form Designer: your first form</a>
+<a class="item" href="../designer/designer-usage.html">Using the designer</a>
+<a class="item" href="../designer/designer-code.html">Generated code and your file</a>
+<a class="item" href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a>
+<a class="item" href="../designer/designer-boxes.html">Message boxes</a>
+<a class="item cur" href="../designer/designer-json.html">The form file (JSON)</a>
+<a class="item" href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>The form file (JSON)</h1>
+<p>A form is a plain JSON file you can read, diff and edit by hand (or let Claude edit). Only values that differ from the defaults are written.</p>
+<pre><code>{ "form": { "name": "Form1", "width": 320, "height": 240 },
+  "controls": [
+    { "type": "SuperPushButton", "name": "okBtn", "text": "OK", "x": 16, "y": 80, "width": 90 },
+    { "type": "SuperListBox", "name": "colors", "items": ["Red", "Green", "Blue"], "selected": 2 },
+    { "type": "SuperMenu", "name": "menu1", "items": [
+        { "text": "System", "items": [ { "text": "Reboot", "itemId": "MNU_REBOOT", "id": 7 } ] },
+        { "text": "About" } ] }
+  ],
+  "messageBoxes": [
+    { "name": "msgDelete", "title": "Careful", "message": ["Delete all data?", "Cannot be undone."],
+      "buttons": [ { "text": "Yes", "itemId": "MSG_DELETE_YES" }, "No" ], "default": 1 } ] }</code></pre>
+<h2>Minimal is enough</h2>
+<ul>
+<li>A menu item can be just <code>"About"</code>: on load the designer adds the missing item ID (<code>MNU_ABOUT</code>) and the next free number.</li>
+<li>A list item is a string. A tab with a page is <code>{ "text": "Home", "group": "GRP_HOME" }</code>.</li>
+<li>A message box <code>"message"</code> can be one string with <code>\n</code>; a button can be a plain string.</li>
+</ul>
+<h2>Repairs on load</h2>
+<p>A hand-edited file is checked and repaired, never trusted: unsafe or repeated names are replaced (the <b>first</b> owner of a repeated name or ID keeps it), empty items are dropped, numbers are pulled into range, a selected index past the last item is pulled back, two selected radio buttons in one group keep only the first, non-ASCII characters are dropped. Export refuses a menu, group or message box that still has a problem, and says which.</p>
+<div class="box tip"><b class="h">Tip</b>Saving writes the repaired form: open a hand-edited file, look at what changed, and save.</div>
+
+<div class="pn"><span>&larr; <a href="../designer/designer-boxes.html">Message boxes</a></span><span><a href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

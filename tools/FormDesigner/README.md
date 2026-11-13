@@ -9,10 +9,9 @@ move, drag the handles on the left / right edge to resize (snapped to the grid, 
 removes, Tab selects the next control, wheel scrolls (Shift = sideways). Properties (Name, Text, X, Y, Width, Font, Text / Back / Border color, Border style (Standard / 3D / Sleek), Border size, Padding, Align; for the form: Name, Width, Height, Back color) change live. Forms are 32x32 .. 1024x768 (limits in `src/DesignerConfig.h`).
 
 **Files:** Ctrl/Cmd+O (Open) and Ctrl/Cmd+S (Save) always show the file dialog. Open starts where it was last looking (an application setting, see below). Save starts on the
-form's own file; saving over it asks nothing, and typing another name saves under that name and remembers it as the form's file (as Save As). Ctrl/Cmd+X exports the code,
-Ctrl/Cmd+Shift+X exports into a folder you choose. `FD_FORM=file.json` names the file without a dialog (default `form.json`). JSON layout: `src/FormModel.h`. `outputPath` in the
+form's own file; saving over it asks nothing, and typing another name saves under that name and remembers it as the form's file (as Save As). Ctrl/Cmd+X exports the code: it always shows the folder dialog (starting at the folder saved in the form), then writes the code there and remembers the folder (`outputPath`). If that folder no longer exists, the folder of the FormDesigner program is used instead. `FD_FORM=file.json` names the file without a dialog (default `form.json`). JSON layout: `src/FormModel.h`. `outputPath` in the
 form's JSON is the last folder the code was exported to successfully (not shown in the designer); when a file is opened (and at start) the designer checks that the folder exists and
-otherwise uses its working folder.
+otherwise uses the FormDesigner program's folder.
 
 **Font dialog** (`src/FontDialog.h`, `src/FontTable.h`): the real `SuperListBox` with the LovyanGFX fonts that suit US-ASCII (Font0..8, Ascii fonts,
 FreeSans / FreeSerif / FreeMono in all styles and 9-24 pt, DejaVu 9-72, Orbitron, Roboto Thin, Satisfy, Yellowtail), and a preview of the control
@@ -29,8 +28,7 @@ replacing), and a folder chooser. Path line (type a folder or file path + Enter)
 first then `*.json` files (case-insensitive, hidden `.` names skipped), file name field, double-click / Enter, Backspace = up, Tab between fields, Esc = cancel.
 The Windows drive list is written but has not been run on Windows yet.
 
-**Code generation, step 1** (`src/CodeGen.h`): Ctrl/Cmd+X (Export) writes `<FormName>.designer.h` into the last successful export folder (the working folder the first
-time) and saves the form's JSON so that folder is remembered (`outputPath`). `FD_EXPORT=1 FD_FORM=x.json FD_OPEN=1 build/FormDesigner` does the same
+**Code generation, step 1** (`src/CodeGen.h`): Ctrl/Cmd+X (Export) asks for the folder (starting at the last successful export folder; the FormDesigner program's folder the first time) and writes `<FormName>.designer.h` there and saves the form's JSON so that folder is remembered (`outputPath`). `FD_EXPORT=1 FD_FORM=x.json FD_OPEN=1 build/FormDesigner` does the same
 from the command line. The header is regenerated every time and must not be edited: it defines `<FormName>Base` with the controls as public members,
 the `SuperForm`, `Show()`, `Service()`, an `InitializeComponent()` that writes only the properties that differ from each control's default, and one empty
 virtual handler per event (`okBtn_Click()` for push buttons, `wifi_Change()` for check / radio buttons). Your own class derives from it:

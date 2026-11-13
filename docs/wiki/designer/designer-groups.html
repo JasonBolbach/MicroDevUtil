@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lists, menus, tab pages and groups - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Form Designer</h4>
+<a class="item" href="../designer/designer-start.html">Form Designer: your first form</a>
+<a class="item" href="../designer/designer-usage.html">Using the designer</a>
+<a class="item" href="../designer/designer-code.html">Generated code and your file</a>
+<a class="item cur" href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a>
+<a class="item" href="../designer/designer-boxes.html">Message boxes</a>
+<a class="item" href="../designer/designer-json.html">The form file (JSON)</a>
+<a class="item" href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Lists, menus, tab pages and groups</h1>
+<h2>List box, combo box, tab bar: the items dialog</h2>
+<p>Click <b>Edit...</b> on the Items (or Tabs) row.</p>
+<figure><img src="../img/designer_items.png" alt="The items dialog for a tab bar: the list, the selected item, its page group and a live preview" style="max-width:100%"><figcaption>The items dialog for a tab bar: the list, the selected item, its page group and a live preview</figcaption></figure>
+<ul>
+<li>Type in <i>Item text</i>: changes apply live. An empty item is refused.</li>
+<li><b>Enter</b> in the text field adds the next item: type a whole list with Enter between the entries.</li>
+<li>Add, Insert, Delete, Move up / down, Sort A-Z, Clear all. <b>Paste lines</b> adds every non-empty line of the clipboard (copy a column from a spreadsheet).</li>
+<li>Items are printable ASCII, 1 to 60 characters, at most 200. Enter = OK, Esc (in the list) = Cancel.</li>
+<li>In your code the lists change at run time too: <code>InsertItem</code>, <code>RemoveItem</code>, <code>SetItem</code>, <code>GetItem</code>.</li>
+</ul>
+<h2>Menu</h2>
+<p>A menu is a tree. Every command has an <b>item ID</b> (a C++ name that becomes <code>static constexpr uint16_t MNU_REBOOT = 7;</code>) and a number. Edit it in the <b>menu editor</b> (Edit... on the Menu items row).</p>
+<figure><img src="../img/designer_menu.png" alt="The menu editor: tree, fields, indent / outdent, live preview" style="max-width:100%"><figcaption>The menu editor: tree, fields, indent / outdent, live preview</figcaption></figure>
+<ul>
+<li><b>Add</b> adds a sibling, <b>Add child</b> a sub-item; <b>Indent / Outdent</b> change the level; Move up / down reorder.</li>
+<li>New items get the next free number and an ID made from the text (<code>Power off</code> becomes <code>MNU_POWER_OFF</code>). The ID follows the text until you type your own.</li>
+<li><b>Paste outline</b>: every clipboard line becomes an item, indentation (spaces or tabs) makes sub-items. The quickest way to enter a big menu.</li>
+<li>At most 5 levels and 200 items.</li>
+</ul>
+<p>In code the handler is <code>menu1_Choose(uint16_t id)</code>:</p>
+<pre><code>void menu1_Choose(uint16_t id) override {
+  switch (id) { case MNU_REBOOT: Reboot(); break; case MNU_ABOUT: ShowAbout(); break; }
+}</code></pre>
+<h2>Control groups</h2>
+<p>Every control has a <b>Control group</b> row: a name (empty = no group). Controls with the same name are a group, and each group becomes a constant <code>GRP_X</code>. Do not confuse it with the radio button's <i>Group</i>, which only says which radio buttons exclude each other.</p>
+<pre><code>Form.SetGroupVisible(GRP_ADVANCED, false);   // hide a whole set
+Form.SetGroupEnabled(GRP_ADVANCED, true);    // enable / disable a set</code></pre>
+<h2>Tab pages</h2>
+<p>In the tab bar's items dialog every tab has a <b>Page group</b>: the control group shown while that tab is chosen. The generated code does the switching (<code>tabs1_ShowPage(i)</code>), then calls your <code>tabs1_Accept()</code>. The first tab's page is shown at start; the other pages start hidden.</p>
+<p>Use the <b>View</b> button above the surface to look at one page at a time (All, then each group): only that group's controls, and the ones without a group, are shown and clickable, so pages that overlap on the form can be edited separately.</p>
+<div class="box tip"><b class="h">Tip</b>Put controls that appear on every page (a title, a footer) in <b>no group</b>: they are always shown.</div>
+<div class="box warn"><b class="h">Watch out</b>A group operation overrides a control&rsquo;s own Visible / Enabled: <code>SetGroupVisible(g, true)</code> shows every control in the group, including ones you set to Visible = No. A control that must stay hidden should not share a group with controls that get shown.</div>
+
+<div class="pn"><span>&larr; <a href="../designer/designer-code.html">Generated code and your file</a></span><span><a href="../designer/designer-boxes.html">Message boxes</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

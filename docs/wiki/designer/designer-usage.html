@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Using the designer - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Form Designer</h4>
+<a class="item" href="../designer/designer-start.html">Form Designer: your first form</a>
+<a class="item cur" href="../designer/designer-usage.html">Using the designer</a>
+<a class="item" href="../designer/designer-code.html">Generated code and your file</a>
+<a class="item" href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a>
+<a class="item" href="../designer/designer-boxes.html">Message boxes</a>
+<a class="item" href="../designer/designer-json.html">The form file (JSON)</a>
+<a class="item" href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Using the designer</h1>
+<h2>The three panels</h2>
+<table><tr><th>Panel</th><th>What it does</th></tr>
+<tr><td>Toolbox (left)</td><td>Click a type, then the form, to place it. Below it, <i>Controls on form</i> lists every control with its control group and type: click one to select it (handy for controls that are hidden or hard to hit).</td></tr>
+<tr><td>Design surface (middle)</td><td>The form drawn by the real controls, pixel-exact, scaled by the zoom. Place, select, drag, resize here. A thin yellow frame is the form's edge.</td></tr>
+<tr><td>Property panel (right)</td><td>The selected control's properties, or the form's when nothing is selected. Changes apply live. The panel scrolls with the wheel when a control has many rows.</td></tr></table>
+<h2>Mouse and keys</h2>
+<table><tr><th>Do this</th><th>Result</th></tr>
+<tr><td>Click toolbox item, click form</td><td>Place a control at the clicked spot (snapped to the grid)</td></tr>
+<tr><td>Drag a control</td><td>Move it (snapped to the grid)</td></tr>
+<tr><td>Drag a side handle</td><td>Change the width (the height follows the font)</td></tr>
+<tr><td>Arrows / Shift + arrows</td><td>Nudge by 1 pixel / by one grid step</td></tr>
+<tr><td>Tab, Delete</td><td>Select the next control; delete the selected one</td></tr>
+<tr><td><code>G</code></td><td>Change the grid step (1 = off)</td></tr>
+<tr><td>Wheel, Shift + wheel</td><td>Scroll the surface up/down, sideways</td></tr>
+<tr><td><code>+</code> <code>-</code> <code>0</code> <code>F</code></td><td>Zoom in, out, 1:1, fit. Ctrl/Cmd + wheel zooms around the mouse. The zoom box and the Fit and 1:1 buttons are above the surface.</td></tr>
+<tr><td>Ctrl/Cmd + O, S, X</td><td>Open, Save, Export (always asks for the output folder).</td></tr></table>
+<h2>Text fields in the panel</h2>
+<p>Every field is a real editor: arrows, Home/End, Shift to select, Alt/Ctrl + arrows by word, Cmd + Left/Right to the line ends, Ctrl/Cmd + A / C / X / V, undo and redo (Ctrl/Cmd + Z, Shift + Z or Ctrl + Y), double-click selects a word and triple-click everything. The designer is <b>US-ASCII only</b>: any character outside the printable ASCII range is dropped when typed or pasted.</p>
+<h2>Strict values: red and refuse</h2>
+<p>A value the real control would not accept (24:00 in a time box, 2026-02-30, a maximum below the minimum, a name that is a C++ keyword ...) is <b>refused</b>: the old value stays, the field turns red and the reason is shown under the rows and in the status line. Nothing invalid reaches the generated code.</p>
+<h2>Fonts, colours and layout</h2>
+<ul>
+<li><b>Font</b> and <b>colour</b> rows open a dialog (the font dialog previews the control itself in that font and colours; a font's size is part of the font).</li>
+<li><b>Border style</b> (Standard / 3D / Sleek), <b>Border size</b>, <b>Padding</b> and <b>Align</b> are overrides: the field shows the control's default until you change it; clearing the field or choosing the default again removes the override. Alignment exists for labels and push buttons.</li>
+<li><b>Fit</b> (on the Width row of text-like controls) sets the exact width that shows the whole text.</li>
+<li>Controls with a frame of their own caption (everything except Label, Push button, Check box and Radio button) get a <b>label group</b>: label text, position (Above / Below), alignment, font and colour.</li>
+</ul>
+<h2>Files</h2>
+<p>The form is saved as a readable JSON file (see <a href="designer-json.html">The form file</a>). Open starts in the folder it was last looking at (an application setting kept per user, not per form). Save starts on the form's own file. The folder the code was last exported to is remembered inside the form file (<code>outputPath</code>); if it no longer exists, the folder of the FormDesigner program is used. In scripts you can skip the dialogs: <code>FD_FORM=form.json FD_OPEN=1 FD_EXPORT=1 build/FormDesigner</code> exports from the command line.</p>
+
+<div class="pn"><span>&larr; <a href="../designer/designer-start.html">Form Designer: your first form</a></span><span><a href="../designer/designer-code.html">Generated code and your file</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Form Designer: your first form - SuperGUI wiki</title><link rel="stylesheet" href="../assets/wiki.css"></head>
+<body><nav class="side">
+<a class="brand" href="../index.html">SuperGUI wiki</a>
+<input id="navfilter" placeholder="Filter pages..." autocomplete="off">
+<h4>Concepts</h4>
+<a class="item" href="../concepts/getting-started.html">Getting started</a>
+<a class="item" href="../concepts/architecture.html">Architecture and class map</a>
+<a class="item" href="../concepts/edit-contract.html">The edit contract</a>
+<a class="item" href="../concepts/input.html">Input: encoder and buttons</a>
+<a class="item" href="../concepts/touch.html">Touch</a>
+<a class="item" href="../concepts/events.html">Events and workflow</a>
+<a class="item" href="../concepts/form.html">SuperForm: focus and screens</a>
+<a class="item" href="../concepts/theming.html">Themes and styles</a>
+<a class="item" href="../concepts/memory-performance.html">Memory and performance</a>
+<a class="item" href="../concepts/pitfalls.html">Pitfalls and fixes</a>
+<a class="item" href="../concepts/new-control.html">Writing your own control</a>
+<h4>Form Designer</h4>
+<a class="item cur" href="../designer/designer-start.html">Form Designer: your first form</a>
+<a class="item" href="../designer/designer-usage.html">Using the designer</a>
+<a class="item" href="../designer/designer-code.html">Generated code and your file</a>
+<a class="item" href="../designer/designer-groups.html">Lists, menus, tab pages and groups</a>
+<a class="item" href="../designer/designer-boxes.html">Message boxes</a>
+<a class="item" href="../designer/designer-json.html">The form file (JSON)</a>
+<a class="item" href="../designer/designer-tips.html">Designer tips, tricks and pitfalls</a>
+<h4>Text and numbers</h4>
+<a class="item" href="../controls/label.html">SuperLabel</a>
+<a class="item" href="../controls/textbox.html">SuperTextBox</a>
+<a class="item" href="../controls/inputbox.html">SuperInputBox</a>
+<a class="item" href="../controls/spinbox.html">SuperSpinBox</a>
+<a class="item" href="../controls/timebox.html">SuperTimeBox</a>
+<a class="item" href="../controls/datebox.html">SuperDateBox</a>
+<a class="item" href="../controls/slider.html">SuperSlider</a>
+<h4>Choosing</h4>
+<a class="item" href="../controls/listbox.html">SuperListBox</a>
+<a class="item" href="../controls/combobox.html">SuperComboBox</a>
+<a class="item" href="../controls/menu.html">SuperMenu</a>
+<a class="item" href="../controls/tabbar.html">SuperTabBar</a>
+<a class="item" href="../controls/colorpicker.html">SuperColorPicker</a>
+<h4>Buttons</h4>
+<a class="item" href="../controls/checkbox.html">SuperCheckBox</a>
+<a class="item" href="../controls/radiobutton.html">SuperRadioButton</a>
+<a class="item" href="../controls/pushbutton.html">SuperPushButton</a>
+<h4>Dialogs</h4>
+<a class="item" href="../controls/messagebox.html">SuperMessageBox</a>
+<h4>Display only</h4>
+<a class="item" href="../controls/progressbar.html">SuperProgressBar</a>
+<a class="item" href="../controls/graph.html">SuperGraph</a>
+<a class="item" href="../controls/gauge.html">SuperGauge</a>
+<h4>Custom</h4>
+<a class="item" href="../controls/userdraw.html">SuperUserDraw</a>
+</nav><main>
+<h1>Form Designer: your first form</h1>
+<p>The Form Designer is a desktop program (macOS, Linux, Windows) for laying out a SuperGUI screen with the mouse. It draws the <b>real SuperGUI controls</b>, so what you see is what the device draws, and it writes the C++ for you: a header that is regenerated every time, and your own file that is written once and never touched again.</p>
+<figure><img src="../img/designer_main.png" alt="The designer: toolbox, design surface (a form with tab pages), property panel" style="max-width:100%"><figcaption>The designer: toolbox, design surface (a form with tab pages), property panel</figcaption></figure>
+<h2>Build and start it</h2>
+<pre><code>brew install sdl2 cmake            # macOS (Linux: your package manager's SDL2 + cmake)
+cd tools/FormDesigner
+cmake -S . -B build
+cmake --build build -j
+build/FormDesigner</code></pre>
+<p>LovyanGFX is looked up next to the SuperGUI folder (<code>../../../LovyanGFX</code>); otherwise add <code>-DLGFX_ROOT=/path/to/LovyanGFX</code>. On Windows point <code>CMakeLists.txt</code> at your SDL2 development files.</p>
+<h2>Your first form in ten steps</h2>
+<ol>
+<li><b>Name and size the form.</b> With nothing selected the right panel edits the form: Name, Width, Height (32x32 to 1024x768) and Back color. Use your display's real size.</li>
+<li><b>Click a toolbox item, then click the form</b> to place a control. It snaps to the grid (press <code>G</code> to change the grid).</li>
+<li><b>Click a control to select it.</b> Drag to move it, drag the handles on its left / right edge to resize it, arrow keys nudge (Shift = one grid step), Delete removes it, Tab selects the next one.</li>
+<li><b>Name it.</b> The Name is the C++ member you will use in code (<code>okBtn</code>, <code>volume</code>). Names must be safe C++ names; the field turns red and says why when they are not.</li>
+<li><b>Set its properties</b> in the right panel: text, colours, font (click the Font row for the font dialog), border, and the control-specific rows (value, range, items ...). Only values that differ from the control's default are saved and generated.</li>
+<li><b>Save</b> with Ctrl/Cmd+S. A file dialog always opens, on the form's own file; type another name to save under it.</li>
+<li><b>Export</b> with Ctrl/Cmd+X. A folder dialog opens on the folder used last (saved in the form file); choose the folder for the code and click OK. It writes <code>Form1.designer.h</code> (regenerated every time) and, the first time, <code>Form1.h</code> (yours).</li>
+<li><b>Copy both files into your sketch</b> and write your code in <code>Form1.h</code>: the handlers (<code>okBtn_Click()</code> ...) are already there as empty stubs.</li>
+<li><b>Run it:</b> <code>Form1 ui(&amp;lcd, &amp;Enc, &amp;BtnA, &amp;BtnB);</code> then <code>ui.Show();</code> in <code>setup()</code> and <code>ui.Service();</code> in <code>loop()</code>.</li>
+<li><b>Change the layout later:</b> edit in the designer, export again. Your <code>Form1.h</code> is never overwritten.</li>
+</ol>
+<div class="box tip"><b class="h">Tip</b>You do not have to start from nothing: every new form already contains a ready-made <code>msgYesNo</code> confirmation box (see <a href="designer-boxes.html">Message boxes</a>). Delete it if you do not need it.</div>
+<h2>What the designer can place</h2>
+<p>Label, Push button, Check box, Radio button, Progress bar, Spin box, Slider, Text box, Input box, Time box, Date box, List box, Combo box, Tab bar, Menu, Gauge, Graph, User draw and Color picker. Each is described on its own page under <i>Controls</i>; the designer page for a control only adds how its properties are edited. Message boxes are not placed on the surface: they live in a list (see below).</p>
+
+<div class="pn"><span>&larr; <a href="../concepts/new-control.html">Writing your own control</a></span><span><a href="../designer/designer-usage.html">Using the designer</a> &rarr;</span></div>
+</main><script src="../assets/wiki.js"></script></body></html>
