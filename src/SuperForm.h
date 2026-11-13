@@ -64,6 +64,31 @@ public:
     // Redraw every visible control (focused one highlighted).
     void Draw() { DrawItems(false, 0, 0, 0, 0); }
 
+    // ---- control groups (SuperControl::SetGroup; group 0 = no group, never touched) ----
+    //  * SetGroupVisible(g, v)  show or hide every control of group g. A hidden control is erased and needs no memory.
+    //  * SetGroupEnabled(g, e)  enable or disable (dim) every control of group g.
+    //  * ShowPage(pages, n, show)  tab pages: shows the controls of group `show` and hides the controls of the other groups listed in pages[0..n)
+    //    in one pass (hidden first, then shown, so overlapping pages do not flicker). show = 0 hides all of them. Groups that are not listed stay as they are.
+    //  Afterwards the focus moves to a control that can take it. draw = false only changes the state (use it before the first Draw()).
+    //  Group operations override a control's own Visible / Enabled setting: showing a group shows all of its controls.
+    void SetGroupVisible(uint16_t g, bool v, bool draw = true) {
+        if (!g) return;
+        for (auto& it : Items) if (it.C->GetGroup() == g) it.C->SetVisible(v, draw);
+        AfterGroupChange(draw);
+    }
+    void SetGroupEnabled(uint16_t g, bool e) {
+        if (!g) return;
+        for (auto& it : Items) if (it.C->GetGroup() == g) it.C->SetEnabled(e);
+        AfterGroupChange(true);
+    }
+    void ShowPage(const uint16_t* pages, int n, uint16_t show, bool draw = true) {
+        for (int k = 0; k < n; ++k) if (pages[k] && pages[k] != show)
+            for (auto& it : Items) if (it.C->GetGroup() == pages[k]) it.C->SetVisible(false, draw);
+        if (show) for (auto& it : Items) if (it.C->GetGroup() == show) it.C->SetVisible(true, draw);
+        AfterGroupChange(draw);
+    }
+    int GroupCount(uint16_t g) const { int n = 0; if (g) for (auto& it : Items) if (it.C->GetGroup() == g) ++n; return n; }
+
     // A popup (message box, combo list) went away and left its pixels behind: clear that rectangle to 'bg' (your screen colour) and
     // redraw every visible control that touches it, in its normal / focused look. Use it from the popup's SetRestore() callback.
     void Redraw(int x, int y, int w, int h, uint16_t bg) {
@@ -220,6 +245,11 @@ private:
         }
         SuperControl::FlushBoxes();                                   // waits for the display, then draws the focus boxes
         if (batch) batch->endWrite();
+    }
+    void AfterGroupChange(bool draw) {                           // the focused control may have gone: focus the first one that can take it
+        if (Focus >= 0 && Focus < Count() && !Can(Focus)) { FocusAuto = true; Focus = -1; }
+        ResolveAutoFocus();
+        if (draw && Focus >= 0 && Focus < Count() && Items[Focus].C->IsVisible()) Items[Focus].C->DrawPreview(true);
     }
     bool Can(int i) const { return Items[i].Focusable && Items[i].C->IsEnabled() && Items[i].C->IsVisible(); }
     void Move(int dir) {

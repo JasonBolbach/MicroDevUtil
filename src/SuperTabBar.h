@@ -18,6 +18,7 @@ public:
                 SuperEncoder* enc, SuperButton* btnA, SuperButton* btnB)
         : SuperControl(dst, x, y, width, font), IO(enc, btnA, btnB) {}
 
+    SuperEditIO* EditIO() { return &IO; }                          // the input plumbing: InjectDelta / Inject for keyboards, mice and tests
     void SetAbort(bool (*fn)()) { IO.Abort = fn; }
     void SetOnChange(void (*fn)(void*), void* user = nullptr) { IO.OnChange = fn; IO.OnChangeUser = user; }
     void SetOnAccept(void (*fn)(void*), void* user = nullptr) { IO.OnAccept = fn; IO.OnAcceptUser = user; }

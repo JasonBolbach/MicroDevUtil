@@ -224,6 +224,11 @@ public:
     int  GetZOrder() const  { return ZOrder; }
     void SetTabOrder(int t) { TabOrder = t; }
     int  GetTabOrder() const { return TabOrder; }
+    // Control group: a number that lets a SuperForm show / hide / enable many controls at once (SuperForm::SetGroupVisible, SetGroupEnabled, ShowPage).
+    // 0 = no group (the default). One group per control. Costs 2 bytes.
+    void SetGroup(uint16_t g) { Group = g; }
+    uint16_t GetGroup() const { return Group; }
+    uint16_t Group = 0;
     int ZOrder = 0, TabOrder = 0;
 
     void SetEnabled(bool e) { if (e == EnabledFlag) return; EnabledFlag = e; Dirty = true; Refresh(); }
