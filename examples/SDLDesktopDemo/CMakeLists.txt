@@ -41,11 +41,19 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     target_link_libraries(${PROJECT_NAME} -lpthread ${SDL2_LIBRARIES})
 elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
     # Point these at your SDL2 development files
-    target_include_directories(${PROJECT_NAME} PUBLIC "C:/SDL2/include")
-    target_link_libraries(${PROJECT_NAME} PUBLIC "C:/SDL2/lib/x64/SDL2.lib")
+    set(SDL2_ROOT "C:/SDL2" CACHE PATH "SDL2 development folder (contains include/ and lib/x64/)")
+    target_include_directories(${PROJECT_NAME} PUBLIC "${SDL2_ROOT}/include")
+    target_link_libraries(${PROJECT_NAME} PUBLIC "${SDL2_ROOT}/lib/x64/SDL2.lib")
+    # copy SDL2.dll next to the executable after every build
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SDL2_ROOT}/lib/x64/SDL2.dll" "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
     add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
     add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/Zc:__cplusplus>")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)   # getenv/fopen/strncpy/sscanf "deprecated" warnings
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(${PROJECT_NAME} PRIVATE -Wno-inconsistent-missing-override)                 # SuperGUI widget overrides without 'override'
+    endif()
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     find_package(SDL2 REQUIRED COMPONENTS SDL2)
     target_link_libraries(${PROJECT_NAME} PRIVATE SDL2::SDL2)
